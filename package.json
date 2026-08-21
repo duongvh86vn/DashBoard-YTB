@@ -1,0 +1,46 @@
+{
+  "name": "youtube-home-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "packageManager": "pnpm@11.22.0",
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r --if-present typecheck",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "test": "pnpm test:unit",
+    "test:unit": "vitest run",
+    "test:db:integration": "vitest run --config vitest.integration.config.ts --configLoader runner",
+    "pretest:integration": "pnpm --filter @yt-monitor/shared build",
+    "test:integration": "pwsh -NoProfile -File scripts/test-phase0-docker.ps1",
+    "db:generate": "prisma generate",
+    "db:validate": "prisma validate",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "docker:up": "docker compose up -d --build --wait",
+    "docker:down": "docker compose down",
+    "docker:health": "pwsh -NoProfile -File scripts/health-check.ps1",
+    "verify": "pnpm db:validate && pnpm db:generate && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build",
+    "verify:phase0": "pnpm verify && pnpm test:integration"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@yt-monitor/shared": "workspace:*",
+    "@types/node": "24.13.3",
+    "@vitejs/plugin-react": "6.1.0",
+    "@vitest/coverage-v8": "4.1.11",
+    "dotenv": "17.4.2",
+    "eslint": "10.9.0",
+    "globals": "17.11.0",
+    "prettier": "3.9.6",
+    "prisma": "7.9.1",
+    "tsx": "4.23.12",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.67.0",
+    "vitest": "4.1.11"
+  }
+}

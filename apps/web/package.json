@@ -1,0 +1,34 @@
+{
+  "name": "@yt-monitor/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prebuild": "pnpm --filter @yt-monitor/config build && pnpm --filter @yt-monitor/shared build",
+    "build": "next build",
+    "pretypecheck": "pnpm --filter @yt-monitor/config build && pnpm --filter @yt-monitor/shared build",
+    "typecheck": "next typegen && tsc --noEmit -p tsconfig.json",
+    "start": "next start -H 0.0.0.0 -p 3000",
+    "start:standalone": "node start-standalone.mjs"
+  },
+  "dependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "@yt-monitor/config": "workspace:*",
+    "@yt-monitor/shared": "workspace:*",
+    "next": "16.3.2",
+    "postcss": "8.5.26",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tailwindcss": "4.3.3"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.2",
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "jsdom": "30.0.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}

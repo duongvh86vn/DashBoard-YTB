@@ -1,0 +1,16 @@
+.git
+.worktrees
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+coverage
+docs
+*.md
+.env
+.env.*
+!.env.example
+*.log
+scripts/*.ps1

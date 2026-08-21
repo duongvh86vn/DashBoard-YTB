@@ -1,0 +1,19 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../packages/db/src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model WorkerHeartbeat {
+  workerId   String   @id @map("worker_id") @db.VarChar(128)
+  version    String   @db.VarChar(64)
+  lastSeenAt DateTime @map("last_seen_at") @db.Timestamptz(3)
+  status     String   @db.VarChar(32)
+
+  @@index([lastSeenAt(sort: Desc)], map: "worker_heartbeats_last_seen_at_idx")
+  @@map("worker_heartbeats")
+}
