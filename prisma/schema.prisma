@@ -8,6 +8,35 @@ datasource db {
   provider = "postgresql"
 }
 
+enum UserRole {
+  ADMIN
+  VIEWER
+}
+
+enum LoginThrottleScope {
+  IDENTIFIER
+  SOURCE
+}
+
+enum AuditOutcome {
+  SUCCESS
+  FAILURE
+}
+
+enum AuditAction {
+  LOGIN_SUCCEEDED
+  LOGIN_FAILED
+  LOGOUT
+  PASSWORD_CHANGED
+  USER_CREATED
+  USER_EMAIL_CHANGED
+  USER_PASSWORD_RESET
+  USER_SESSIONS_REVOKED
+  USER_DISABLED
+  USER_ENABLED
+  AUTHORIZATION_DENIED
+}
+
 model WorkerHeartbeat {
   workerId   String   @id @map("worker_id") @db.VarChar(128)
   version    String   @db.VarChar(64)
@@ -16,4 +45,71 @@ model WorkerHeartbeat {
 
   @@index([lastSeenAt(sort: Desc)], map: "worker_heartbeats_last_seen_at_idx")
   @@map("worker_heartbeats")
+}
+
+model User {
+  id            String     @id @default(uuid()) @db.Uuid
+  email         String     @unique(map: "users_email_key") @db.VarChar(320)
+  passwordHash  String     @map("password_hash") @db.Text
+  role          UserRole
+  isEnabled     Boolean    @default(true) @map("is_enabled")
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  disabledAt    DateTime?  @map("disabled_at") @db.Timestamptz(3)
+  sessions      Session[]
+  auditAsActor  AuditLog[] @relation("AuditActor")
+  auditAsTarget AuditLog[] @relation("AuditTarget")
+
+  @@index([role, isEnabled], map: "users_role_enabled_idx")
+  @@map("users")
+}
+
+model Session {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  tokenHash         Bytes     @unique(map: "sessions_token_hash_key") @map("token_hash") @db.ByteA
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt        DateTime  @map("last_seen_at") @db.Timestamptz(3)
+  idleExpiresAt     DateTime  @map("idle_expires_at") @db.Timestamptz(3)
+  absoluteExpiresAt DateTime  @map("absolute_expires_at") @db.Timestamptz(3)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(3)
+  revocationReason  String?   @map("revocation_reason") @db.VarChar(64)
+  user              User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, revokedAt], map: "sessions_user_revoked_idx")
+  @@index([idleExpiresAt], map: "sessions_idle_expiry_idx")
+  @@index([absoluteExpiresAt], map: "sessions_absolute_expiry_idx")
+  @@map("sessions")
+}
+
+model LoginThrottle {
+  id              String             @id @default(uuid()) @db.Uuid
+  scope           LoginThrottleScope
+  keyHash         Bytes              @map("key_hash") @db.ByteA
+  attemptCount    Int                @default(0) @map("attempt_count")
+  windowStartedAt DateTime           @map("window_started_at") @db.Timestamptz(3)
+  blockedUntil    DateTime?          @map("blocked_until") @db.Timestamptz(3)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([scope, keyHash], map: "login_throttles_scope_key_hash_key")
+  @@index([blockedUntil], map: "login_throttles_blocked_until_idx")
+  @@map("login_throttles")
+}
+
+model AuditLog {
+  id           String       @id @default(uuid()) @db.Uuid
+  actorUserId  String?      @map("actor_user_id") @db.Uuid
+  targetUserId String?      @map("target_user_id") @db.Uuid
+  action       AuditAction
+  outcome      AuditOutcome
+  requestId    String?      @map("request_id") @db.VarChar(128)
+  metadata     Json?
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  actor        User?        @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  target       User?        @relation("AuditTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId, createdAt(sort: Desc)], map: "audit_logs_actor_created_idx")
+  @@index([targetUserId, createdAt(sort: Desc)], map: "audit_logs_target_created_idx")
+  @@index([createdAt(sort: Desc)], map: "audit_logs_created_at_idx")
+  @@map("audit_logs")
 }
