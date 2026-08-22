@@ -13,6 +13,15 @@ export default defineConfig({
         new URL("./packages/config/src/index.ts", import.meta.url),
       ),
       "@yt-monitor/db": fileURLToPath(new URL("./packages/db/src/index.ts", import.meta.url)),
+      "@yt-monitor/collector-ytdlp": fileURLToPath(
+        new URL("./packages/collectors/ytdlp/src/index.ts", import.meta.url),
+      ),
+      "@yt-monitor/collector-youtube-public": fileURLToPath(
+        new URL("./packages/collectors/youtube-public/src/index.ts", import.meta.url),
+      ),
+      "@yt-monitor/collector-youtube-rss": fileURLToPath(
+        new URL("./packages/collectors/youtube-rss/src/index.ts", import.meta.url),
+      ),
       "@yt-monitor/shared": fileURLToPath(
         new URL("./packages/shared/src/index.ts", import.meta.url),
       ),

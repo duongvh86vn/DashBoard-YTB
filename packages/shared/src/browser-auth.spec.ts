@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   ApiErrorEnvelopeSchema,
+  ChannelResponseSchema,
+  ChannelsPageSchema,
   CSRF_HEADER_NAME,
   isValidCanonicalEmail,
   PublicUserSchema,
@@ -93,5 +95,40 @@ describe("browser authentication contracts", () => {
         error: { code: "DATABASE_ERROR", message: "internal database detail" },
       }).success,
     ).toBe(false);
+  });
+
+  it("validates channel payloads with stringified bigint metrics", () => {
+    const channel = {
+      id: "00000000-0000-4000-8000-000000000003",
+      youtubeChannelId: "UC1234567890123456789012",
+      originalInput: "@example",
+      canonicalUrl: "https://www.youtube.com/channel/UC1234567890123456789012",
+      handle: "@example",
+      title: "Example",
+      description: null,
+      thumbnail: null,
+      subscriberCount: "10",
+      videoCount: null,
+      lifetimeViewCount: "100",
+      lastUploadAt: null,
+      availabilityStatus: "ACTIVE",
+      activityStatus: "NO_UPLOAD_HISTORY",
+      lastChannelScanAt: null,
+      lastHealthCheckAt: null,
+      lastSeenAliveAt: null,
+      isEnabled: true,
+      createdAt: "2026-08-22T00:00:00.000Z",
+      updatedAt: "2026-08-22T00:00:00.000Z",
+      archivedAt: null,
+    };
+    expect(ChannelResponseSchema.parse({ channel })).toEqual({ channel });
+    expect(ChannelsPageSchema.parse({ items: [channel], page: 1, pageSize: 20, total: 1 })).toEqual(
+      {
+        items: [channel],
+        page: 1,
+        pageSize: 20,
+        total: 1,
+      },
+    );
   });
 });

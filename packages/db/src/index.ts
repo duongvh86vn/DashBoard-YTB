@@ -1,4 +1,30 @@
 export { createPrismaClient, type DatabaseClient } from "./client.js";
+export { ChannelConflictError, ChannelNotFoundError } from "./channel-errors.js";
+export {
+  ChannelDailyStatRepository,
+  type UpsertDailyStatInput,
+} from "./channel-daily-stat.repository.js";
+export {
+  ChannelRepository,
+  type ChannelPage,
+  type CreateChannelInput,
+  type CreateChannelSnapshotInput,
+  type ListChannelsInput,
+} from "./channel.repository.js";
+export type {
+  ChannelActivityStatusValue,
+  ChannelAvailabilityStatusValue,
+  ChannelDailyStatRecord,
+  ChannelRecord,
+  ChannelSnapshotRecord,
+  ChannelSnapshotSourceValue,
+  CoverageStatusValue,
+  SyncRunJobTypeValue,
+  SyncRunRecord,
+  SyncRunStatusValue,
+} from "./channel-records.js";
+export { ChannelUnitOfWork, type ChannelRepositories } from "./channel-unit-of-work.js";
+export { SyncRunRepository, type CreateSyncRunInput } from "./sync-run.repository.js";
 export {
   HeartbeatRepository,
   type HeartbeatWrite,

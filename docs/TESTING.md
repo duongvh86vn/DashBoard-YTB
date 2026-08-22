@@ -1,7 +1,7 @@
-# Kiểm thử Phase 1
+# Kiểm thử Phase 2
 
-Phase 1 có ba lớp kiểm thử: quality gates cục bộ, auth-DB integration và
-full-stack Docker/browser acceptance. Chỉ ghi trạng thái đạt khi command thật
+Phase 2 có bốn lớp kiểm thử: quality gates cục bộ, collector fixtures, auth-DB
+integration và full-stack Docker/browser acceptance. Chỉ ghi trạng thái đạt khi command thật
 đã exit code 0.
 
 ## Điều kiện tiên quyết
@@ -33,6 +33,12 @@ corepack pnpm test
 corepack pnpm build
 ```
 
+Collector/channel job fixtures:
+
+```powershell
+corepack pnpm test:phase2:collectors
+```
+
 Gate tổng hợp tương đương là `corepack pnpm verify`. Root typecheck bao gồm
 Playwright config/tests; Vitest loại trừ `tests/e2e/**`.
 
@@ -44,8 +50,9 @@ corepack pnpm test:auth:integration
 
 Script tạo Compose project và credential cô lập, chạy PostgreSQL thật,
 migration sạch/lặp lại, seed `CREATED` rồi `UNCHANGED`, và chạy repository
-integration trong schema riêng. Nó không gọi wrapper full-stack lồng nhau, không
-in raw logs có thể chứa bí mật, và luôn kiểm tra ownership trước cleanup.
+integration trong schema riêng, gồm Channel/Snapshot/DailyStat/SyncRun. Nó
+không gọi wrapper full-stack lồng nhau, không in raw logs có thể chứa bí mật,
+và luôn kiểm tra ownership trước cleanup.
 
 ## Full-stack Docker/browser acceptance
 
@@ -60,10 +67,11 @@ của nó. Nó kiểm tra:
   host port; database network internal; E2E chỉ vào frontend network.
 - Migration replay, seed idempotency, exact identity aggregate và secret-safe
   database/log/artifact surfaces.
-- Web `/health` không tồn tại; anonymous API health/Auth/Users nhận 401,
+- Web `/health` không tồn tại; anonymous API health/Auth/Users/Channels nhận 401,
   VIEWER nhận 403 trên tám route Users, ADMIN target bị bảo vệ, và CSRF exact
   Origin/header policy.
 - ADMIN login, health contracts, tạo/sửa/reset/revoke/disable/enable VIEWER;
+  list channel, invalid add-channel input và VIEWER channel read-only;
   logout, đổi mật khẩu và disabled/revoked session invalidation.
 - Worker stop/recovery, PostgreSQL stop/recovery, API/Web cold start và bounded
   process health.
@@ -81,7 +89,7 @@ không tự khởi động server trên host.
 Clone đúng branch rồi chạy Docker-only quick start:
 
 ```text
-git clone --branch codex/phase-1-auth-users --single-branch https://github.com/duongvh86vn/DashBoard-YTB.git
+git clone --branch codex/phase-2-channel-resolution --single-branch https://github.com/duongvh86vn/DashBoard-YTB.git
 cd DashBoard-YTB
 scripts\\start-local.cmd
 ```
@@ -107,7 +115,11 @@ docker compose down --volumes --remove-orphans
 ```
 
 > Lệnh có `--volumes` là destructive và không thể khôi phục database nếu không có
-> backup. Phase 1 không cung cấp LAN/public HTTPS; các kiểm thử đó thuộc Phase 9.
+> backup. Phase 2 không cung cấp LAN/public HTTPS; các kiểm thử đó thuộc Phase 9.
+
+Live public YouTube smoke không phải điều kiện bắt buộc của isolated Docker
+gate vì upstream có thể rate-limit hoặc không khả dụng; khi chạy được, kiểm tra
+`@handle`/`/channel/UC...` phải trả cùng canonical ID và không tải media.
 
 ## Evidence tối thiểu
 

@@ -1,7 +1,10 @@
 import {
   ApiErrorEnvelopeSchema,
+  ChannelResponseSchema,
+  ChannelsPageSchema,
   CSRF_HEADER_NAME,
   type AuthErrorCode,
+  type ChannelsPage,
   type PublicUser,
   UserResponseSchema,
   type UsersPage,
@@ -35,7 +38,7 @@ export function isUnauthenticatedError(error: unknown): error is ApiError {
   return error instanceof ApiError && error.status === 401 && error.code === "AUTH_UNAUTHENTICATED";
 }
 
-export type ApiMessageContext = "login" | "change-password" | "users" | "generic";
+export type ApiMessageContext = "login" | "change-password" | "users" | "channels" | "generic";
 
 export function getVietnameseApiMessage(
   error: unknown,
@@ -64,6 +67,16 @@ export function getVietnameseApiMessage(
       return "Không tìm thấy người dùng.";
     case "USER_ALREADY_EXISTS":
       return "Email này đã được sử dụng.";
+    case "CHANNEL_INPUT_INVALID":
+      return context === "channels"
+        ? "Địa chỉ kênh YouTube không hợp lệ."
+        : "Dữ liệu không hợp lệ. Vui lòng kiểm tra lại.";
+    case "CHANNEL_NOT_FOUND":
+      return "Không tìm thấy kênh YouTube.";
+    case "CHANNEL_ALREADY_EXISTS":
+      return "Kênh này đã có trong danh sách theo dõi.";
+    case "CHANNEL_RESOLVE_FAILED":
+      return "Không thể xác minh kênh công khai lúc này. Vui lòng thử lại sau.";
     case null:
       return "Dịch vụ đang tạm thời không khả dụng. Vui lòng thử lại.";
   }
@@ -221,6 +234,35 @@ export async function enableViewer(id: string): Promise<void> {
 
 export async function deleteViewer(id: string): Promise<void> {
   await requestApi<void>(`/api/v1/users/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    body: {},
+  });
+}
+
+export async function listChannels(input: {
+  page: number;
+  pageSize: number;
+  signal?: AbortSignal;
+}): Promise<ChannelsPage> {
+  const query = new URLSearchParams({ page: String(input.page), pageSize: String(input.pageSize) });
+  return requestApi(`/api/v1/channels?${query.toString()}`, {
+    method: "GET",
+    schema: ChannelsPageSchema,
+    ...(input.signal ? { signal: input.signal } : {}),
+  });
+}
+
+export async function createChannel(channelUrl: string) {
+  const response = await requestApi("/api/v1/channels", {
+    method: "POST",
+    body: { channelUrl },
+    schema: ChannelResponseSchema,
+  });
+  return response.channel;
+}
+
+export async function archiveChannel(id: string): Promise<void> {
+  await requestApi<void>(`/api/v1/channels/${encodeURIComponent(id)}`, {
     method: "DELETE",
     body: {},
   });

@@ -132,4 +132,15 @@ describe("environment parsing", () => {
       }),
     ).toThrow();
   });
+
+  it("uses the Phase 2 collector cadence and low-concurrency defaults", () => {
+    const worker = parseWorkerEnv({ DATABASE_URL });
+
+    expect(worker.CHANNEL_ACTIVE_UPLOAD_DAYS).toBe(30);
+    expect(worker.RSS_SCAN_MINUTES).toBe(15);
+    expect(worker.CHANNEL_SCAN_HOURS).toBe(6);
+    expect(worker.CHANNEL_HEALTH_HOURS).toBe(6);
+    expect(worker.PLAYWRIGHT_CONCURRENCY).toBe(1);
+    expect(worker.YTDLP_CONCURRENCY).toBe(2);
+  });
 });

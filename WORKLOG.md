@@ -150,3 +150,48 @@
   is a disable alias. No LAN/public HTTPS claim is made before Phase 9.
 - No credentials, raw cookies, session tokens, passwords or connection URLs were
   written to this worklog.
+
+## 2026-08-22 — Phase 2 Channel resolution + collectors acceptance
+
+### Scope delivered
+
+- Added canonical channel contracts and normalization for `@handle`, handle URL,
+  `/channel/UC...` and canonical UC IDs. A Channel cannot be persisted without a
+  canonical `youtube_channel_id`; duplicate canonical IDs map to the narrow
+  conflict error.
+- Added metadata-only yt-dlp runner with bounded timeout/output, concurrency
+  limiter, normalized failures and media-download flag rejection. Docker base
+  images install `yt-dlp` and verify `yt-dlp --version` during the image build.
+- Added RSS Atom fetch/parse/dedup, public-page canonical fallback, nullable
+  Channel snapshots, daily deltas/coverage and SyncRun persistence, plus worker
+  job services for RSS discovery, current stats and daily finalization.
+- Added ADMIN REST/UI add/list/archive channel flow and VIEWER read-only route in
+  Vietnamese. No OAuth, private API, vidIQ backend, fabricated historical data,
+  or AI-derived metrics were introduced.
+
+### Acceptance evidence — 2026-08-22
+
+- `corepack pnpm verify` — PASS: Prisma validate/generate, strict typecheck,
+  ESLint zero warnings, Prettier, 56 files / 381 unit tests and all production
+  builds; Next routes include `/channels` and `/channels/new`.
+- `corepack pnpm test:phase2:collectors` — PASS: 8 files / 24 collector,
+  normalization, safety, history and worker-job fixture tests.
+- `corepack pnpm test:auth:integration` — PASS: three migrations fresh/replay,
+  Channel/Snapshot/DailyStat/SyncRun repositories included, 34 files / 140
+  tests, isolated cleanup.
+- `corepack pnpm test:integration` — PASS after the Phase 2 Docker image change:
+  real Compose topology, migration replay, API authorization (anonymous
+  Channels 401, VIEWER read-only, ADMIN validation), Vietnamese browser routes,
+  recovery checks, secret-safe surfaces and verified cleanup. The browser gate
+  intentionally does not submit a live public URL; the separate live smoke below
+  covers that network-dependent operation.
+- Live public smoke — PASS: `https://www.youtube.com/@miumiutruyenaudio` returned
+  HTTP 200 and the public collector resolved canonical ID
+  `UCwW1I1xnLWhLC74pUHXnKxg`, handle and title without media download.
+
+### Boundaries preserved
+
+- Public Internet remains behind authenticated application routes; PostgreSQL,
+  API and Worker are not host-published. Missing metrics remain `NULL`, daily
+  negative deltas are preserved, and no false-delete state machine or full
+  Playwright health parser is claimed before Phase 3.

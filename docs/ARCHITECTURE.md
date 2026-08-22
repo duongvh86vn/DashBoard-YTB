@@ -1,4 +1,4 @@
-# Kiến trúc Phase 1
+# Kiến trúc Phase 2
 
 Tài liệu này mô tả foundation đang được xây dựng theo
 `YOUTUBE_HOME_MONITOR_AI_SPEC.md` và `IMPLEMENTATION_PLAN.md`. Nó không phải bằng
@@ -6,10 +6,12 @@ chứng rằng Phase 0 đã vượt quality gate; kết quả chạy thực tế
 
 ## Phạm vi
 
-Phase 1 giữ toàn bộ foundation Phase 0 và thêm session server-side, CSRF,
-throttle đăng nhập, ADMIN/VIEWER authorization, quản trị VIEWER và shell UI
-tiếng Việt. Chưa có collector YouTube, dữ liệu channel/video, monitoring
-metrics, Gemini/NVIDIA hoặc deployment LAN/public.
+Phase 2 giữ toàn bộ foundation/auth của Phase 1 và thêm canonical channel
+resolution, RSS discovery, metadata-only yt-dlp/public-page fallback,
+Channel/ChannelSnapshot/ChannelDailyStat/SyncRun persistence, daily delta
+derivation và add-channel UI tiếng Việt. Video discovery, Playwright health và
+deletion safety, monitoring rankings, Gemini/NVIDIA và deployment LAN/public
+vẫn thuộc các phase sau.
 
 ```text
 Host 127.0.0.1:WEB_PORT
@@ -48,12 +50,14 @@ Package boundaries chính:
 
 ```text
 web    -> shared, config
-api    -> shared, config, db
-worker -> shared, config, db
+api    -> shared, config, db, collectors/ytdlp, collectors/youtube-public
+worker -> shared, config, db, collectors/ytdlp, collectors/youtube-rss
 db     -> Prisma client + PostgreSQL adapter
+collectors -> shared (không truy cập database trực tiếp)
 ```
 
-Collector và AI không được import vào raw-data path ở Phase 0.
+Collector chỉ trả về canonical/nullable provider contracts; AI không được import
+vào raw-data path và không phải nguồn dữ liệu.
 
 ## Heartbeat
 
@@ -114,6 +118,15 @@ POST /api/v1/users/:id/enable
 DELETE /api/v1/users/:id
 ```
 
+Các endpoint Phase 2:
+
+```text
+GET /api/v1/channels?page=1&pageSize=20
+GET /api/v1/channels/:id
+POST /api/v1/channels                 (ADMIN, canonical resolution bắt buộc)
+DELETE /api/v1/channels/:id           (ADMIN, archive alias)
+```
+
 Session là opaque token trong HttpOnly SameSite=Lax cookie; PostgreSQL chỉ lưu
 keyed token hash. LOCAL dùng host-only cookie không `Secure`; PUBLIC cookie
 contract được giữ cho phase HTTPS sau này. `DELETE /users/:id` là disable alias,
@@ -162,7 +175,7 @@ production:
 
 ## Phần được hoãn
 
-- Phase 2: channel resolution, RSS, yt-dlp, snapshots và daily history.
+- Phase 2: channel resolution, RSS, yt-dlp, snapshots và daily history (đã có).
 - Phase 3: Playwright public health và deletion safety.
 - Phase 4–5: video monitoring và deterministic rankings.
 - Phase 6–7: Gemini, NVIDIA, schema validation, cache và fallback router.

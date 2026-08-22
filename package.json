@@ -17,6 +17,7 @@
     "test:unit": "vitest run",
     "test:db:integration": "vitest run --config vitest.integration.config.ts --configLoader runner",
     "test:auth:integration": "pwsh -NoProfile -File scripts/test-phase1-db.ps1",
+    "test:phase2:collectors": "vitest run packages/collectors apps/worker/src/jobs packages/shared/src/channel-*",
     "test:e2e": "playwright test",
     "test:integration": "pwsh -NoProfile -File scripts/test-phase1-docker.ps1",
     "db:generate": "prisma generate",
@@ -27,7 +28,8 @@
     "docker:down": "docker compose down",
     "docker:health": "pwsh -NoProfile -File scripts/health-check.ps1",
     "verify": "pnpm db:validate && pnpm db:generate && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build",
-    "verify:phase1": "pnpm verify && pnpm test:auth:integration && pnpm test:integration"
+    "verify:phase1": "pnpm verify && pnpm test:auth:integration && pnpm test:integration",
+    "verify:phase2": "pnpm verify && pnpm test:phase2:collectors && pnpm test:auth:integration && pnpm test:integration"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

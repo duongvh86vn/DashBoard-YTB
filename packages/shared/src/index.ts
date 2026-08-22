@@ -8,3 +8,33 @@ export {
   type HealthStatus,
 } from "./health/health-contract.js";
 export { createPinoOptions } from "./logging/pino-options.js";
+export {
+  CanonicalChannelIdSchema,
+  ChannelActivitySchema,
+  ChannelAvailabilitySchema,
+  ChannelSnapshotSourceSchema,
+  CoverageStatusSchema,
+  SyncRunJobTypeSchema,
+  SyncRunStatusSchema,
+  type CanonicalChannel,
+  type ChannelActivity,
+  type ChannelAvailability,
+  type ChannelCurrentStats,
+  type ChannelSnapshotSource,
+  type CoverageStatus,
+  type ProviderVideo,
+  type ProviderVideoStats,
+  type PublicChannelProvider,
+  type ResolvedChannel,
+  type SyncRunJobType,
+  type SyncRunStatus,
+} from "./channel-contracts.js";
+export {
+  deriveActivityStatus,
+  deriveCoverageStatus,
+  deriveMetricDeltas,
+  localCalendarDate,
+  previousCalendarDate,
+  type ChannelMetricDeltas,
+  type NullableChannelMetrics,
+} from "./channel-history.js";

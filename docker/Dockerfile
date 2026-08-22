@@ -7,11 +7,12 @@ ENV PATH=$PNPM_HOME:$PATH
 ENV COREPACK_HOME=/corepack
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends openssl \
+    && apt-get install --yes --no-install-recommends openssl yt-dlp \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p "$COREPACK_HOME" \
     && corepack enable \
     && corepack prepare pnpm@11.22.0 --activate \
+    && yt-dlp --version \
     && chmod -R a+rX "$COREPACK_HOME"
 
 WORKDIR /app
@@ -23,6 +24,9 @@ COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/auth/package.json packages/auth/package.json
+COPY packages/collectors/ytdlp/package.json packages/collectors/ytdlp/package.json
+COPY packages/collectors/youtube-public/package.json packages/collectors/youtube-public/package.json
+COPY packages/collectors/youtube-rss/package.json packages/collectors/youtube-rss/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/shared/package.json packages/shared/package.json

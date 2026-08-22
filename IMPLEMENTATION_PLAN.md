@@ -792,12 +792,12 @@ Phase 0 is complete only after Step 4 evidence exists. A scaffold that has not p
 
 **Interfaces:** preserve the exact `PublicChannelProvider` interface in §6; normalized input accepts all §7 forms; create requires canonical `youtube_channel_id`; collector fields remain nullable and carry per-metric provenance.
 
-- [ ] Write URL normalization/canonical ID/dedup tests and yt-dlp fixture tests before code.
-- [ ] Implement metadata-only subprocess with timeout, low concurrency and normalized errors; command assertions reject media-download flags.
-- [ ] Implement RSS 15-minute configurable discovery and idempotent dedup.
-- [ ] Implement daily fresh snapshot at 00:10, signed delta, missing previous day `NULL`, coverage status and sync runs.
-- [ ] Add ADMIN REST/UI flow and repeat-create conflict handling.
-- [ ] Run global gates, collector fixture/integration tests and live E2E add for the supplied public handle when public YouTube is reachable.
+- [x] Write URL normalization/canonical ID/dedup tests and yt-dlp fixture tests before code.
+- [x] Implement metadata-only subprocess with timeout, low concurrency and normalized errors; command assertions reject media-download flags.
+- [x] Implement RSS 15-minute configurable discovery and idempotent dedup.
+- [x] Implement daily fresh snapshot at 00:10, signed delta, missing previous day `NULL`, coverage status and sync runs.
+- [x] Add ADMIN REST/UI flow and repeat-create conflict handling.
+- [x] Run global gates, collector fixture/integration tests and isolated Docker/browser E2E. Live public add-channel smoke remains conditional on upstream reachability and is documented separately.
 
 **Exit:** Admin pastes `@handle` URL, system verifies public existence and persists one canonical Channel; no OAuth/API key/vidIQ backend.
 

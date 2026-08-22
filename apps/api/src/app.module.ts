@@ -12,6 +12,7 @@ import {
   HealthRepository,
   HeartbeatRepository,
   IdentityUnitOfWork,
+  ChannelUnitOfWork,
   UserRepository,
   type DatabaseClient,
 } from "@yt-monitor/db";
@@ -48,6 +49,16 @@ import {
 } from "./users/users-application.port.js";
 import { UsersController } from "./users/users.controller.js";
 import { UsersService } from "./users/users.service.js";
+import { ChannelApplicationError } from "./channels/channel-application.error.js";
+import {
+  CHANNELS_APPLICATION_PORT,
+  CHANNEL_PROVIDER,
+  type ChannelsApplicationPort,
+  type ChannelProviderPort,
+} from "./channels/channels-application.port.js";
+import { ChannelsController } from "./channels/channels.controller.js";
+import { ChannelsService } from "./channels/channels.service.js";
+import { CompositePublicChannelProvider } from "./channels/public-channel-provider.js";
 
 export { API_ENV } from "./auth/api-environment.port.js";
 export const DATABASE_CLIENT = Symbol("DATABASE_CLIENT");
@@ -67,6 +78,7 @@ export interface TestingAppModuleOptions {
   sessionAuthenticator?: SessionAuthenticationPort;
   authApplication?: AuthApplicationPort;
   usersApplication?: UsersApplicationPort;
+  channelsApplication?: ChannelsApplicationPort;
 }
 
 const denyAllSessionAuthenticator: SessionAuthenticationPort = {
@@ -111,6 +123,21 @@ const denyAllUsersApplication: UsersApplicationPort = {
   },
 };
 
+const denyAllChannelsApplication: ChannelsApplicationPort = {
+  async list(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
+  async get(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
+  async create(): Promise<never> {
+    throw ChannelApplicationError.resolveFailed();
+  },
+  async archive(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
+};
+
 @Injectable()
 class DatabaseLifecycle implements OnApplicationShutdown {
   constructor(@Inject(DATABASE_CLIENT) private readonly client: DatabaseClient) {}
@@ -127,6 +154,8 @@ function applicationProviders(
   sessionAuthenticator: SessionAuthenticationPort,
   authApplication: AuthApplicationPort,
   usersApplication: UsersApplicationPort,
+  channelsApplication: ChannelsApplicationPort,
+  channelProvider: ChannelProviderPort,
 ): Provider[] {
   return [
     { provide: API_ENV, useValue: env },
@@ -135,6 +164,8 @@ function applicationProviders(
     { provide: SESSION_AUTHENTICATION_PORT, useValue: sessionAuthenticator },
     { provide: AUTH_APPLICATION_PORT, useValue: authApplication },
     { provide: USERS_APPLICATION_PORT, useValue: usersApplication },
+    { provide: CHANNELS_APPLICATION_PORT, useValue: channelsApplication },
+    { provide: CHANNEL_PROVIDER, useValue: channelProvider },
     {
       provide: SessionCookieService,
       useValue: new SessionCookieService(env.DEPLOYMENT_MODE, env.SESSION_ABSOLUTE_HOURS),
@@ -181,6 +212,12 @@ export class AppModule {
       clock: systemClock,
       passwords: systemPasswords,
     });
+    const channelUnitOfWork = new ChannelUnitOfWork(options.databaseClient);
+    const channelProvider = new CompositePublicChannelProvider();
+    const channelsApplication = new ChannelsService({
+      unitOfWork: channelUnitOfWork,
+      provider: channelProvider,
+    });
 
     return {
       module: AppModule,
@@ -189,7 +226,7 @@ export class AppModule {
           pinoHttp: createPinoOptions("api", options.env.LOG_LEVEL),
         }),
       ],
-      controllers: [AuthController, HealthController, UsersController],
+      controllers: [AuthController, HealthController, UsersController, ChannelsController],
       providers: [
         ...applicationProviders(
           options.env,
@@ -198,6 +235,8 @@ export class AppModule {
           options.sessionAuthenticator ?? denyAllSessionAuthenticator,
           authApplication,
           usersApplication,
+          channelsApplication,
+          channelProvider,
         ),
         { provide: DATABASE_CLIENT, useValue: options.databaseClient },
         DatabaseLifecycle,
@@ -208,7 +247,7 @@ export class AppModule {
   static forTesting(options: TestingAppModuleOptions): DynamicModule {
     return {
       module: AppModule,
-      controllers: [AuthController, HealthController, UsersController],
+      controllers: [AuthController, HealthController, UsersController, ChannelsController],
       providers: applicationProviders(
         options.env,
         options.databaseHealthReader,
@@ -216,6 +255,8 @@ export class AppModule {
         options.sessionAuthenticator ?? denyAllSessionAuthenticator,
         options.authApplication ?? denyAllAuthApplication,
         options.usersApplication ?? denyAllUsersApplication,
+        options.channelsApplication ?? denyAllChannelsApplication,
+        new CompositePublicChannelProvider(),
       ),
     };
   }

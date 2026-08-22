@@ -185,6 +185,7 @@ test.describe.serial("Phase 1 Auth + Users real-stack acceptance", () => {
             data: { currentPassword: matrixViewerPassword, newPassword: matrixViewerResetPassword },
           }),
         () => anonymous.get("/api/v1/users"),
+        () => anonymous.get("/api/v1/channels"),
         () =>
           anonymous.post("/api/v1/users", {
             headers: csrfHeaders,
@@ -265,6 +266,24 @@ test.describe.serial("Phase 1 Auth + Users real-stack acceptance", () => {
         expect(Object.keys(payload.checks).sort()).toEqual([...checkKeys].sort());
       }
 
+      const channelsResponse = await admin.get("/api/v1/channels?page=1&pageSize=20");
+      expect(channelsResponse.status()).toBe(200);
+      expect(await expectJson(channelsResponse)).toMatchObject({
+        items: [],
+        page: 1,
+        pageSize: 20,
+        total: 0,
+      });
+
+      const invalidChannelResponse = await admin.post("/api/v1/channels", {
+        headers: csrfHeaders,
+        data: { channelUrl: 42 },
+      });
+      expect(invalidChannelResponse.status()).toBe(400);
+      expect(await expectJson(invalidChannelResponse)).toMatchObject({
+        error: { code: "CHANNEL_INPUT_INVALID" },
+      });
+
       const matrixViewer = await createViewer(admin, matrixViewerEmail, matrixViewerPassword);
       const listResponse = await admin.get("/api/v1/users?page=1&pageSize=100");
       expect(listResponse.status()).toBe(200);
@@ -290,6 +309,11 @@ test.describe.serial("Phase 1 Auth + Users real-stack acceptance", () => {
 
       const viewerDeniedRequests = [
         () => viewer.get("/api/v1/users"),
+        () =>
+          viewer.post("/api/v1/channels", {
+            headers: csrfHeaders,
+            data: { channelUrl: "@denied" },
+          }),
         () =>
           viewer.post("/api/v1/users", {
             headers: csrfHeaders,
@@ -548,6 +572,14 @@ test.describe.serial("Phase 1 Auth + Users real-stack acceptance", () => {
 
     try {
       const adminPage = await loginPage(adminContext, adminEmail, adminPassword);
+      await adminPage.getByRole("link", { name: "Kênh theo dõi" }).click();
+      await expect(adminPage).toHaveURL(`${baseUrl}/channels`);
+      await expect(adminPage.getByRole("heading", { name: "Kênh theo dõi" })).toBeVisible();
+      await expect(adminPage.getByText("Chưa có kênh nào")).toBeVisible();
+      await adminPage.getByRole("link", { name: "Thêm kênh" }).click();
+      await expect(adminPage).toHaveURL(`${baseUrl}/channels/new`);
+      await expect(adminPage.getByRole("heading", { name: "Thêm kênh YouTube" })).toBeVisible();
+
       await adminPage.getByRole("link", { name: "Người dùng" }).click();
       await expect(adminPage.getByRole("heading", { name: "Người dùng" })).toBeVisible();
       await adminPage.getByLabel("Email VIEWER mới").fill(browserViewerEmail);
@@ -570,6 +602,10 @@ test.describe.serial("Phase 1 Auth + Users real-stack acceptance", () => {
       ]) {
         await expect(viewerPage.getByText(fabricatedMetric, { exact: true })).toHaveCount(0);
       }
+      await viewerPage.getByRole("link", { name: "Kênh theo dõi" }).click();
+      await expect(viewerPage).toHaveURL(`${baseUrl}/channels`);
+      await expect(viewerPage.getByRole("heading", { name: "Kênh theo dõi" })).toBeVisible();
+      await expect(viewerPage.getByRole("link", { name: "Thêm kênh" })).toHaveCount(0);
 
       const usersApiRequests: string[] = [];
       viewerPage.on("request", (requestEvent) => {

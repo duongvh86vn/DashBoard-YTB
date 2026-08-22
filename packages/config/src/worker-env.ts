@@ -8,6 +8,12 @@ const workerEnvSchema = baseEnvSchema
     WORKER_ID: z.string().min(1).max(128).optional(),
     WORKER_HEARTBEAT_INTERVAL_SECONDS: z.coerce.number().int().positive().default(15),
     WORKER_HEARTBEAT_STALE_SECONDS: z.coerce.number().int().positive().default(45),
+    CHANNEL_ACTIVE_UPLOAD_DAYS: z.coerce.number().int().positive().default(30),
+    RSS_SCAN_MINUTES: z.coerce.number().int().positive().default(15),
+    CHANNEL_SCAN_HOURS: z.coerce.number().int().positive().default(6),
+    CHANNEL_HEALTH_HOURS: z.coerce.number().int().positive().default(6),
+    PLAYWRIGHT_CONCURRENCY: z.coerce.number().int().positive().default(1),
+    YTDLP_CONCURRENCY: z.coerce.number().int().positive().default(2),
   })
   .superRefine((value, context) => {
     if (value.WORKER_HEARTBEAT_STALE_SECONDS <= value.WORKER_HEARTBEAT_INTERVAL_SECONDS) {

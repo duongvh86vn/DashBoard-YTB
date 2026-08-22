@@ -3,10 +3,11 @@
 Private dashboard for deterministic monitoring of public YouTube channels.
 
 The project is being built phase by phase from
-[`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md). Phase 1 now provides the
-authenticated Vietnamese shell, ADMIN/VIEWER sessions, and ADMIN VIEWER
-account administration. Channel/video collectors, monitoring metrics, and AI
-providers remain later phases.
+[`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md). Phase 2 now provides the
+authenticated Vietnamese shell, ADMIN/VIEWER sessions, canonical public
+YouTube channel resolution, RSS/metadata-only collector contracts, channel
+snapshots/daily history, and the ADMIN add-channel flow. Video monitoring,
+health/deletion safety, and AI providers remain later phases.
 
 ## Runtime baseline
 
@@ -16,13 +17,13 @@ providers remain later phases.
 
 Use `corepack pnpm` in terminals where a global `pnpm` shim is unavailable.
 
-## Clone the Phase 1 branch
+## Clone the Phase 2 branch
 
 GitHub's default branch may still point at the Phase 0 foundation. Clone the
 implementation branch explicitly:
 
 ```text
-git clone --branch codex/phase-1-auth-users --single-branch https://github.com/duongvh86vn/DashBoard-YTB.git
+git clone --branch codex/phase-2-channel-resolution --single-branch https://github.com/duongvh86vn/DashBoard-YTB.git
 cd DashBoard-YTB
 ```
 
@@ -62,28 +63,31 @@ database volume only after you have confirmed the project:
 docker compose down --volumes --remove-orphans
 ```
 
-This local Phase 1 setup is loopback-only. LAN access, public HTTPS, Caddy, and
-Cloudflare Tunnel are deferred to Phase 9.
+This local Phase 2 setup is loopback-only. LAN access, public HTTPS, Caddy, and
+Cloudflare Tunnel are deferred to Phase 9. After login, open
+`http://127.0.0.1:3000/channels` to add a public channel as ADMIN; the first
+snapshot is nullable until a collector succeeds, and no historical values are
+fabricated.
 
-## Install and verify Phase 1
+## Install and verify Phase 2
 
 ```powershell
 corepack pnpm install --frozen-lockfile
-corepack pnpm verify:phase1
+corepack pnpm verify:phase2
 ```
 
-The Phase 1 integration gate creates an isolated Compose project, random
+The Phase 2 integration gate creates an isolated Compose project, random
 credentials and an unused loopback Web port. It exercises real PostgreSQL
-migrations, seed idempotency, auth/users authorization, health-state
-transitions, worker and database recovery, the containerized Playwright browser
-flow, secret-safe surfaces, and cleanup.
+migrations, seed idempotency, auth/users/channel authorization, collector
+fixtures, health-state transitions, worker and database recovery, the
+containerized Playwright browser flow, secret-safe surfaces, and cleanup.
 
 ## Runtime topology
 
 Only Web is published, on loopback at `http://127.0.0.1:3000` by default. API,
 Worker and PostgreSQL publish no host ports; the database network is internal,
 Web does not join it, and Worker has a separate non-published egress network for
-future public collectors/providers. Every API health route requires an ADMIN
+public RSS/metadata-only collectors. Every API health route requires an ADMIN
 session; there is no anonymous Web `/health` route. Container readiness uses
 internal TCP checks.
 
