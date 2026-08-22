@@ -12,6 +12,10 @@ import {
   UserResponseSchema,
   type UsersPage,
   UsersPageSchema,
+  type VideoSnapshotsPage,
+  VideoSnapshotsPageSchema,
+  type PublicVideo,
+  VideosPageSchema,
 } from "@yt-monitor/shared/browser-auth";
 
 type ApiMethod = "GET" | "POST" | "PATCH" | "DELETE";
@@ -293,6 +297,41 @@ export async function getChannelHealthHistory(input: {
     {
       method: "GET",
       schema: ChannelHealthHistorySchema,
+      ...(input.signal ? { signal: input.signal } : {}),
+    },
+  );
+}
+
+export async function listChannelVideos(input: {
+  channelId: string;
+  page: number;
+  pageSize: number;
+  signal?: AbortSignal;
+}): Promise<{ items: PublicVideo[]; page: number; pageSize: number; total: number }> {
+  const query = new URLSearchParams({ page: String(input.page), pageSize: String(input.pageSize) });
+  return requestApi(
+    `/api/v1/channels/${encodeURIComponent(input.channelId)}/videos?${query.toString()}`,
+    {
+      method: "GET",
+      schema: VideosPageSchema,
+      ...(input.signal ? { signal: input.signal } : {}),
+    },
+  );
+}
+
+export async function getVideoSnapshots(input: {
+  channelId: string;
+  videoId: string;
+  page: number;
+  pageSize: number;
+  signal?: AbortSignal;
+}): Promise<VideoSnapshotsPage> {
+  const query = new URLSearchParams({ page: String(input.page), pageSize: String(input.pageSize) });
+  return requestApi(
+    `/api/v1/channels/${encodeURIComponent(input.channelId)}/videos/${encodeURIComponent(input.videoId)}/snapshots?${query.toString()}`,
+    {
+      method: "GET",
+      schema: VideoSnapshotsPageSchema,
       ...(input.signal ? { signal: input.signal } : {}),
     },
   );

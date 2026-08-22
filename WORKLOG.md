@@ -245,3 +245,37 @@
   integration gate.
 - No full HTML, raw cookies, auth bypass, OAuth/API key, vidIQ backend or AI
   input was introduced. These invariants remain unchanged.
+
+## 2026-08-22 — Phase 4 Video discovery + snapshot monitoring acceptance
+
+### Scope delivered
+
+- Added `Video`/`VideoSnapshot` schema and migration with nullable counters,
+  monitor tiers, candidate indexes and unique `(video_id, snapshot_bucket)`.
+- Added RSS-first discovery every 15 minutes, bounded yt-dlp reconciliation on
+  the channel scan interval, canonical-channel filtering and metadata upserts.
+- Added deterministic HOT/WARM/OLD_HOT/PINNED tiering, hourly/3-hour/6-hour
+  snapshot cadence, retry and in-flight run locks, and nullable yt-dlp metric
+  snapshots. Repeated execution upserts the same UTC hour bucket.
+- Added authenticated API routes for channel videos and snapshot history, plus
+  the Vietnamese video-monitor UI route.
+
+### Acceptance evidence — 2026-08-22
+
+- `corepack pnpm db:validate`, `corepack pnpm db:generate`,
+  `corepack pnpm typecheck`, `corepack pnpm lint`,
+  `corepack pnpm format:check`, `corepack pnpm test:unit` — PASS;
+  67 files / 416 tests.
+- `corepack pnpm build` — PASS; Next route `/channels/[id]/videos` included.
+- `corepack pnpm test:auth:integration` — PASS; clean/replay of all 5
+  migrations and 40 files / 146 tests.
+- `corepack pnpm test:integration` — PASS; isolated Compose, API/Web/Worker
+  health and Playwright acceptance with Phase 4 migration applied.
+
+### Boundaries preserved
+
+- No views/likes/comments are fabricated when providers return no value;
+  derived VPH/breakout fields remain `NULL` for the later analytics phase.
+- RSS remains the frequent discovery source; yt-dlp is metadata reconciliation
+  and stats collection only. No media download, OAuth/API key or backfill was
+  introduced. Snapshot retention deletion is deferred until rollups exist.

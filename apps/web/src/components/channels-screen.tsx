@@ -140,6 +140,9 @@ export function ChannelsScreen() {
               <Link className="button-secondary" href={`/channels/${channel.id}/health`}>
                 Lịch sử health
               </Link>
+              <Link className="button-secondary" href={`/channels/${channel.id}/videos`}>
+                Video monitor
+              </Link>
               {auth.state.status === "authenticated" && auth.state.user.role === "ADMIN" ? (
                 <button
                   className="button-danger"

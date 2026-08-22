@@ -101,6 +101,60 @@ export const ChannelsPageSchema = z
   .strict();
 export type ChannelsPage = z.infer<typeof ChannelsPageSchema>;
 
+const publicVideoSchema = z
+  .object({
+    id: z.uuid(),
+    youtubeVideoId: z.string().min(1),
+    channelId: z.uuid(),
+    title: z.string().nullable(),
+    description: z.string().nullable(),
+    thumbnail: z.string().nullable(),
+    publishedAt: timestampSchema.nullable(),
+    durationSeconds: z.number().int().nonnegative().nullable(),
+    currentViews: z.string().regex(/^\d+$/u).nullable(),
+    currentLikes: z.string().regex(/^\d+$/u).nullable(),
+    currentComments: z.string().regex(/^\d+$/u).nullable(),
+    monitorTier: z.string().min(1),
+    firstSeenAt: timestampSchema,
+    lastSeenAt: timestampSchema,
+    isAvailable: z.boolean(),
+    isPinned: z.boolean(),
+  })
+  .strict();
+export const PublicVideoSchema = publicVideoSchema;
+export type PublicVideo = z.infer<typeof publicVideoSchema>;
+export const VideosPageSchema = z
+  .object({
+    items: z.array(publicVideoSchema),
+    page: z.number().int().positive(),
+    pageSize: z.number().int().min(1).max(100),
+    total: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const publicVideoSnapshotSchema = z
+  .object({
+    id: z.uuid(),
+    videoId: z.uuid(),
+    channelId: z.uuid(),
+    capturedAt: timestampSchema,
+    snapshotBucket: timestampSchema,
+    views: z.string().regex(/^\d+$/u).nullable(),
+    likes: z.string().regex(/^\d+$/u).nullable(),
+    comments: z.string().regex(/^\d+$/u).nullable(),
+    source: z.string().min(1),
+  })
+  .strict();
+export const VideoSnapshotsPageSchema = z
+  .object({
+    items: z.array(publicVideoSnapshotSchema),
+    page: z.number().int().positive(),
+    pageSize: z.number().int().min(1).max(100),
+    total: z.number().int().nonnegative(),
+  })
+  .strict();
+export type VideoSnapshotsPage = z.infer<typeof VideoSnapshotsPageSchema>;
+
 const channelHealthCheckSchema = z
   .object({
     id: z.uuid(),

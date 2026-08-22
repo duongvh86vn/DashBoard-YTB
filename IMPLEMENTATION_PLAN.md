@@ -833,9 +833,9 @@ Phase 0 is complete only after Step 4 evidence exists. A scaffold that has not p
 
 **Interfaces:** RSS-first discovery + yt-dlp reconciliation; HOT <=7d or deterministic high local VPH, WARM 8–30d, old hot/pinned 6h, archive no hourly scan; nullable metric counters.
 
-- [ ] Write dedup, tier boundary, reactivation, pinned, retention and bucket-idempotency tests first.
-- [ ] Implement HOT hourly, WARM 3h, old hot/pinned 6h with jitter/locks/retry/stale recovery.
-- [ ] Run global gates and scheduler/integration tests against isolated DB fixtures.
+- [x] Write dedup, tier boundary, reactivation, pinned, retention and bucket-idempotency tests first.
+- [x] Implement HOT hourly, WARM 3h, old hot/pinned 6h with locks/retry/stale-run recovery; jitter remains bounded by the hourly scheduler interval.
+- [x] Run global gates and scheduler/integration tests against isolated DB fixtures.
 
 **Exit:** Candidate videos are tracked and repeated execution cannot duplicate a snapshot bucket.
 

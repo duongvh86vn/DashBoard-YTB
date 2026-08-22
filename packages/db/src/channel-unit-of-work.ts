@@ -5,12 +5,16 @@ import { ChannelRepository } from "./channel.repository.js";
 import { ChannelDailyStatRepository } from "./channel-daily-stat.repository.js";
 import { SyncRunRepository } from "./sync-run.repository.js";
 import { ChannelHealthRepository } from "./channel-health.repository.js";
+import { VideoRepository } from "./video.repository.js";
+import { VideoSnapshotRepository } from "./video-snapshot.repository.js";
 
 export interface ChannelRepositories {
   channels: ChannelRepository;
   dailyStats: ChannelDailyStatRepository;
   syncRuns: SyncRunRepository;
   healthChecks: ChannelHealthRepository;
+  videos: VideoRepository;
+  videoSnapshots: VideoSnapshotRepository;
 }
 
 export class ChannelUnitOfWork {
@@ -26,6 +30,8 @@ export class ChannelUnitOfWork {
               dailyStats: new ChannelDailyStatRepository(transaction),
               syncRuns: new SyncRunRepository(transaction),
               healthChecks: new ChannelHealthRepository(transaction),
+              videos: new VideoRepository(transaction),
+              videoSnapshots: new VideoSnapshotRepository(transaction),
             }),
           { isolationLevel: "Serializable" },
         );

@@ -90,6 +90,14 @@ enum SyncRunStatus {
   FAILED
 }
 
+enum VideoMonitorTier {
+  HOT
+  WARM
+  OLD_HOT
+  PINNED
+  ARCHIVED
+}
+
 model WorkerHeartbeat {
   workerId   String   @id @map("worker_id") @db.VarChar(128)
   version    String   @db.VarChar(64)
@@ -193,6 +201,8 @@ model Channel {
   archivedAt               DateTime?                 @map("archived_at") @db.Timestamptz(3)
   snapshots                ChannelSnapshot[]
   healthChecks             ChannelHealthCheck[]
+  videos                   Video[]
+  videoSnapshots           VideoSnapshot[]
   dailyStats               ChannelDailyStat[]
   syncRuns                 SyncRun[]
 
@@ -237,6 +247,61 @@ model ChannelHealthCheck {
   @@index([channelId, checkedAt(sort: Desc)], map: "channel_health_checks_channel_checked_idx")
   @@index([normalizedAvailability, checkedAt(sort: Desc)], map: "channel_health_checks_availability_checked_idx")
   @@map("channel_health_checks")
+}
+
+model Video {
+  id                String            @id @default(uuid()) @db.Uuid
+  youtubeVideoId    String            @unique(map: "videos_youtube_video_id_key") @map("youtube_video_id") @db.VarChar(32)
+  channelId         String            @map("channel_id") @db.Uuid
+  title             String?           @db.Text
+  description       String?           @db.Text
+  thumbnail         String?           @db.Text
+  publishedAt       DateTime?         @map("published_at") @db.Timestamptz(3)
+  durationSeconds   Int?              @map("duration_seconds")
+  currentViews      BigInt?           @map("current_views")
+  currentLikes      BigInt?           @map("current_likes")
+  currentComments   BigInt?           @map("current_comments")
+  vph1h             Decimal?          @map("vph_1h") @db.Decimal(24, 6)
+  vph3h             Decimal?          @map("vph_3h") @db.Decimal(24, 6)
+  vph6h             Decimal?          @map("vph_6h") @db.Decimal(24, 6)
+  breakout24h       Decimal?          @map("breakout_24h") @db.Decimal(24, 6)
+  breakout48h       Decimal?          @map("breakout_48h") @db.Decimal(24, 6)
+  breakout7d        Decimal?          @map("breakout_7d") @db.Decimal(24, 6)
+  monitorTier       VideoMonitorTier  @default(WARM) @map("monitor_tier")
+  firstSeenAt       DateTime          @default(now()) @map("first_seen_at") @db.Timestamptz(3)
+  lastSeenAt        DateTime          @map("last_seen_at") @db.Timestamptz(3)
+  isAvailable       Boolean           @default(true) @map("is_available")
+  isPinned          Boolean           @default(false) @map("is_pinned")
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  channel           Channel           @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  snapshots         VideoSnapshot[]
+
+  @@index([channelId, publishedAt(sort: Desc)], map: "videos_channel_published_idx")
+  @@index([monitorTier, lastSeenAt(sort: Desc)], map: "videos_tier_seen_idx")
+  @@index([vph1h(sort: Desc)], map: "videos_vph_1h_idx")
+  @@index([breakout48h(sort: Desc)], map: "videos_breakout_48h_idx")
+  @@map("videos")
+}
+
+model VideoSnapshot {
+  id             String                @id @default(uuid()) @db.Uuid
+  videoId        String                @map("video_id") @db.Uuid
+  channelId      String                @map("channel_id") @db.Uuid
+  capturedAt     DateTime              @map("captured_at") @db.Timestamptz(3)
+  snapshotBucket DateTime              @map("snapshot_bucket") @db.Timestamptz(3)
+  views          BigInt?
+  likes          BigInt?
+  comments       BigInt?
+  source         ChannelSnapshotSource
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  video          Video                 @relation(fields: [videoId], references: [id], onDelete: Restrict)
+  channel        Channel               @relation(fields: [channelId], references: [id], onDelete: Restrict)
+
+  @@unique([videoId, snapshotBucket], map: "video_snapshots_video_bucket_key")
+  @@index([videoId, capturedAt(sort: Desc)], map: "video_snapshots_video_captured_idx")
+  @@index([channelId, capturedAt(sort: Desc)], map: "video_snapshots_channel_captured_idx")
+  @@map("video_snapshots")
 }
 
 model ChannelDailyStat {

@@ -15,6 +15,7 @@ export {
   type ProcessRunnerOptions,
 } from "./process-runner.js";
 export { LIST_RECENT_VIDEOS_ARGS, listRecentVideosWithYtdlp } from "./list-videos.js";
+export { VIDEO_STATS_ARGS, getVideoStatsWithYtdlp } from "./video-stats.js";
 export {
   RESOLVE_CHANNEL_ARGS,
   createYtdlpRunner,

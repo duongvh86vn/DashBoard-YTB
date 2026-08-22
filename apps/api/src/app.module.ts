@@ -59,6 +59,12 @@ import {
 import { ChannelsController } from "./channels/channels.controller.js";
 import { ChannelsService } from "./channels/channels.service.js";
 import { CompositePublicChannelProvider } from "./channels/public-channel-provider.js";
+import {
+  VIDEOS_APPLICATION_PORT,
+  type VideosApplicationPort,
+} from "./videos/videos-application.port.js";
+import { VideosController } from "./videos/videos.controller.js";
+import { VideosService } from "./videos/videos.service.js";
 
 export { API_ENV } from "./auth/api-environment.port.js";
 export const DATABASE_CLIENT = Symbol("DATABASE_CLIENT");
@@ -79,6 +85,7 @@ export interface TestingAppModuleOptions {
   authApplication?: AuthApplicationPort;
   usersApplication?: UsersApplicationPort;
   channelsApplication?: ChannelsApplicationPort;
+  videosApplication?: VideosApplicationPort;
 }
 
 const denyAllSessionAuthenticator: SessionAuthenticationPort = {
@@ -144,6 +151,15 @@ const denyAllChannelsApplication: ChannelsApplicationPort = {
   },
 };
 
+const denyAllVideosApplication: VideosApplicationPort = {
+  async listRecent(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
+  async snapshots(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
+};
+
 @Injectable()
 class DatabaseLifecycle implements OnApplicationShutdown {
   constructor(@Inject(DATABASE_CLIENT) private readonly client: DatabaseClient) {}
@@ -161,6 +177,7 @@ function applicationProviders(
   authApplication: AuthApplicationPort,
   usersApplication: UsersApplicationPort,
   channelsApplication: ChannelsApplicationPort,
+  videosApplication: VideosApplicationPort,
   channelProvider: ChannelProviderPort,
 ): Provider[] {
   return [
@@ -171,6 +188,7 @@ function applicationProviders(
     { provide: AUTH_APPLICATION_PORT, useValue: authApplication },
     { provide: USERS_APPLICATION_PORT, useValue: usersApplication },
     { provide: CHANNELS_APPLICATION_PORT, useValue: channelsApplication },
+    { provide: VIDEOS_APPLICATION_PORT, useValue: videosApplication },
     { provide: CHANNEL_PROVIDER, useValue: channelProvider },
     {
       provide: SessionCookieService,
@@ -224,6 +242,7 @@ export class AppModule {
       unitOfWork: channelUnitOfWork,
       provider: channelProvider,
     });
+    const videosApplication = new VideosService({ unitOfWork: channelUnitOfWork });
 
     return {
       module: AppModule,
@@ -232,7 +251,13 @@ export class AppModule {
           pinoHttp: createPinoOptions("api", options.env.LOG_LEVEL),
         }),
       ],
-      controllers: [AuthController, HealthController, UsersController, ChannelsController],
+      controllers: [
+        AuthController,
+        HealthController,
+        UsersController,
+        ChannelsController,
+        VideosController,
+      ],
       providers: [
         ...applicationProviders(
           options.env,
@@ -242,6 +267,7 @@ export class AppModule {
           authApplication,
           usersApplication,
           channelsApplication,
+          videosApplication,
           channelProvider,
         ),
         { provide: DATABASE_CLIENT, useValue: options.databaseClient },
@@ -253,7 +279,13 @@ export class AppModule {
   static forTesting(options: TestingAppModuleOptions): DynamicModule {
     return {
       module: AppModule,
-      controllers: [AuthController, HealthController, UsersController, ChannelsController],
+      controllers: [
+        AuthController,
+        HealthController,
+        UsersController,
+        ChannelsController,
+        VideosController,
+      ],
       providers: applicationProviders(
         options.env,
         options.databaseHealthReader,
@@ -262,6 +294,7 @@ export class AppModule {
         options.authApplication ?? denyAllAuthApplication,
         options.usersApplication ?? denyAllUsersApplication,
         options.channelsApplication ?? denyAllChannelsApplication,
+        options.videosApplication ?? denyAllVideosApplication,
         new CompositePublicChannelProvider(),
       ),
     };

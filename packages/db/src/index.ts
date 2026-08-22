@@ -28,9 +28,22 @@ export type {
   SyncRunJobTypeValue,
   SyncRunRecord,
   SyncRunStatusValue,
+  VideoMonitorTierValue,
+  VideoRecord,
+  VideoSnapshotRecord,
 } from "./channel-records.js";
 export { ChannelUnitOfWork, type ChannelRepositories } from "./channel-unit-of-work.js";
 export { SyncRunRepository, type CreateSyncRunInput } from "./sync-run.repository.js";
+export {
+  VideoRepository,
+  type ListVideosInput,
+  type UpsertVideoInput,
+  type VideoPage,
+} from "./video.repository.js";
+export {
+  VideoSnapshotRepository,
+  type UpsertVideoSnapshotInput,
+} from "./video-snapshot.repository.js";
 export {
   HeartbeatRepository,
   type HeartbeatWrite,

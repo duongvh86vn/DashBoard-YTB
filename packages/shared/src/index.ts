@@ -64,3 +64,9 @@ export {
   type CircuitBreakerOptions,
   type CircuitBreakerState,
 } from "./channel-health/circuit-breaker.js";
+export {
+  VideoAvailabilitySchema,
+  VideoMonitorTierSchema,
+  type VideoAvailability,
+  type VideoMonitorTier,
+} from "./video-contracts.js";

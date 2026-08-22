@@ -10,6 +10,9 @@ import type {
   SyncRun,
   SyncRunJobType,
   SyncRunStatus,
+  Video,
+  VideoMonitorTier,
+  VideoSnapshot,
 } from "./generated/prisma/client.js";
 
 export type ChannelRecord = Channel;
@@ -23,3 +26,6 @@ export type ChannelSnapshotSourceValue = ChannelSnapshotSource;
 export type CoverageStatusValue = CoverageStatus;
 export type SyncRunJobTypeValue = SyncRunJobType;
 export type SyncRunStatusValue = SyncRunStatus;
+export type VideoRecord = Video;
+export type VideoSnapshotRecord = VideoSnapshot;
+export type VideoMonitorTierValue = VideoMonitorTier;
