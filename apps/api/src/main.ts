@@ -16,6 +16,7 @@ async function bootstrap(): Promise<void> {
   try {
     databaseClient = createPrismaClient(env.DATABASE_URL);
     app = await NestFactory.create(AppModule.forProduction({ env, databaseClient }), {
+      abortOnError: false,
       bufferLogs: true,
     });
 

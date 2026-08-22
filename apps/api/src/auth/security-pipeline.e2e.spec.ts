@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Req, type INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
+import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 import type { PublicUser } from "@yt-monitor/auth";
 import type { ApiEnv } from "@yt-monitor/config";
 import type { WorkerHeartbeatRecord } from "@yt-monitor/db";
@@ -8,8 +9,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module.js";
 import type { DatabaseHealthReader, WorkerHeartbeatReader } from "../health/health.service.js";
+import { AuthExceptionFilter } from "./auth-exception.filter.js";
 import { Public } from "./public.decorator.js";
 import { Roles } from "./roles.decorator.js";
+import { RolesGuard } from "./roles.guard.js";
 import type {
   AuthenticatedPrincipal,
   SessionAuthenticationPort,
@@ -135,6 +138,15 @@ class SecurityPolicyProbeController {
   }
 }
 
+@Controller("test-missing-principal")
+@Roles("ADMIN")
+class MissingPrincipalProbeController {
+  @Get()
+  get() {
+    return { ok: true };
+  }
+}
+
 function principal(user: PublicUser, sessionId: string): AuthenticatedPrincipal {
   return { user, session: { id: sessionId } };
 }
@@ -167,6 +179,21 @@ async function createPolicyApp(
   const module = await Test.createTestingModule({
     imports: [dynamicModule],
     controllers: [SecurityPolicyProbeController],
+  }).compile();
+
+  const app = module.createNestApplication({ logger: false });
+  app.setGlobalPrefix("api/v1");
+  await app.init();
+  return app;
+}
+
+async function createRolesOnlyApp(): Promise<INestApplication> {
+  const module = await Test.createTestingModule({
+    controllers: [MissingPrincipalProbeController],
+    providers: [
+      { provide: APP_GUARD, useClass: RolesGuard },
+      { provide: APP_FILTER, useClass: AuthExceptionFilter },
+    ],
   }).compile();
 
   const app = module.createNestApplication({ logger: false });
@@ -306,6 +333,20 @@ describe("default-deny API security pipeline", () => {
       .get("/api/v1/test-policy/viewer-override")
       .set("Cookie", `yhm_session=${ADMIN_TOKEN}`);
     expectExactPolicyResponse(admin, 403, FORBIDDEN_BODY);
+  });
+
+  it("returns the exact unauthenticated policy response when role metadata has no principal", async () => {
+    const rolesOnlyApp = await createRolesOnlyApp();
+
+    try {
+      const response = await request(rolesOnlyApp.getHttpServer()).get(
+        "/api/v1/test-missing-principal",
+      );
+
+      expectExactPolicyResponse(response, 401, UNAUTHENTICATED_BODY);
+    } finally {
+      await rolesOnlyApp.close();
+    }
   });
 
   it("lets Public metadata override roles while still enforcing CSRF", async () => {
