@@ -27,7 +27,7 @@
 
 ## Resolved Phase 1 contracts
 
-- `GET /api/v1/health/live` is the only anonymous API liveness route and returns exactly `{"status":"ok"}` with `Cache-Control: no-store`. Existing detailed health routes require ADMIN.
+- Every `/api/v1/health*` route requires authenticated ADMIN. Docker checks the API listener from inside the API container with a bounded TCP probe; no anonymous HTTP liveness route is exposed through the Web rewrite. This preserves the critical invariant that public Internet access always requires login.
 - The §103 anonymous analytics assertion is represented in Phase 1 by a default-deny protected-route test; the exact analytics URL assertion belongs to the phase that creates analytics routes. No fake analytics endpoint is added.
 - User APIs manage VIEWER accounts only. ADMIN bootstrap is environment-only; APIs cannot create, promote, disable, reset, revoke, or delete an ADMIN.
 - `POST /users` accepts `{email,password}` and creates VIEWER. `PATCH /users/:id` accepts only `{email}`. Password reset accepts `{password}`. `DELETE` has the same disable semantics as `POST /disable`.
@@ -508,39 +508,166 @@ git commit -m "feat: persist users sessions and audit history"
 **Files:**
 
 - Create: `apps/api/src/auth/public.decorator.ts`, `roles.decorator.ts`, `request-user.ts`
+- Create: `apps/api/src/auth/session-authentication.port.ts`, `auth-policy.error.ts`
 - Create: `apps/api/src/auth/session.guard.ts`, `roles.guard.ts`, `csrf.guard.ts`, `auth-exception.filter.ts`
-- Create: `apps/api/src/auth/security-pipeline.e2e-spec.ts`
+- Create: `apps/api/src/auth/security-pipeline.e2e.spec.ts`
 - Modify: `apps/api/src/app.module.ts`, `apps/api/src/main.ts`
 - Modify: `apps/api/src/health/health.controller.ts` and health HTTP tests
-- Modify: `docker-compose.yml` API healthcheck path
+- Modify: `apps/api/package.json`, `pnpm-lock.yaml`, `docker-compose.yml`
 
 **Interfaces:**
 
-- Produces `@Public()` and `@Roles("ADMIN")` metadata, `AuthenticatedRequest.user: PublicUser`, and default-deny global guards.
-- Produces public `GET /api/v1/health/live` with exact minimal response; detailed health routes require authenticated ADMIN.
-- App module accepts injected environment/database/auth collaborators for tests while production parses process environment once.
+- Task 4 owns this port; Task 5 implements it without redefining the token or
+  principal shape:
+
+```ts
+export interface RequestSession {
+  id: string;
+}
+
+export interface AuthenticatedPrincipal {
+  user: PublicUser;
+  session: RequestSession;
+}
+
+export interface SessionAuthenticationPort {
+  authenticate(token: string): Promise<AuthenticatedPrincipal | null>;
+}
+
+export interface AuthenticatedRequest extends Request {
+  user: PublicUser;
+  session: RequestSession;
+}
+
+export const SESSION_AUTHENTICATION_PORT = Symbol("SESSION_AUTHENTICATION_PORT");
+```
+
+- The request principal contains only safe `PublicUser` fields and session ID;
+  raw cookie/token, token hash, password hash, and DB session rows never attach
+  to the request. A Task 4 deny-all implementation returns `null`; Task 5 swaps
+  in the PostgreSQL authenticator.
+- `@Public()` sets boolean metadata. `@Roles(...roles)` accepts a non-empty tuple
+  of `UserRoleValue`. Handler metadata overrides controller metadata; roles do
+  not merge. No `@Public()` means protected, no `@Roles()` means any
+  authenticated role, and public wins if public and roles coexist. `@Public()`
+  skips only session and role guards; it never skips CSRF.
+- The active deployment mode selects exactly one accepted request cookie:
+  `yhm_session` for LOCAL or `__Host-yhm_session` for PUBLIC. The other-mode
+  cookie cannot authenticate. `apps/api` adds the direct exact dependency
+  `cookie@2.0.1`; it does not rely on a transitive package or add cookie-parser.
+- Missing, empty, malformed, wrong-mode, invalid, expired, revoked, and
+  disabled-user sessions all produce the same public unauthenticated result.
+  The authentication port returns `null` for ordinary invalid-session states;
+  infrastructure/programming exceptions propagate as non-auth failures and
+  their messages are never copied into the public response.
+- Register `APP_GUARD` providers in the exact observable order session → roles →
+  CSRF. An anonymous unsafe protected request stops at 401; an authenticated
+  wrong-role unsafe request stops at role 403; only an authorized or public
+  unsafe request reaches CSRF validation. Guards throw dedicated policy errors
+  rather than returning `false` and accepting Nest's default envelope.
+- The global CSRF guard passes the raw method, Origin, Content-Type,
+  `x-csrf-protection`, and `env.APP_ALLOWED_ORIGINS` to Task 2's validator.
+  Every unsafe request, including Task 5 login and zero-body logout/user
+  actions, requires exact allowed Origin, JSON content type, and header value
+  `"1"`. CORS stays disabled.
+- Freeze exact auth-policy responses with `Cache-Control: no-store` and no extra
+  keys:
+
+```json
+HTTP 401
+{"error":{"code":"AUTH_UNAUTHENTICATED","message":"Authentication required"}}
+
+HTTP 403 — role
+{"error":{"code":"AUTH_FORBIDDEN","message":"Forbidden"}}
+
+HTTP 403 — CSRF
+{"error":{"code":"AUTH_CSRF_INVALID","message":"Invalid CSRF request"}}
+```
+
+- `AuthExceptionFilter` catches only the dedicated `AuthPolicyError`. It must
+  preserve unrelated Nest exceptions and the existing detailed-health 503
+  bodies exactly.
+- `AppModule` has no module-evaluation read of `process.env`, Prisma creation,
+  or repository/pool side effect. It exposes exact dynamic entrypoints:
+
+```ts
+export interface ProductionAppModuleOptions {
+  env: ApiEnv,
+  databaseClient: DatabaseClient,
+  sessionAuthenticator?: SessionAuthenticationPort,
+}
+
+export interface TestingAppModuleOptions {
+  env: ApiEnv,
+  databaseHealthReader: DatabaseHealthReader,
+  workerHeartbeatReader: WorkerHeartbeatReader,
+  sessionAuthenticator?: SessionAuthenticationPort,
+}
+
+AppModule.forProduction(options: ProductionAppModuleOptions): DynamicModule;
+AppModule.forTesting(options: TestingAppModuleOptions): DynamicModule;
+```
+
+Both omitted authenticators fail closed. `forTesting` never requires or
+constructs Prisma. `DatabaseLifecycle` is production-only.
+
+- `main.ts` parses process environment exactly once, creates exactly one Prisma
+  client, builds `AppModule.forProduction`, installs Pino and shutdown hooks,
+  sets prefix `api/v1`, keeps CORS disabled, and binds `0.0.0.0:API_PORT`. If
+  bootstrap fails after client creation it closes the app/client before
+  returning failure.
+- `HealthController` has controller-level `@Roles("ADMIN")`. The protected set
+  is exactly `GET /api/v1/health`, `/health/db`, `/health/worker`,
+  `/health/collectors`, and `/health/ai`; their Phase 0 schemas, 200/503
+  behavior, deadlines, and `Cache-Control: no-store` remain unchanged.
+- Docker replaces the authenticated HTTP healthcheck with a bounded TCP
+  listener probe to `127.0.0.1:5000` inside the API container. This is process
+  readiness, not DB readiness; migrations still gate API startup. Task 4 does
+  not add the remaining auth environment wiring owned by Task 8.
 
 - [ ] **Step 1: Write RED HTTP policy tests**
 
 ```ts
-await request(app.getHttpServer()).get("/api/v1/health/live").expect(200, { status: "ok" });
 await request(app.getHttpServer()).get("/api/v1/health/db").expect(401);
 await authenticatedViewer.get("/api/v1/health/db").expect(403);
 await authenticatedAdmin.get("/api/v1/health/db").expect(200);
-await request(app.getHttpServer()).get("/test-protected").expect(401);
+await request(app.getHttpServer()).get("/api/v1/test-protected").expect(401);
 ```
 
-The protected probe exists only inside the test module. Tests also cover invalid/expired/revoked/disabled sessions and ensure error responses do not expose cookie/token/database details.
+Use `AppModule.forTesting` with no valid process auth/DB environment and no
+Prisma. The protected probe and unsafe policy probes exist only in the test
+module. Tests must cover:
+
+- all five detailed health paths: anonymous exact 401, VIEWER exact 403, ADMIN
+  preserves the existing 200/503 body;
+- omitted authenticator with a valid-looking active-mode cookie still returns
+  401;
+- fake invalid/expired/revoked/disabled tokens return `null` and receive the
+  identical exact 401 without planted token/cookie/database markers;
+- malformed and wrong-mode cookies receive the same 401;
+- success attaches exactly `user` and `{id}` session to the protected probe;
+- public unsafe probe still enforces CSRF;
+- guard precedence: anonymous unsafe ADMIN route + bad CSRF → 401, VIEWER + bad
+  CSRF → role 403, ADMIN + bad CSRF → CSRF 403;
+- handler metadata overrides controller roles and public wins over roles;
+- an authenticated ADMIN health 503 retains the Phase 0 health schema, proving
+  the auth filter does not wrap unrelated exceptions;
+- importing/composing the testing module has no environment or database side
+  effect.
 
 - [ ] **Step 2: Run RED**
 
-Run: `corepack pnpm vitest run apps/api/src/auth/security-pipeline.e2e-spec.ts apps/api/src/health/health.e2e.spec.ts`
+Run: `corepack pnpm vitest run apps/api/src/auth/security-pipeline.e2e.spec.ts apps/api/src/health/health.e2e.spec.ts`
 
-Expected: FAIL because guards and minimal liveness route are absent.
+Expected: FAIL because the ports, guards, policy errors, dynamic composition,
+and protected health metadata are absent.
 
 - [ ] **Step 3: Implement global guards/filter and refactor module composition**
 
-Order is session → role → CSRF for unsafe routes. `@Public()` bypasses session/role but not the login CSRF policy supplied by its controller. API continues to bind only `0.0.0.0:5000` inside Docker; CORS is not enabled.
+Implement only the frozen boundary above. Do not implement Task 5's database
+session authenticator or auth controllers early. The deny-all production
+fallback keeps every protected route closed until Task 5 installs the real
+adapter.
 
 - [ ] **Step 4: Run GREEN and API gates**
 
@@ -559,7 +686,7 @@ Expected: HTTP policy, existing health behavior for ADMIN, and global gates PASS
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add apps/api docker-compose.yml
+git add apps/api package.json pnpm-lock.yaml docker-compose.yml
 git commit -m "feat: enforce default deny API security"
 ```
 
