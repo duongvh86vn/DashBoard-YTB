@@ -17,8 +17,130 @@
 body {
   margin: 0;
   min-height: 100vh;
+  background: radial-gradient(circle at 10% 0%, rgb(224 242 254 / 60%), transparent 30rem), #f8fafc;
 }
 
 * {
   box-sizing: border-box;
+}
+
+button,
+a,
+input {
+  outline-offset: 3px;
+}
+
+:focus-visible {
+  outline: 3px solid #0ea5e9;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@layer components {
+  .eyebrow {
+    @apply text-xs font-bold uppercase tracking-[0.2em] text-sky-700;
+  }
+
+  .surface-card {
+    @apply rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6;
+  }
+
+  .field-label {
+    @apply grid gap-2 text-sm font-semibold text-slate-700;
+  }
+
+  .field-input {
+    @apply min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-base font-normal text-slate-950 shadow-sm transition placeholder:text-slate-400 hover:border-slate-400 focus:border-sky-500;
+  }
+
+  .button-primary,
+  .button-danger,
+  .button-secondary,
+  .button-dark-secondary,
+  .button-table,
+  .button-table-danger {
+    @apply min-h-10 rounded-xl px-4 py-2 text-sm font-bold transition;
+  }
+
+  .button-primary {
+    @apply bg-slate-950 text-white hover:bg-sky-700;
+  }
+
+  .button-danger {
+    @apply bg-rose-700 text-white hover:bg-rose-800;
+  }
+
+  .button-secondary {
+    @apply border border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50;
+  }
+
+  .button-dark-secondary {
+    @apply border border-slate-700 bg-slate-900 text-slate-100 hover:border-slate-500 hover:bg-slate-800;
+  }
+
+  .button-table,
+  .button-table-danger {
+    @apply min-h-9 px-3 py-1.5;
+  }
+
+  .button-table {
+    @apply border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+  }
+
+  .button-table-danger {
+    @apply border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100;
+  }
+
+  .nav-link {
+    @apply rounded-xl px-4 py-3 text-sm font-semibold text-slate-300 transition hover:bg-slate-900 hover:text-white;
+  }
+
+  .nav-link-active {
+    @apply bg-sky-600 text-white;
+  }
+
+  .alert-error {
+    @apply rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800;
+  }
+
+  .alert-success {
+    @apply rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800;
+  }
+
+  .dialog-backdrop {
+    @apply fixed inset-0 z-50 grid place-items-center bg-slate-950/60 px-5 py-8 backdrop-blur-sm;
+  }
+
+  .dialog-panel {
+    @apply max-h-full w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl;
+  }
+
+  .table-cell {
+    @apply border-b border-slate-100 px-3 py-4 text-sm;
+  }
+
+  .status-enabled,
+  .status-disabled {
+    @apply inline-flex rounded-full px-2.5 py-1 text-xs font-bold;
+  }
+
+  .status-enabled {
+    @apply bg-emerald-100 text-emerald-800;
+  }
+
+  .status-disabled {
+    @apply bg-slate-200 text-slate-700;
+  }
+}
+
+.login-glow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 25% 20%, rgb(14 165 233 / 22%), transparent 24rem),
+    radial-gradient(circle at 80% 80%, rgb(239 68 68 / 16%), transparent 22rem);
+  pointer-events: none;
 }

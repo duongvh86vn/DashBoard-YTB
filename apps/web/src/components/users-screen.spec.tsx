@@ -1,0 +1,410 @@
+// @vitest-environment jsdom
+
+import "@testing-library/jest-dom/vitest";
+
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { AuthProvider } from "../lib/auth-context.js";
+import { AdminGate } from "./auth-gate.js";
+import { UsersScreen } from "./users-screen.js";
+
+const navigation = vi.hoisted(() => ({ replace: vi.fn() }));
+
+vi.mock("next/navigation", () => ({ useRouter: () => navigation }));
+
+const admin = {
+  id: "00000000-0000-4000-8000-000000000001",
+  email: "admin@example.com",
+  role: "ADMIN",
+  isEnabled: true,
+  createdAt: "2026-08-20T00:00:00.000Z",
+  updatedAt: "2026-08-20T00:00:00.000Z",
+  disabledAt: null,
+} as const;
+
+const viewer = {
+  id: "00000000-0000-4000-8000-000000000002",
+  email: "viewer@example.com",
+  role: "VIEWER",
+  isEnabled: true,
+  createdAt: "2026-08-22T00:00:00.000Z",
+  updatedAt: "2026-08-22T00:00:00.000Z",
+  disabledAt: null,
+} as const;
+
+const secondViewer = {
+  ...viewer,
+  id: "00000000-0000-4000-8000-000000000003",
+  email: "second@example.com",
+};
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function renderUsers() {
+  return render(
+    <AuthProvider>
+      <AdminGate>
+        <UsersScreen />
+      </AdminGate>
+    </AuthProvider>,
+  );
+}
+
+afterEach(() => {
+  cleanup();
+  navigation.replace.mockReset();
+  vi.unstubAllGlobals();
+});
+
+describe("UsersScreen", () => {
+  it("never calls the Users API for a direct VIEWER visit", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ user: { ...viewer, role: "VIEWER" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderUsers();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("không có quyền");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const calls = fetchMock.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit?]>;
+    expect(calls.some(([path]) => String(path).startsWith("/api/v1/users"))).toBe(false);
+  });
+
+  it("renders empty state and server pagination boundaries", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ user: admin }))
+      .mockResolvedValueOnce(jsonResponse({ items: [viewer], page: 1, pageSize: 20, total: 21 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ items: [secondViewer], page: 2, pageSize: 20, total: 21 }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ items: [], page: 1, pageSize: 20, total: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderUsers();
+
+    expect(await screen.findByText(viewer.email)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Trang trước" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    expect(await screen.findByText(secondViewer.email)).toBeInTheDocument();
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("/api/v1/users?page=2&pageSize=20");
+
+    fireEvent.click(screen.getByRole("button", { name: "Trang trước" }));
+    expect(await screen.findByText("Chưa có tài khoản VIEWER.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Trang sau" })).toBeDisabled();
+  });
+
+  it("offers a fixed-copy retry state when the list service is unavailable", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ user: admin }))
+      .mockRejectedValueOnce(new TypeError("planted network detail"))
+      .mockResolvedValueOnce(jsonResponse({ items: [], page: 1, pageSize: 20, total: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderUsers();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Dịch vụ đang tạm thời không khả dụng. Vui lòng thử lại.",
+    );
+    expect(screen.getByRole("alert")).not.toHaveTextContent("planted network detail");
+    fireEvent.click(screen.getByRole("button", { name: "Thử tải lại danh sách" }));
+
+    expect(await screen.findByText("Chưa có tài khoản VIEWER.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("aborts an obsolete list request when pagination changes again", async () => {
+    let pageTwoSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((path: string, init?: RequestInit) => {
+      if (path === "/api/v1/auth/me") return Promise.resolve(jsonResponse({ user: admin }));
+      if (path === "/api/v1/users?page=2&pageSize=20") {
+        pageTwoSignal = init?.signal as AbortSignal | undefined;
+        return new Promise<Response>(() => undefined);
+      }
+      return Promise.resolve(jsonResponse({ items: [viewer], page: 1, pageSize: 20, total: 21 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderUsers();
+    expect(await screen.findByText(viewer.email)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    await waitFor(() => expect(pageTwoSignal).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Trang trước" }));
+
+    await waitFor(() => expect(pageTwoSignal?.aborted).toBe(true));
+    expect(fetchMock.mock.calls.filter(([path]) => String(path).includes("page=1")).length).toBe(2);
+  });
+
+  it("creates a VIEWER, clears its password, and refetches server state", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ user: admin }))
+      .mockResolvedValueOnce(jsonResponse({ items: [], page: 1, pageSize: 20, total: 0 }))
+      .mockResolvedValueOnce(jsonResponse({ user: viewer }, 201))
+      .mockResolvedValueOnce(jsonResponse({ items: [viewer], page: 1, pageSize: 20, total: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderUsers();
+
+    const email = await screen.findByRole("textbox", { name: "Email VIEWER mới" });
+    const password = screen.getByLabelText("Mật khẩu VIEWER mới");
+    fireEvent.change(email, { target: { value: viewer.email } });
+    fireEvent.change(password, { target: { value: "password-long-enough" } });
+    fireEvent.click(screen.getByRole("button", { name: "Tạo VIEWER" }));
+
+    expect(await screen.findByText(viewer.email)).toBeInTheDocument();
+    expect(password).toHaveValue("");
+    const [path, init] = fetchMock.mock.calls[2] as unknown as [string, RequestInit];
+    expect(path).toBe("/api/v1/users");
+    expect(init.body).toBe(
+      JSON.stringify({ email: viewer.email, password: "password-long-enough" }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("still clears creation credentials when a retry succeeds after an earlier conflict", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ user: admin }))
+      .mockResolvedValueOnce(jsonResponse({ items: [], page: 1, pageSize: 20, total: 0 }))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          { error: { code: "USER_ALREADY_EXISTS", message: "planted conflict detail" } },
+          409,
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponse({ user: viewer }, 201))
+      .mockResolvedValueOnce(jsonResponse({ items: [viewer], page: 1, pageSize: 20, total: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderUsers();
+
+    const email = await screen.findByRole("textbox", { name: "Email VIEWER mới" });
+    const password = screen.getByLabelText("Mật khẩu VIEWER mới");
+    fireEvent.change(email, { target: { value: viewer.email } });
+    fireEvent.change(password, { target: { value: "first-password-long" } });
+    fireEvent.click(screen.getByRole("button", { name: "Tạo VIEWER" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Email này đã được sử dụng.");
+
+    fireEvent.change(email, { target: { value: viewer.email } });
+    fireEvent.change(password, { target: { value: "second-password-long" } });
+    fireEvent.click(screen.getByRole("button", { name: "Tạo VIEWER" }));
+
+    expect(await screen.findByText(viewer.email)).toBeInTheDocument();
+    expect(email).toHaveValue("");
+    expect(password).toHaveValue("");
+  });
+
+  it("uses semantic confirmations, suppresses duplicate revoke, and refetches after success", async () => {
+    let resolveRevoke!: (response: Response) => void;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ user: admin }))
+      .mockResolvedValueOnce(jsonResponse({ items: [viewer], page: 1, pageSize: 20, total: 1 }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveRevoke = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ items: [viewer], page: 1, pageSize: 20, total: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderUsers();
+    expect(await screen.findByText(viewer.email)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: `Thu hồi phiên của ${viewer.email}` }));
+    const dialog = screen.getByRole("dialog", { name: "Thu hồi phiên đăng nhập" });
+    expect(dialog).toHaveTextContent("tất cả phiên đăng nhập");
+    expect(within(dialog).getByRole("button", { name: "Hủy" })).toHaveFocus();
+    const confirm = within(dialog).getByRole("button", { name: "Xác nhận thu hồi phiên" });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+
+    expect(
+      fetchMock.mock.calls.filter(
+        ([path]) => path === `/api/v1/users/${viewer.id}/revoke-sessions`,
+      ),
+    ).toHaveLength(1);
+    resolveRevoke(new Response(null, { status: 204 }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("wires email, reset, disable, and enable controls to server-refetched lifecycle state", async () => {
+    const updatedViewer = { ...viewer, email: "next@example.com" };
+    const disabledViewer = {
+      ...updatedViewer,
+      isEnabled: false,
+      disabledAt: "2026-08-22T01:00:00.000Z",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ user: admin }))
+      .mockResolvedValueOnce(jsonResponse({ items: [viewer], page: 1, pageSize: 20, total: 1 }))
+      .mockResolvedValueOnce(jsonResponse({ user: updatedViewer }))
+      .mockResolvedValueOnce(
+        jsonResponse({ items: [updatedViewer], page: 1, pageSize: 20, total: 1 }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ items: [updatedViewer], page: 1, pageSize: 20, total: 1 }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ items: [disabledViewer], page: 1, pageSize: 20, total: 1 }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ items: [updatedViewer], page: 1, pageSize: 20, total: 1 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    renderUsers();
+    expect(await screen.findByText(viewer.email)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: `Đổi email của ${viewer.email}` }));
+    fireEvent.change(screen.getByLabelText("Email mới"), {
+      target: { value: updatedViewer.email },
+    });
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Lưu email" }));
+    expect(await screen.findByText(updatedViewer.email)).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: `Đặt lại mật khẩu của ${updatedViewer.email}` }),
+    );
+    fireEvent.change(screen.getByLabelText("Mật khẩu mới"), {
+      target: { value: "discarded-password" },
+    });
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Hủy" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: `Đặt lại mật khẩu của ${updatedViewer.email}` }),
+    );
+    expect(screen.getByLabelText("Mật khẩu mới")).toHaveValue("");
+    fireEvent.change(screen.getByLabelText("Mật khẩu mới"), {
+      target: { value: "replacement-password" },
+    });
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Xác nhận đặt lại mật khẩu",
+      }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
+
+    fireEvent.click(screen.getByRole("button", { name: `Vô hiệu hóa ${updatedViewer.email}` }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Xác nhận vô hiệu hóa",
+      }),
+    );
+    expect(await screen.findByText("Đã vô hiệu hóa")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: `Kích hoạt ${updatedViewer.email}` }));
+    expect(await screen.findByText("Đang hoạt động")).toBeInTheDocument();
+
+    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
+    expect(calls[2]).toMatchObject([
+      `/api/v1/users/${viewer.id}`,
+      { method: "PATCH", body: JSON.stringify({ email: updatedViewer.email }) },
+    ]);
+    expect(calls[4]).toMatchObject([
+      `/api/v1/users/${viewer.id}/reset-password`,
+      { method: "POST", body: JSON.stringify({ password: "replacement-password" }) },
+    ]);
+    expect(calls[6]?.[0]).toBe(`/api/v1/users/${viewer.id}/disable`);
+    expect(calls[8]?.[0]).toBe(`/api/v1/users/${viewer.id}/enable`);
+  });
+
+  it("falls back one page after the final item is disabled through the delete alias", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ user: admin }))
+      .mockResolvedValueOnce(jsonResponse({ items: [viewer], page: 1, pageSize: 20, total: 21 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ items: [secondViewer], page: 2, pageSize: 20, total: 21 }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(jsonResponse({ items: [], page: 2, pageSize: 20, total: 20 }))
+      .mockResolvedValueOnce(jsonResponse({ items: [viewer], page: 1, pageSize: 20, total: 20 }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderUsers();
+
+    expect(await screen.findByText(viewer.email)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    expect(await screen.findByText(secondViewer.email)).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: `Xóa (vô hiệu hóa) ${secondViewer.email}` }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Xóa theo nghiệp vụ" });
+    expect(dialog).toHaveTextContent("không xóa dữ liệu");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận vô hiệu hóa" }));
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls[5]?.[0]).toBe("/api/v1/users?page=1&pageSize=20"),
+    );
+    expect(await screen.findByText(viewer.email)).toBeInTheDocument();
+  });
+
+  it.each([
+    [400, "VALIDATION_ERROR", "Dữ liệu không hợp lệ. Vui lòng kiểm tra lại."],
+    [403, "AUTH_FORBIDDEN", "Bạn không có quyền thực hiện thao tác này."],
+    [404, "USER_NOT_FOUND", "Không tìm thấy người dùng."],
+    [409, "USER_ALREADY_EXISTS", "Email này đã được sử dụng."],
+  ])("keeps auth and renders fixed copy for %s/%s", async (status, code, message) => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ user: admin }))
+      .mockResolvedValueOnce(jsonResponse({ items: [viewer], page: 1, pageSize: 20, total: 1 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ error: { code, message: "planted server text" } }, status),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    renderUsers();
+    expect(await screen.findByText(viewer.email)).toBeInTheDocument();
+
+    if (code === "VALIDATION_ERROR" || code === "USER_ALREADY_EXISTS") {
+      fireEvent.change(screen.getByRole("textbox", { name: "Email VIEWER mới" }), {
+        target: { value: "duplicate@example.com" },
+      });
+      fireEvent.change(screen.getByLabelText("Mật khẩu VIEWER mới"), {
+        target: { value: "password-long-enough" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Tạo VIEWER" }));
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: `Thu hồi phiên của ${viewer.email}` }));
+      fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", {
+          name: "Xác nhận thu hồi phiên",
+        }),
+      );
+    }
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(screen.getByRole("alert")).not.toHaveTextContent("planted server text");
+    expect(navigation.replace).not.toHaveBeenCalledWith("/login");
+  });
+
+  it("clears global auth only for exact unauthenticated protected responses", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ user: admin }))
+      .mockResolvedValueOnce(jsonResponse({ items: [viewer], page: 1, pageSize: 20, total: 1 }))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          { error: { code: "AUTH_UNAUTHENTICATED", message: "Authentication required" } },
+          401,
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    renderUsers();
+    expect(await screen.findByText(viewer.email)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: `Thu hồi phiên của ${viewer.email}` }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Xác nhận thu hồi phiên",
+      }),
+    );
+
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/login"));
+  });
+});

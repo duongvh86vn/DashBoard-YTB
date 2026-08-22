@@ -206,6 +206,9 @@ importers:
 
   packages/auth:
     dependencies:
+      '@yt-monitor/shared':
+        specifier: workspace:*
+        version: link:../shared
       argon2:
         specifier: 0.45.1
         version: 0.45.1

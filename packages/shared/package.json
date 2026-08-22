@@ -8,6 +8,10 @@
     ".": {
       "types": "./src/index.ts",
       "import": "./dist/index.js"
+    },
+    "./browser-auth": {
+      "types": "./src/browser-auth.ts",
+      "import": "./dist/browser-auth.js"
     }
   },
   "scripts": {
