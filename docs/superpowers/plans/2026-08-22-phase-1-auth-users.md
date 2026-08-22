@@ -1121,37 +1121,62 @@ git commit -m "feat: add viewer account administration"
 
 **Files:**
 
-- Create: `apps/web/src/lib/api-client.ts`, `auth-context.tsx`, `auth-types.ts`
-- Create: `apps/web/src/app/login/page.tsx` and focused components/tests
-- Create: `apps/web/src/app/(authenticated)/layout.tsx`, `page.tsx`, `users/page.tsx` and tests
-- Modify: `apps/web/src/app/page.tsx`, `layout.tsx`, `globals.css`
+- Create/Test: `packages/shared/src/browser-auth.ts`, `packages/shared/src/browser-auth.spec.ts`
+- Modify: `packages/shared/package.json`, `packages/auth/package.json`, `packages/auth/src/contracts.ts`, `pnpm-lock.yaml`
+- Create/Test: `apps/web/src/lib/api-client.ts`, `api-client.spec.ts`, `auth-context.tsx`, `auth-context.spec.tsx`
+- Create/Test: `apps/web/src/components/auth-gate.tsx`, `login-form.tsx`, `change-password-form.tsx`, `app-shell.tsx`, `users-screen.tsx` and one matching `*.spec.tsx` for each component
+- Create: `apps/web/src/app/login/page.tsx`, `apps/web/src/app/(authenticated)/layout.tsx`, `apps/web/src/app/(authenticated)/page.tsx`, `apps/web/src/app/(authenticated)/users/page.tsx`
+- Delete: `apps/web/src/app/page.tsx`, `apps/web/src/app/page.spec.tsx`; the authenticated route-group page becomes the one and only `/` route
+- Modify: `apps/web/src/app/layout.tsx`, `apps/web/src/app/globals.css`, `apps/web/package.json`, `apps/web/next.config.ts`
 
 **Interfaces:**
 
-- Same-origin client always sends credentials; unsafe JSON calls add `X-CSRF-Protection: 1`.
-- Anonymous users are routed to `/login`. Authenticated users see a Vietnamese shell and system-foundation status. ADMIN sees `Người dùng`; VIEWER has no user-management action.
-- Users screen supports server pagination, create VIEWER, change email, reset password, revoke sessions, disable/enable, and delete-as-disable with explicit Vietnamese confirmation/error states.
+- Preserve the architecture boundary `web -> shared, config, ui`: move the browser-safe `UserRoleValue`, `PublicUser`, `AuthErrorCode`, and `CSRF_HEADER_NAME` contract to a leaf `@yt-monitor/shared/browser-auth` export with Zod response schemas. `@yt-monitor/auth` depends on that leaf and re-exports the existing names so API imports remain compatible. Web never imports the full Auth package or its Node/Argon2 runtime.
+- The shared leaf validates `{user:PublicUser}`, `{items,page,pageSize,total}`, and known `{error:{code,message}}` envelopes. It contains no Node-only/logger import. Never duplicate transport interfaces manually in Web and never render arbitrary server/internal error text.
+- The same-origin client accepts only `/api/v1` paths, always sets `credentials:"same-origin"` and `cache:"no-store"`, and adds exact JSON content type plus `X-CSRF-Protection: 1` only for unsafe calls. The browser owns `Origin`; client code never forges forwarding/IP headers. Zero-semantic-body POST/DELETE actions send exact `{}`. IDs are encoded and pagination uses `URLSearchParams`.
+- The client never automatically retries an unsafe request. It safely handles 204, rejects malformed/non-JSON or schema-invalid success/error responses as a generic service failure, exposes only status plus allowlisted code through typed `ApiError`, accepts `AbortSignal`, and never includes request bodies, passwords, cookies, or raw response text in errors/logs.
+- Auth state is a discriminated union: `loading | anonymous | authenticated | error`. Bootstrap calls exact `GET /api/v1/auth/me`; only exact 401/`AUTH_UNAUTHENTICATED` clears the principal and redirects to `/login`. Network/5xx/schema errors show a retry state and must not be treated as anonymous. `AUTH_INVALID_CREDENTIALS`, `AUTH_CSRF_INVALID`, or another known error must not log out an otherwise valid principal.
+- Protected children never render while bootstrap is loading, preventing a protected-content flash. Authenticated visits to `/login` replace-navigate to `/`; authenticated routes redirect only after authoritative unauthenticated state. A disabled/revoked session redirects on bootstrap or the next protected API response; Phase 1 does not claim real-time invalidation/polling.
+- Authenticated users see an accessible Vietnamese shell. ADMIN sees `Người dùng`; VIEWER never sees the action. A direct VIEWER visit to `/users` redirects to `/` or renders a Vietnamese forbidden state without issuing `GET /users`; backend role enforcement remains authoritative.
+- The `/` dashboard contains truthful static Phase 1 copy: login/user administration is available, while channel/video collection and monitoring metrics arrive in later phases. It must not call detailed health as VIEWER, keep the old raw health link, or fabricate channel/video counts, status, freshness, or analytics.
+- Login covers invalid credentials, rate limit, CSRF, and service-unavailable states in Vietnamese. There is no signup API, page, or link. Logout sends `{}`, clears local auth state after 204, and goes to `/login`.
+- The shell includes a small self-service `Đổi mật khẩu` surface for §70. On success it clears both password fields and local auth state, then returns to login because the API revoked every session. Password fields are never persisted to storage or retained after success/cancel.
+- The ADMIN Users screen consumes the exact Task 6 contract: server pagination; create VIEWER; change email; reset password; revoke sessions; disable/enable; and delete-as-disable. Reset, revoke, disable, and delete require explicit semantic Vietnamese confirmation; pending actions suppress duplicate submission. After success, refetch server state rather than inventing optimistic state. Abort stale list requests and fall back one page when the last item on a non-first page disappears.
+- Known 400/401/403/404/409/429 codes map to fixed Vietnamese messages. Only `AUTH_UNAUTHENTICATED` changes global auth state. Fields with passwords clear after success and dialog close. Focus is visible; form labels, buttons, navigation, table status, modal confirmation, loading/error/empty states, and `aria-live` feedback are semantic and keyboard accessible.
 
 - [ ] **Step 1: Write RED component/client tests**
 
 ```tsx
 expect(screen.getByRole("heading", { name: "Đăng nhập" })).toBeInTheDocument();
-await user.click(screen.getByRole("button", { name: "Đăng nhập" }));
+fireEvent.click(screen.getByRole("button", { name: "Đăng nhập" }));
 expect(fetchRequest.headers.get("X-CSRF-Protection")).toBe("1");
 expect(screen.queryByRole("link", { name: "Người dùng" })).not.toBeInTheDocument();
 ```
 
-Tests exercise the real components with a small HTTP boundary fake, not mocked child components. Cover loading, invalid credentials, forbidden, empty users, pagination, mutation errors, logout, and disabled-session redirect.
+Tests exercise real components with only fetch/navigation boundaries faked; every component spec declares jsdom. Prove:
+
+- safe GET credentials/no-store without CSRF/content type; unsafe exact headers/body with no retry; safe 204 and malformed/non-JSON handling;
+- bootstrap 200 versus exact unauthenticated 401 versus network/500, no protected-shell flash, login redirect, and authenticated `/login` redirect;
+- invalid credentials/rate limit/CSRF/service errors use fixed Vietnamese copy; logout and successful password change clear local auth state and password fields;
+- VIEWER has no Users action and direct `/users` performs no Users API call; ADMIN sees it;
+- empty list, pagination boundaries, stale-request cancellation, last-item page fallback, and exact route/body for all seven mutations;
+- destructive confirmation, duplicate-submit suppression, refetch behavior, and 400/401/403/404/409 failure handling where only `AUTH_UNAUTHENTICATED` redirects;
+- no signup link/route, storage of session/password data, raw health link, or fabricated dashboard metric.
 
 - [ ] **Step 2: Run RED**
 
-Run: `corepack pnpm vitest run apps/web`
+Run:
 
-Expected: FAIL because login/authenticated/users UI modules are absent.
+```powershell
+corepack pnpm vitest run packages/shared/src/browser-auth.spec.ts apps/web
+corepack pnpm --filter @yt-monitor/web typecheck
+```
+
+Expected: FAIL because the browser contract, client, auth state, and UI modules are absent and the old root route still owns `/`.
 
 - [ ] **Step 3: Implement the minimal accessible Vietnamese UI**
 
-Use semantic labels/buttons/tables, visible focus, status text with `aria-live`, and no fake monitoring metrics. Viewer dashboard states that channel/video data arrives in later collection phases.
+Use the existing Tailwind 4 toolchain and `globals.css`; do not add a component framework, image dependency, client state library, cookie library, or client-side token storage. Keep pages thin and logic in the tested client/context/components. Do not remove the temporary anonymous Web `/health` route in this task because the Phase 0 Compose healthcheck still consumes it; Task 8 removes the route and switches the Web container to internal TCP atomically.
 
 - [ ] **Step 4: Run GREEN and Web gates**
 
@@ -1159,18 +1184,21 @@ Run:
 
 ```powershell
 corepack pnpm vitest run apps/web
+corepack pnpm vitest run packages/shared/src/browser-auth.spec.ts packages/auth/src/contracts.spec.ts
+corepack pnpm --filter @yt-monitor/shared typecheck
+corepack pnpm --filter @yt-monitor/auth typecheck
 corepack pnpm --filter @yt-monitor/web typecheck
 corepack pnpm --filter @yt-monitor/web build
 corepack pnpm lint
 corepack pnpm test
 ```
 
-Expected: Web component tests, typecheck, build, and global unit gates PASS.
+Expected: browser-contract/component/client tests, package typechecks, production Web build, lint, and global unit gates PASS. Build output has one `/` route, `/login`, and `/users`, with no signup route.
 
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add apps/web
+git add apps/web packages/shared packages/auth/package.json packages/auth/src/contracts.ts pnpm-lock.yaml
 git commit -m "feat: add Vietnamese login and users UI"
 ```
 
