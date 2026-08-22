@@ -5,6 +5,7 @@ import {
   createPrismaClient,
   IdentityUnitOfWork,
   LoginThrottleRepository,
+  seedInitialAdmin,
   SessionRepository,
   UserRepository,
 } from "@yt-monitor/db";
@@ -144,6 +145,33 @@ describe("real PostgreSQL auth flow", () => {
     expect(audits[0]?.metadata).toEqual({ passwordRehashed: true });
     expect(JSON.stringify({ audits, result })).not.toMatch(/short|bGVnYWN5LXNob3J0/u);
   });
+
+  it.each(["tên@example.com", "admin@例子.com", "a@b.c", "double..dot@example.com"])(
+    "logs in the ADMIN seeded with bootstrap-compatible email %s",
+    async (email) => {
+      const password = "bootstrap-compatible-password";
+
+      await expect(seedInitialAdmin({ email, password }, { client })).resolves.toEqual({
+        status: "CREATED",
+      });
+      const result = await createService(systemPasswords).login({ email, password });
+      const storedUser = await client.user.findUniqueOrThrow({ where: { email } });
+      const storedSessions = await client.session.findMany({ where: { userId: storedUser.id } });
+      const audits = await client.auditLog.findMany();
+
+      expect(result.user).toMatchObject({ email, role: "ADMIN", isEnabled: true });
+      expect(storedSessions).toHaveLength(1);
+      expect(audits).toHaveLength(1);
+      expect(audits[0]).toMatchObject({
+        actorUserId: storedUser.id,
+        targetUserId: storedUser.id,
+        action: "LOGIN_SUCCEEDED",
+        outcome: "SUCCESS",
+      });
+      expect(JSON.stringify({ storedSessions, audits })).not.toContain(password);
+      expect(JSON.stringify({ storedSessions, audits })).not.toContain(result.sessionToken);
+    },
+  );
 
   it("routes a PostgreSQL-unsafe control identifier through HMAC throttle without planting it", async () => {
     const email = "pg-db-unsafe\u0000sentinel@example.com";

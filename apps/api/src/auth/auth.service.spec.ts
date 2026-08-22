@@ -261,11 +261,41 @@ describe("AuthService login", () => {
     expect(JSON.stringify(harness.state)).not.toMatch(/unknown@example\.com|wrong/u);
   });
 
+  it.each(["tên@example.com", "admin@例子.com", "a@b.c", "double..dot@example.com"])(
+    "looks up and authenticates the bootstrap-compatible identifier %s",
+    async (email) => {
+      const account = user({ email });
+      const findByCanonicalEmail = vi.fn(async (canonicalEmail: string) =>
+        canonicalEmail === email ? account : null,
+      );
+      const harness = createHarness({
+        state: { users: [account], throttles: new Map(), sessions: [], audits: [] },
+        users: {
+          findByCanonicalEmail,
+          findById: vi.fn(async () => account),
+        },
+      });
+
+      const result = await harness.service.login({ email, password: CURRENT_PASSWORD });
+
+      expect(findByCanonicalEmail).toHaveBeenCalledExactlyOnceWith(email);
+      expect(harness.passwords.verify).toHaveBeenCalledExactlyOnceWith(
+        account.passwordHash,
+        CURRENT_PASSWORD,
+      );
+      expect(result.user.email).toBe(email);
+      expect(harness.state.sessions).toHaveLength(1);
+    },
+  );
+
   it.each([
     ["NUL", "db-unsafe\u0000sentinel@example.com"],
     ["C0 control", "db-unsafe\u0001sentinel@example.com"],
+    ["DEL control", "db-unsafe\u007fsentinel@example.com"],
+    ["C1 control", "db-unsafe\u0080sentinel@example.com"],
+    ["whitespace", "db-unsafe sentinel@example.com"],
     ["unpaired surrogate", "db-unsafe\ud800sentinel@example.com"],
-    ["invalid dot syntax", "db-unsafe..sentinel@example.com"],
+    ["unpaired low surrogate", "db-unsafe\udc00sentinel@example.com"],
   ])(
     "routes a %s identifier through dummy verification without a database lookup",
     async (_, email) => {

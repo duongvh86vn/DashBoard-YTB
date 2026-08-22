@@ -2,6 +2,7 @@ import {
   assertPasswordPolicy,
   AuthInputError,
   hashPassword as hashPasswordWithAuth,
+  isValidCanonicalEmail,
   normalizeEmail,
 } from "@yt-monitor/auth";
 
@@ -23,7 +24,7 @@ export type SeedAdminResult = { status: "CREATED" | "UNCHANGED" };
 const BOOTSTRAP_ADMIN_LOCK_KEY = "yt-monitor:seed-initial-admin:v1";
 
 function validateCanonicalEmail(email: string): void {
-  if (email.length === 0 || email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email)) {
+  if (!isValidCanonicalEmail(email)) {
     throw new AuthInputError("A valid bootstrap admin email is required");
   }
 }

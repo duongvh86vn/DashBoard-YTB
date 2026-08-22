@@ -2,11 +2,11 @@ import {
   assertPasswordPolicy,
   calculateSessionExpiry,
   createSessionCredential,
+  isValidCanonicalEmail,
   normalizeEmail,
   type PublicUser,
 } from "@yt-monitor/auth";
 import type { IdentityRepositories, UserRecord } from "@yt-monitor/db";
-import { z } from "zod";
 
 import { AuthApplicationError } from "./auth-application.error.js";
 import type { AuthApplicationPort } from "./auth-application.port.js";
@@ -56,12 +56,6 @@ function toPublicUser(user: UserRecord): PublicUser {
   };
 }
 
-const loginEmailLookupSchema = z.email().max(320);
-
-function isLookupSafeEmail(email: string): boolean {
-  return !/[\p{Cc}\p{Cs}]/u.test(email) && loginEmailLookupSchema.safeParse(email).success;
-}
-
 export class AuthService implements AuthApplicationPort {
   constructor(private readonly dependencies: AuthServiceDependencies) {}
 
@@ -86,7 +80,7 @@ export class AuthService implements AuthApplicationPort {
     }
 
     for (let stateAttempt = 0; stateAttempt < 2; stateAttempt += 1) {
-      const target = isLookupSafeEmail(canonicalEmail)
+      const target = isValidCanonicalEmail(canonicalEmail)
         ? await this.dependencies.users.findByCanonicalEmail(canonicalEmail)
         : null;
       const verifiedHash = target?.passwordHash ?? DUMMY_PASSWORD_HASH;

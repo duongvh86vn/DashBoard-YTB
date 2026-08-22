@@ -73,6 +73,34 @@ describe("seedInitialAdmin", () => {
     expect(fake.lock).toHaveBeenCalledOnce();
   });
 
+  it.each(["tên@example.com", "admin@例子.com", "a@b.c", "double..dot@example.com"])(
+    "preserves the bootstrap acceptance contract for %s",
+    async (email) => {
+      const fake = createDependencies();
+
+      await expect(
+        seedInitialAdmin({ email, password: "correct horse battery staple" }, fake.dependencies),
+      ).resolves.toEqual({ status: "CREATED" });
+      expect(fake.users[0]?.email).toBe(email);
+    },
+  );
+
+  it.each([
+    ["NUL", "admin\u0000@example.com"],
+    ["C0 control", "admin\u0001@example.com"],
+    ["DEL control", "admin\u007f@example.com"],
+    ["C1 control", "admin\u0080@example.com"],
+    ["unpaired high surrogate", "admin\ud800@example.com"],
+    ["unpaired low surrogate", "admin\udc00@example.com"],
+  ])("rejects a %s identifier before opening a transaction", async (_, email) => {
+    const fake = createDependencies();
+
+    await expect(
+      seedInitialAdmin({ email, password: "correct horse battery staple" }, fake.dependencies),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(fake.transaction).not.toHaveBeenCalled();
+  });
+
   it("leaves the password unchanged for the sole matching active ADMIN", async () => {
     const existing = {
       id: "00000000-0000-4000-8000-000000000001",

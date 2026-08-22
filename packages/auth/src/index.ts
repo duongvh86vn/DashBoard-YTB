@@ -15,6 +15,7 @@ export {
   AuthInputError,
   assertPasswordPolicy,
   hashPassword,
+  isValidCanonicalEmail,
   normalizeEmail,
   rehashVerifiedPassword,
   verifyPassword,

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertPasswordPolicy,
   hashPassword,
+  isValidCanonicalEmail,
   normalizeEmail,
   rehashVerifiedPassword,
   verifyPassword,
@@ -12,6 +13,33 @@ import {
 describe("password primitives", () => {
   it("normalizes email without preserving surrounding space or letter case", () => {
     expect(normalizeEmail("  Admin@Example.COM ")).toBe("admin@example.com");
+  });
+
+  it.each([
+    "tên@example.com",
+    "admin@例子.com",
+    "a@b.c",
+    "double..dot@example.com",
+    `${"a".repeat(316)}@b.c`,
+  ])("accepts the canonical email supported by bootstrap persistence: %s", (email) => {
+    expect(isValidCanonicalEmail(email)).toBe(true);
+  });
+
+  it.each([
+    ["empty", ""],
+    ["over 320 UTF-16 code units", `${"a".repeat(317)}@b.c`],
+    ["missing at sign", "admin.example.com"],
+    ["multiple at signs", "admin@@example.com"],
+    ["domain without a dot", "admin@example"],
+    ["whitespace", "admin @example.com"],
+    ["NUL", "admin\u0000@example.com"],
+    ["C0 control", "admin\u0001@example.com"],
+    ["DEL control", "admin\u007f@example.com"],
+    ["C1 control", "admin\u0080@example.com"],
+    ["unpaired high surrogate", "admin\ud800@example.com"],
+    ["unpaired low surrogate", "admin\udc00@example.com"],
+  ])("rejects a %s canonical email", (_, email) => {
+    expect(isValidCanonicalEmail(email)).toBe(false);
   });
 
   it("rejects passwords shorter than 12 Unicode code points", () => {

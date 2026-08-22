@@ -2,6 +2,9 @@ import argon2 from "argon2";
 
 const MIN_PASSWORD_CODE_POINTS = 12;
 const MAX_PASSWORD_CODE_POINTS = 128;
+const MAX_CANONICAL_EMAIL_LENGTH = 320;
+const CANONICAL_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+const DATABASE_UNSAFE_EMAIL_PATTERN = /[\p{Cc}\p{Cs}]/u;
 
 const ARGON2_OPTIONS = {
   type: argon2.argon2id,
@@ -33,6 +36,15 @@ export class AuthInputError extends Error {
 
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+export function isValidCanonicalEmail(email: string): boolean {
+  return (
+    email.length > 0 &&
+    email.length <= MAX_CANONICAL_EMAIL_LENGTH &&
+    !DATABASE_UNSAFE_EMAIL_PATTERN.test(email) &&
+    CANONICAL_EMAIL_PATTERN.test(email)
+  );
 }
 
 export function assertPasswordPolicy(password: string): void {
