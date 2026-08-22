@@ -73,3 +73,38 @@ ENV NODE_ENV=production
 USER node
 
 CMD ["node", "/app/node_modules/prisma/build/index.js", "migrate", "deploy"]
+
+FROM build AS db-seed
+
+ENV NODE_ENV=production
+
+USER node
+
+CMD ["node", "--import", "tsx", "prisma/seed.ts"]
+
+FROM mcr.microsoft.com/playwright:v1.62.1-noble AS e2e
+
+USER root
+
+COPY --from=base /usr/local/bin/node /usr/local/bin/node
+COPY --from=base /usr/local/lib/node_modules /usr/local/lib/node_modules
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+ENV COREPACK_HOME=/corepack
+
+RUN mkdir -p "$COREPACK_HOME" "$PNPM_HOME" /tmp/yhm-playwright-output \
+    && ln -sf ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack \
+    && corepack enable \
+    && corepack prepare pnpm@11.22.0 --activate \
+    && node -e "const [major]=process.versions.node.split('.').map(Number);if(major!==24)process.exit(1)" \
+    && test "$(pnpm --version)" = "11.22.0" \
+    && chown -R pwuser:pwuser "$COREPACK_HOME" "$PNPM_HOME" /tmp/yhm-playwright-output
+
+WORKDIR /app
+
+COPY --from=build --chown=pwuser:pwuser /app /app
+
+USER pwuser
+
+CMD ["sh", "-c", "set -eu; : \"${E2E_BASE_URL:?}\" \"${E2E_ADMIN_EMAIL:?}\" \"${E2E_ADMIN_PASSWORD:?}\" \"${E2E_MATRIX_VIEWER_EMAIL:?}\" \"${E2E_MATRIX_VIEWER_UPDATED_EMAIL:?}\" \"${E2E_MATRIX_VIEWER_PASSWORD:?}\" \"${E2E_MATRIX_VIEWER_RESET_PASSWORD:?}\" \"${E2E_LOGOUT_VIEWER_EMAIL:?}\" \"${E2E_LOGOUT_VIEWER_PASSWORD:?}\" \"${E2E_CHANGE_VIEWER_EMAIL:?}\" \"${E2E_CHANGE_VIEWER_PASSWORD:?}\" \"${E2E_CHANGE_VIEWER_NEW_PASSWORD:?}\" \"${E2E_BROWSER_VIEWER_EMAIL:?}\" \"${E2E_BROWSER_VIEWER_PASSWORD:?}\" \"${E2E_RAW_SESSION_TOKEN_MARKER:?}\"; node -e \"const [major]=process.versions.node.split('.').map(Number);if(major!==24)process.exit(1)\"; test \"$(pnpm --version)\" = \"11.22.0\"; rm -rf /tmp/yhm-playwright-output/*; pnpm test:e2e"]

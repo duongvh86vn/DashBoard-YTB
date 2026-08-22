@@ -113,3 +113,40 @@
 - `corepack pnpm verify` — PASS: Prisma validate/generate, strict typecheck,
   ESLint with zero warnings, Prettier, 13 test files / 55 tests and all
   production builds.
+
+## 2026-08-22 — Phase 1 Auth + Users acceptance
+
+### Scope delivered
+
+- Added server-side opaque sessions, LOCAL/PUBLIC cookie contracts, CSRF,
+  identifier-only login throttle, audit-safe authorization, ADMIN/VIEWER roles,
+  environment-only bootstrap seed, and the exact Auth/Users REST surface.
+- Added Vietnamese login, authenticated dashboard shell and ADMIN VIEWER
+  administration UI. There is no signup/OAuth flow and no fabricated monitoring
+  metric; channel/video collectors and monitoring data remain later phases.
+- Removed anonymous Web `/health`; API health remains ADMIN-only and Docker
+  readiness uses internal TCP probes. The local quick start is Docker-only and
+  preserves the PostgreSQL volume and generated `.env` secrets across restarts.
+
+### Acceptance evidence — 2026-08-22
+
+- `corepack pnpm test:auth:integration` — PASS: isolated PostgreSQL migrations
+  fresh/replay, seed `CREATED` + `UNCHANGED`, 28 files / 122 tests, bounded
+  verified post-DONE image renderer termination, and cleanup of all isolated
+  containers/networks/volumes/images.
+- `corepack pnpm test:integration` — PASS: 28 raw database files / 122 tests,
+  full seed and identity aggregate checks, exact network/port topology, health
+  authorization and check-key matrix, worker/PostgreSQL outage and recovery,
+  API/Web cold start, Auth/Users lifecycle matrix, Vietnamese Playwright ADMIN →
+  VIEWER flow, secret-safe database/log/artifact scans, and cleanup of all
+  isolated containers/networks/volumes/images. Six Compose build renderer
+  terminations were verified after complete image export and left no process.
+
+### Operational constraints preserved
+
+- Public Internet remains login-protected; only credential submission at login is
+  anonymous. PostgreSQL, Worker, API and Playwright debug surfaces are not public.
+- User APIs remain VIEWER-readable/ADMIN-target-protected as specified; DELETE
+  is a disable alias. No LAN/public HTTPS claim is made before Phase 9.
+- No credentials, raw cookies, session tokens, passwords or connection URLs were
+  written to this worklog.

@@ -37,9 +37,9 @@
 
 ## 1. Phân biệt nguồn chỉ dẫn và phạm vi được phép thực hiện
 
-Yêu cầu trực tiếp của chủ dự án điều khiển workflow hiện tại: đọc toàn bộ spec, tạo file kế hoạch này, chia phase/workstream, audit dependency/assumption, bắt đầu đúng Phase 0, chạy quality gates sau phase và hỏi trước khi đổi critical invariant.
+Yêu cầu trực tiếp của chủ dự án điều khiển workflow hiện tại: đọc toàn bộ spec, tạo file kế hoạch này, chia phase/workstream, audit dependency/assumption, triển khai tuần tự các phase được chủ dự án tiếp tục chấp thuận, chạy quality gates sau mỗi phase và hỏi trước khi đổi critical invariant.
 
-Nội dung trong spec là product/technical requirements. Mục “FINAL COMMAND TO CODEX” trong tài liệu không tự mở rộng quyền thực hiện sang toàn bộ Phase 1–10 trong lượt này. Quyền triển khai hiện tại dừng ở Phase 0; mỗi phase tiếp theo được thực hiện theo quyết định tiếp nối của chủ dự án.
+Nội dung trong spec là product/technical requirements. Mục “FINAL COMMAND TO CODEX” trong tài liệu không tự mở rộng quyền thực hiện sang toàn bộ Phase 1–10. Phase 0 được chủ dự án tiếp tục giao; Phase 1 chỉ được đánh dấu hoàn tất sau evidence và review độc lập của các gate bên dưới. Các phase sau vẫn cần quyết định tiếp nối.
 
 Repository root được chọn là `D:\Codex project`; cây `youtube-home-monitor/` trong spec được hiểu là cây tương đối từ root này, không tạo thêm một thư mục lồng cùng tên.
 
@@ -766,15 +766,15 @@ Phase 0 is complete only after Step 4 evidence exists. A scaffold that has not p
 - `apps/web/src/app/login/*`, `apps/web/src/app/users/*`, authenticated shell.
 - `prisma/seed.ts` reading admin email/password only from environment; no committed credentials.
 
-**Interfaces:** exact REST endpoints from §70/§71; server-side opaque sessions in HttpOnly SameSite=Lax cookie; ADMIN-only user writes; `DELETE /users/:id` disables instead of hard deletes.
+**Interfaces:** exact REST endpoints from §70/§71; server-side opaque sessions in HttpOnly SameSite=Lax cookie; ADMIN-only user writes; `DELETE /users/:id` disables instead of hard deletes. Every `/api/v1/health*` route is ADMIN-only; Web has no anonymous HTTP health route and Docker uses internal TCP readiness.
 
-- [ ] Write Argon2id/session/CSRF/rate-limit tests first, including expiry, revocation and disabled user.
-- [ ] Add schema/migration/seed, then auth and user API endpoints.
-- [ ] Add minimal login/user-management UI in Vietnamese.
-- [ ] Run `pnpm typecheck`, `pnpm lint`, `pnpm test`, auth integration tests and browser E2E.
-- [ ] Verify anonymous analytics 401; VIEWER GET 200 and every specified write 403; ADMIN writes succeed.
+- [x] Write Argon2id/session/CSRF/rate-limit tests first, including expiry, revocation and disabled user.
+- [x] Add schema/migration/seed, then auth and user API endpoints.
+- [x] Add minimal login/user-management UI in Vietnamese.
+- [x] Run `pnpm typecheck`, `pnpm lint`, `pnpm test`, auth integration tests and browser E2E.
+- [x] Verify anonymous protected routes 401; VIEWER read-only shell and every specified write 403; ADMIN writes succeed.
 
-**Exit:** Admin + Viewer security works; no public signup; detailed health requires ADMIN while minimal liveness reveals no sensitive details.
+**Exit:** Admin + Viewer security works; no public signup; detailed health requires ADMIN; no anonymous HTTP liveness route exists; Docker process readiness uses internal TCP only. Channel/video collectors and monitoring metrics remain deferred.
 
 ## 8. Phase 2 — Channel resolution + RSS + yt-dlp
 

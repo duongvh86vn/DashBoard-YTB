@@ -177,6 +177,21 @@ describe("health HTTP API", () => {
     expect(response.body).toMatchObject({ service, status });
   });
 
+  it.each([
+    ["/health", ["ai", "collectors", "database", "worker"]],
+    ["/health/db", ["database"]],
+    ["/health/worker", ["worker"]],
+    ["/health/collectors", ["collectors"]],
+    ["/health/ai", ["ai"]],
+  ])("keeps the exact ADMIN health check-key set for GET %s", async (path, checkKeys) => {
+    const response = await request(app.getHttpServer())
+      .get(`/api/v1${path}`)
+      .set("Cookie", `yhm_session=${ADMIN_TOKEN}`)
+      .expect(200);
+
+    expect(Object.keys(response.body.checks).sort()).toEqual([...checkKeys].sort());
+  });
+
   it("reports AI as optional and disabled in Phase 0 for ADMIN", async () => {
     const response = await request(app.getHttpServer())
       .get("/api/v1/health/ai")

@@ -35,6 +35,27 @@ services:
     networks:
       - database
 
+  db-seed:
+    profiles: ["seed"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: db-seed
+    restart: "no"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
+      SEED_ADMIN_EMAIL:
+      SEED_ADMIN_PASSWORD:
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - database
+
   worker:
     build:
       context: .
@@ -78,7 +99,15 @@ services:
       APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Bangkok}
       API_PORT: 5000
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
-      WORKER_HEARTBEAT_STALE_SECONDS: ${WORKER_HEARTBEAT_STALE_SECONDS:-45}
+      DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:?DEPLOYMENT_MODE must be set}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:?APP_PUBLIC_URL must be set}
+      APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:?APP_ALLOWED_ORIGINS must be set}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set}
+      SESSION_IDLE_MINUTES: ${SESSION_IDLE_MINUTES:?SESSION_IDLE_MINUTES must be set}
+      SESSION_ABSOLUTE_HOURS: ${SESSION_ABSOLUTE_HOURS:?SESSION_ABSOLUTE_HOURS must be set}
+      LOGIN_MAX_ATTEMPTS: ${LOGIN_MAX_ATTEMPTS:?LOGIN_MAX_ATTEMPTS must be set}
+      LOGIN_LOCK_MINUTES: ${LOGIN_LOCK_MINUTES:?LOGIN_LOCK_MINUTES must be set}
+      WORKER_HEARTBEAT_STALE_SECONDS: ${WORKER_HEARTBEAT_STALE_SECONDS:?WORKER_HEARTBEAT_STALE_SECONDS must be set}
     depends_on:
       db-migrate:
         condition: service_completed_successfully
@@ -123,12 +152,44 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+          "const net=require('node:net');const socket=net.createConnection({host:'127.0.0.1',port:3000});const fail=()=>{socket.destroy();process.exit(1)};socket.setTimeout(2000,fail);socket.once('error',fail);socket.once('connect',()=>{socket.end();process.exit(0)})",
         ]
       interval: 10s
       timeout: 3s
       retries: 12
       start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - frontend
+
+  e2e:
+    profiles: ["e2e"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: e2e
+    restart: "no"
+    init: true
+    environment:
+      E2E_BASE_URL:
+      E2E_ADMIN_EMAIL:
+      E2E_ADMIN_PASSWORD:
+      E2E_MATRIX_VIEWER_EMAIL:
+      E2E_MATRIX_VIEWER_UPDATED_EMAIL:
+      E2E_MATRIX_VIEWER_PASSWORD:
+      E2E_MATRIX_VIEWER_RESET_PASSWORD:
+      E2E_LOGOUT_VIEWER_EMAIL:
+      E2E_LOGOUT_VIEWER_PASSWORD:
+      E2E_CHANGE_VIEWER_EMAIL:
+      E2E_CHANGE_VIEWER_PASSWORD:
+      E2E_CHANGE_VIEWER_NEW_PASSWORD:
+      E2E_BROWSER_VIEWER_EMAIL:
+      E2E_BROWSER_VIEWER_PASSWORD:
+      E2E_RAW_SESSION_TOKEN_MARKER:
+    depends_on:
+      web:
+        condition: service_healthy
     security_opt:
       - no-new-privileges:true
     networks:

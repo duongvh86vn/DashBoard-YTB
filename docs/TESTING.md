@@ -1,16 +1,15 @@
-# Kiểm thử Phase 0
+# Kiểm thử Phase 1
 
-Đây là runbook tạo evidence cho Phase 0, không phải tuyên bố rằng các gate hiện
-đã pass. Chỉ ghi trạng thái hoàn tất sau khi command thực tế exit code 0 và output
-được lưu vào `WORKLOG.md` hoặc artifact tương đương.
+Phase 1 có ba lớp kiểm thử: quality gates cục bộ, auth-DB integration và
+full-stack Docker/browser acceptance. Chỉ ghi trạng thái đạt khi command thật
+đã exit code 0.
 
 ## Điều kiện tiên quyết
 
-- Windows 10/11 với PowerShell 7 (`pwsh`).
-- Node.js `>=24 <25` và Corepack.
+- Windows 10/11 với PowerShell 7 (`pwsh`) cho các integration scripts.
+- Node.js `>=24 <25`, Corepack và pnpm `11.22.0`.
 - Docker Desktop đang chạy Linux containers; Docker Compose hỗ trợ `--wait`.
 - Registry/package download và Docker image pull khả dụng.
-- Không có process khác chiếm loopback port được chọn.
 
 Kiểm tra nhanh:
 
@@ -21,153 +20,97 @@ docker version
 docker compose version
 ```
 
-## Cài dependency
-
-Repo pin pnpm trong `packageManager`; dùng `corepack pnpm` nếu máy không có pnpm
-shim toàn cục.
+## Cài dependency và quality gates
 
 ```powershell
 corepack pnpm install --frozen-lockfile
-corepack pnpm db:generate
-```
-
-`prisma generate` và `prisma validate` không kết nối database. Mọi command thật sự
-kết nối PostgreSQL phải nhận `DATABASE_URL` rõ ràng.
-
-## Quality gates cục bộ
-
-Chạy riêng để khoanh vùng lỗi:
-
-```powershell
+corepack pnpm db:validate
 corepack pnpm db:generate
 corepack pnpm typecheck
 corepack pnpm lint
 corepack pnpm format:check
-corepack pnpm test:unit
+corepack pnpm test
 corepack pnpm build
 ```
 
-Gate tổng hợp không dùng Docker:
+Gate tổng hợp tương đương là `corepack pnpm verify`. Root typecheck bao gồm
+Playwright config/tests; Vitest loại trừ `tests/e2e/**`.
+
+## Auth database integration
 
 ```powershell
-corepack pnpm verify
+corepack pnpm test:auth:integration
 ```
 
-Kỳ vọng để được ghi là đạt: mọi command exit code 0, lint không có warning, unit
-tests pass và cả Web/API/Worker/package builds hoàn thành. Không suy ra kết quả từ
-việc file hoặc test tồn tại.
+Script tạo Compose project và credential cô lập, chạy PostgreSQL thật,
+migration sạch/lặp lại, seed `CREATED` rồi `UNCHANGED`, và chạy repository
+integration trong schema riêng. Nó không gọi wrapper full-stack lồng nhau, không
+in raw logs có thể chứa bí mật, và luôn kiểm tra ownership trước cleanup.
 
-## Docker integration gate
-
-Command chuẩn:
+## Full-stack Docker/browser acceptance
 
 ```powershell
 corepack pnpm test:integration
 ```
 
-Hoặc toàn bộ Phase 0 gate:
+Harness tự tạo project/port/credential ngẫu nhiên và dọn riêng toàn bộ tài nguyên
+của nó. Nó kiểm tra:
 
-```powershell
-corepack pnpm verify:phase0
+- Compose topology: chỉ Web bind loopback; API/Worker/PostgreSQL không publish
+  host port; database network internal; E2E chỉ vào frontend network.
+- Migration replay, seed idempotency, exact identity aggregate và secret-safe
+  database/log/artifact surfaces.
+- Web `/health` không tồn tại; anonymous API health/Auth/Users nhận 401,
+  VIEWER nhận 403 trên tám route Users, ADMIN target bị bảo vệ, và CSRF exact
+  Origin/header policy.
+- ADMIN login, health contracts, tạo/sửa/reset/revoke/disable/enable VIEWER;
+  logout, đổi mật khẩu và disabled/revoked session invalidation.
+- Worker stop/recovery, PostgreSQL stop/recovery, API/Web cold start và bounded
+  process health.
+- Containerized `mcr.microsoft.com/playwright:v1.62.1-noble` với Node 24,
+  pnpm 11.22, one worker, zero retries; browser flow ADMIN → VIEWER read-only
+  shell → ADMIN disable → redirect login. Không signup/OAuth/fabricated metrics.
+- Verified cleanup: containers, networks, volumes and project images đều vắng
+  mặt sau khi test kết thúc.
+
+`test:e2e` chỉ chạy trong container acceptance với `E2E_BASE_URL=http://web:3000`;
+không tự khởi động server trên host.
+
+## Local startup smoke
+
+Clone đúng branch rồi chạy Docker-only quick start:
+
+```text
+git clone --branch codex/phase-1-auth-users --single-branch https://github.com/duongvh86vn/DashBoard-YTB.git
+cd DashBoard-YTB
+scripts\\start-local.cmd
 ```
 
-Integration harness tự:
-
-1. Tạo Compose project name, Web loopback port và PostgreSQL password ngẫu nhiên.
-2. Build và boot PostgreSQL/migration, rồi Worker và API độc lập; Web chờ API
-   DB-readiness chứ không chờ Worker.
-3. Xác minh Web/API/DB/Worker trả HTTP 200 và đúng health schema.
-4. Xác minh collector/AI trả HTTP 200 với top-level status `disabled`.
-5. Xác minh Web chỉ bind đúng một port `127.0.0.1`; PostgreSQL/API/Worker không
-   publish host port. Web và PostgreSQL không chia sẻ network, API nối đúng một
-   frontend và một database network, Worker nối đúng database + egress, frontend
-   và egress là bridge còn database là internal.
-6. Chạy migration lặp lại trên schema test và chạy real-PostgreSQL repository
-   tests (`SELECT 1`, heartbeat idempotency, database-time freshness và lookup
-   đúng `worker_id`).
-7. Xác minh nhiều heartbeat của `worker-primary` vẫn chỉ tạo một row.
-8. Stop Worker: worker/aggregate health phải có schema hợp lệ, `no-store`, đúng
-   stable failure code và HTTP 503 trong khi DB/Web còn 200. Recreate API/Web khi
-   Worker vẫn dừng để chứng minh cold start không bị chặn; restart Worker phải
-   phục hồi.
-9. Stop PostgreSQL: DB/aggregate health phải có schema hợp lệ, `no-store`, đúng
-   stable failure code và HTTP 503 mà không lộ URL/password; Web process health
-   vẫn 200.
-10. Trong `finally`, xác minh project/container/network/volume labels trước khi
-    xóa, kiểm tra exit code, chứng minh isolated containers, volume, network và
-    local image không còn, rồi phục hồi các environment variable trước đó.
-
-Test này không dùng hoặc xóa named volume của manual/default Compose project.
-
-## Boot stack thủ công
-
-Khác integration harness, manual Compose bắt buộc caller cấp ít nhất
-`POSTGRES_PASSWORD` và `DATABASE_URL`. `DATABASE_URL` dùng hostname service
-`postgres`, không dùng `localhost`, vì API/Worker chạy trong container.
-
-Ví dụ PowerShell; thay password bằng giá trị URL-safe ngẫu nhiên và không commit:
-
-```powershell
-$env:POSTGRES_USER = 'youtube_monitor'
-$env:POSTGRES_PASSWORD = '<random-url-safe-password>'
-$env:POSTGRES_DB = 'youtube_monitor'
-$env:DATABASE_URL = "postgresql://youtube_monitor:$($env:POSTGRES_PASSWORD)@postgres:5432/youtube_monitor"
-
-docker compose up -d --build --wait
-docker compose ps
-corepack pnpm docker:health
-```
-
-Compose phải fail fast nếu `POSTGRES_PASSWORD` hoặc `DATABASE_URL` thiếu. Nếu dùng
-ký tự đặc biệt trong password, phải percent-encode chúng trong `DATABASE_URL`.
-Không đưa credential vào source, command transcript công khai hoặc log artifact.
-
-Health kiểm tra thủ công:
-
-```powershell
-Invoke-WebRequest http://127.0.0.1:3000/health
-Invoke-WebRequest http://127.0.0.1:3000/api/v1/health
-Invoke-WebRequest http://127.0.0.1:3000/api/v1/health/collectors
-Invoke-WebRequest http://127.0.0.1:3000/api/v1/health/ai
-```
+PowerShell dùng `powershell -NoProfile -ExecutionPolicy Bypass -File
+.\\scripts\\start-local.ps1`; `-NoOpen` dành cho automation. Script tạo `.env`
+LOCAL lần đầu, giữ secret/volume ổn định, hỏi ADMIN password ẩn chỉ khi database
+chưa có user, rồi mở `http://127.0.0.1:3000/login`. Nó dừng an toàn nếu `.env`
+hiện hữu không khớp contract LOCAL; không tự rotate secret hay xóa volume.
 
 ## Dọn dẹp
 
-Dừng manual stack nhưng giữ PostgreSQL volume:
+Giữ dữ liệu PostgreSQL:
 
-```powershell
+```text
 docker compose down --remove-orphans
 ```
 
-Chỉ với stack dùng thử có thể bỏ toàn bộ dữ liệu, sau khi xác nhận đúng Compose
-project:
+Xóa dữ liệu chỉ sau khi đã xác nhận đúng Compose project:
 
-```powershell
+```text
 docker compose down --volumes --remove-orphans
 ```
 
-Lệnh thứ hai xóa named PostgreSQL volume và không thể khôi phục nếu không có
-backup. Integration harness chỉ chạy thao tác này trên project/volume cô lập mà
-nó tự tạo.
-
-Có thể xóa credential khỏi PowerShell session sau manual test:
-
-```powershell
-Remove-Item Env:POSTGRES_PASSWORD -ErrorAction SilentlyContinue
-Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
-```
+> Lệnh có `--volumes` là destructive và không thể khôi phục database nếu không có
+> backup. Phase 1 không cung cấp LAN/public HTTPS; các kiểm thử đó thuộc Phase 9.
 
 ## Evidence tối thiểu
 
-Trước khi đánh dấu Phase 0 hoàn tất, lưu:
-
-- timestamp, commit/worktree state và exact commands;
-- exit code/output của `corepack pnpm verify:phase0`;
-- migration sạch và repeat-deploy evidence;
-- health status Web/API/DB/Worker cùng collector/AI `disabled` evidence;
-- port/network-isolation assertions;
-- worker stale/recovery và database failure/no-secret-leak evidence;
-- cleanup result và blocker/assumption còn lại.
-
-Một scaffold, unit-test-only run hoặc `docker compose up` chưa có integration
-evidence không đủ để tuyên bố Phase 0 hoàn tất.
+Ghi timestamp, branch/commit, exact commands, counts, topology/outage/recovery,
+browser result, secret-scan result và cleanup result vào `WORKLOG.md`. Không ghi
+credential, raw cookie, token, password hay connection URL thật.

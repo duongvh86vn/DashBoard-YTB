@@ -22,7 +22,13 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    exclude: ["**/node_modules/**", "**/.next/**", "**/dist/**", "**/*.integration.spec.ts"],
+    exclude: [
+      "**/node_modules/**",
+      "**/.next/**",
+      "**/dist/**",
+      "**/*.integration.spec.ts",
+      "tests/e2e/**",
+    ],
     passWithNoTests: false,
     restoreMocks: true,
   },

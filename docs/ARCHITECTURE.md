@@ -1,4 +1,4 @@
-# Kiến trúc Phase 0
+# Kiến trúc Phase 1
 
 Tài liệu này mô tả foundation đang được xây dựng theo
 `YOUTUBE_HOME_MONITOR_AI_SPEC.md` và `IMPLEMENTATION_PLAN.md`. Nó không phải bằng
@@ -6,9 +6,10 @@ chứng rằng Phase 0 đã vượt quality gate; kết quả chạy thực tế
 
 ## Phạm vi
 
-Phase 0 chỉ dựng Web, API, Worker, PostgreSQL, migration, health contract và
-logging/config nền tảng. Chưa có collector YouTube, dữ liệu channel/video, auth,
-dashboard hoàn chỉnh hoặc lời gọi Gemini/NVIDIA.
+Phase 1 giữ toàn bộ foundation Phase 0 và thêm session server-side, CSRF,
+throttle đăng nhập, ADMIN/VIEWER authorization, quản trị VIEWER và shell UI
+tiếng Việt. Chưa có collector YouTube, dữ liệu channel/video, monitoring
+metrics, Gemini/NVIDIA hoặc deployment LAN/public.
 
 ```text
 Host 127.0.0.1:WEB_PORT
@@ -26,23 +27,22 @@ Host 127.0.0.1:WEB_PORT
 ```
 
 Startup order là PostgreSQL healthy rồi `db-migrate` kết thúc với exit code 0.
-Sau đó Worker và API có thể khởi động độc lập; Web chờ API đạt DB-readiness. Worker
-không được chặn API/Web: khi Worker hỏng hoặc stale, user-facing services vẫn
-phục vụ và aggregate health phản ánh đúng HTTP 503.
+Sau đó Worker và API có thể khởi động độc lập; Web chờ API đạt DB-readiness.
+Worker không được chặn API/Web: khi Worker hỏng hoặc stale, user-facing
+services vẫn phục vụ và ADMIN health phản ánh đúng HTTP 503.
 
 ## Ranh giới dịch vụ
 
-- **Web** là Next.js UI tiếng Việt tối thiểu. `GET /health` chỉ phản ánh process
-  Web. Rewrite `/api/v1/:path*` chuyển request cùng origin đến API; Web không kết
-  nối trực tiếp PostgreSQL hoặc Worker.
-- **API** là NestJS REST service với prefix `/api/v1`. API sở hữu dependency
-  health aggregation, đọc PostgreSQL và heartbeat của worker, nhưng không có host
-  port trong Phase 0.
+- **Web** là Next.js UI tiếng Việt cho login, dashboard shell và users. Không có
+  anonymous HTTP health route. Rewrite `/api/v1/:path*` chuyển request cùng
+  origin đến API; Web không kết nối trực tiếp PostgreSQL hoặc Worker.
+- **API** là NestJS REST service với prefix `/api/v1`. API sở hữu auth/session,
+  user authorization và dependency health aggregation, nhưng không có host port.
 - **Worker** là NestJS application context không gọi `listen()` và không mở port.
   Worker ghi heartbeat định kỳ, dừng timer và ngắt Prisma khi shutdown.
-- **PostgreSQL** là nguồn sự thật phía server. Model ứng dụng duy nhất của Phase 0
-  là `worker_heartbeats`; Prisma migration được chạy bởi service one-shot
-  **db-migrate**.
+- **PostgreSQL** là nguồn sự thật phía server cho users, sessions, throttle,
+  audit logs và worker heartbeats. Prisma migration được chạy bởi service
+  one-shot **db-migrate**; **db-seed** chỉ chạy trong profile seed.
 
 Package boundaries chính:
 
@@ -72,7 +72,7 @@ Mỗi worker có một row khóa bởi `worker_id`, gồm `version`, `last_seen_
   shutdown; timeout ứng dụng không giả vờ hủy Promise tùy ý, còn PostgreSQL thật
   được chặn thêm ở driver/server.
 
-## Health contract
+## Auth và health contract
 
 Response dùng schema chung với status:
 
@@ -84,25 +84,40 @@ ok | degraded | unavailable | disabled
   và trả HTTP 503.
 - Optional dependency unavailable làm aggregate `degraded`; HTTP vẫn là 200.
 - Component có toàn bộ check chưa bật trả `disabled`; HTTP 200.
-- Aggregate `/api/v1/health` yêu cầu DB và Worker. Collector/AI là optional và
-  `disabled` trong Phase 0, nên không làm aggregate thất bại.
-- `/api/v1/health/collectors` và `/api/v1/health/ai` trả top-level `disabled`,
-  không giả báo `ok`.
+- Mọi `/api/v1/health*` yêu cầu authenticated ADMIN; anonymous nhận 401 và
+  VIEWER nhận 403. Aggregate `/api/v1/health` yêu cầu DB và Worker.
+  Collector/AI là optional và `disabled` trong Phase 1, nên không làm aggregate
+  thất bại.
 - Mọi health response dùng `Cache-Control: no-store` và không lộ exception text,
   SQL, connection string, secret hoặc filesystem path.
 - Container readiness của API dùng endpoint DB chuyên biệt, không dùng aggregate,
   để Worker unavailable không biến thành startup dependency vòng ngoài ý muốn.
 
-Các endpoint Phase 0:
+Các endpoint Phase 1:
 
 ```text
-GET /health
 GET /api/v1/health
 GET /api/v1/health/db
 GET /api/v1/health/worker
 GET /api/v1/health/collectors
 GET /api/v1/health/ai
+POST /api/v1/auth/login
+POST /api/v1/auth/logout
+GET /api/v1/auth/me
+POST /api/v1/auth/change-password
+GET|POST /api/v1/users
+PATCH /api/v1/users/:id
+POST /api/v1/users/:id/reset-password
+POST /api/v1/users/:id/revoke-sessions
+POST /api/v1/users/:id/disable
+POST /api/v1/users/:id/enable
+DELETE /api/v1/users/:id
 ```
+
+Session là opaque token trong HttpOnly SameSite=Lax cookie; PostgreSQL chỉ lưu
+keyed token hash. LOCAL dùng host-only cookie không `Secure`; PUBLIC cookie
+contract được giữ cho phase HTTPS sau này. `DELETE /users/:id` là disable alias,
+không hard-delete. Không có signup/OAuth.
 
 ## Same-origin và cô lập mạng
 
@@ -117,8 +132,9 @@ Compose dùng ba network tách biệt:
 Web và PostgreSQL không chia sẻ network. API là service duy nhất nối cả hai
 frontend/database network; Worker nối database + egress nhưng không nối frontend.
 Chỉ Web publish `127.0.0.1:${WEB_PORT:-3000}:3000`; PostgreSQL, API và Worker
-không publish host port. Vì vậy Phase 0 chỉ truy cập từ máy host, chưa phải
-LAN/public deployment.
+không publish host port. Vì vậy Phase 1 chỉ truy cập từ máy host, chưa phải
+LAN/public deployment. Docker readiness dùng bounded TCP probe bên trong API/Web;
+không dùng HTTP liveness công khai.
 
 Compose bắt buộc `POSTGRES_PASSWORD` và `DATABASE_URL`; không có fallback password
 được dùng để boot manual stack. Các giá trị thật không được commit hoặc ghi log.
@@ -146,7 +162,6 @@ production:
 
 ## Phần được hoãn
 
-- Phase 1: ADMIN/VIEWER, session, CSRF, rate limit và secure cookies.
 - Phase 2: channel resolution, RSS, yt-dlp, snapshots và daily history.
 - Phase 3: Playwright public health và deletion safety.
 - Phase 4–5: video monitoring và deterministic rankings.
