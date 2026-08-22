@@ -709,23 +709,31 @@ git commit -m "feat: enforce default deny API security"
 | Route                               | Access and strict input                                                                     | Success                                                           |
 | ----------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `POST /api/v1/auth/login`           | the only production `@Public()` route; global CSRF still applies; strict `{email,password}` | `200 {"user":PublicUser}` plus one fresh active-mode cookie       |
-| `POST /api/v1/auth/logout`          | any authenticated role; strict empty JSON object                                            | `204`, empty body, current session revoked, active cookie cleared |
+| `POST /api/v1/auth/logout`          | any authenticated role; absent body or exact `{}` only                                      | `204`, empty body, current session revoked, active cookie cleared |
 | `GET /api/v1/auth/me`               | any authenticated role; no body                                                             | `200 {"user":PublicUser}` from the safe request principal         |
 | `POST /api/v1/auth/change-password` | any authenticated role; strict `{currentPassword,newPassword}`                              | `204`, empty body, all sessions revoked, active cookie cleared    |
 
-- `apps/api` adds the direct exact dependency `zod@4.4.3`. Schemas reject
-  non-objects, missing/extra keys, and wrong types. Email is trimmed/lowercased
-  before semantic validation and is at most 320 characters. Password text is
-  never trimmed or normalized. A new password uses Task 2's 12–128 Unicode
-  code-point policy. Structurally invalid JSON/DTOs return exactly:
+- `apps/api` adds the direct exact dependency `zod@4.4.3`. Zod checks only
+  strict object shape, required keys, and string types. Logout has no semantic
+  body: accept an absent body or exact `{}`, reject any non-empty object,
+  primitive, or array; Task 4 still requires JSON Content-Type for this unsafe
+  request. Email is trimmed/lowercased in the service. Invalid email syntax or
+  normalized length greater than 320 follows the credential/throttle path,
+  never a validation 400. Login password and current password do not apply the
+  account-creation minimum before verification; any wrong string is a generic
+  credential result. Password text is never trimmed or normalized. Only a new
+  password applies Task 2's 12–128 Unicode code-point creation policy.
+  Structurally invalid JSON/DTOs and new-password policy failures return exactly:
 
 ```json
 HTTP 400
 {"error":{"code":"VALIDATION_ERROR","message":"Invalid request"}}
 ```
 
-Invalid email/current-login-password strings become generic credential
-failures rather than revealing account or stored-password policy state.
+All Nest `BadRequestException` values are mapped to this same exact 400; the
+filter does not attempt to infer which body parser generated the exception.
+Malformed JSON is rejected by middleware before guards, so auth/CSRF precedence
+assertions below use syntactically valid JSON.
 
 - Freeze the other exact application errors with no extra response keys:
 
@@ -742,24 +750,25 @@ HTTP 429
 
 A 429 includes integer `Retry-After = ceil((blockedUntil-now)/1000)`, minimum
 one second. The new application filter catches only its dedicated error plus
-malformed-JSON `BadRequestException`; it must not wrap Task 4 policy errors,
-health 503s, or infrastructure failures.
+every `BadRequestException`; it must not wrap Task 4 policy errors, health 503s,
+or infrastructure failures.
 
-- Precedence is observable: login with bad CSRF returns Task 4 CSRF 403 before
-  DTO/service work; anonymous unsafe logout/change-password returns 401 before
-  CSRF; authenticated unsafe logout/change-password reaches CSRF. `/me`,
-  logout, change-password, health, and all future routes remain default-deny.
+- With syntactically valid JSON, precedence is observable: login with bad CSRF
+  returns Task 4 CSRF 403 before DTO/service work; anonymous unsafe logout/
+  change-password returns 401 before CSRF; authenticated unsafe logout/
+  change-password reaches CSRF. `/me`, logout, change-password, health, and all
+  future routes remain default-deny.
 
 **Task 5 database correction:**
 
 - Refactor the throttle implementation into a transaction-scoped repository
-  over Prisma's transaction client plus the existing root wrapper. The
+  over Prisma's transaction client plus the existing root wrapper. Preserve
+  the existing public root API `get`, `registerFailure`, and `clear`. The new
   transaction repository exposes `getLocked`, `registerFailure`, and `clear`;
-  every mutation takes the exact Task 3 per-key advisory lock without opening
-  a nested transaction. Root `LoginThrottleRepository` delegates each mutation
-  through its own transaction. `IdentityRepositories` now includes
-  `throttles`, so throttle mutation and audit/session changes share one
-  Serializable transaction.
+  all three acquire the same exact Task 3 per-key advisory lock without opening
+  a nested transaction. Root mutation methods delegate through their own
+  transaction. `IdentityRepositories` now includes `throttles`, so throttle
+  mutation and audit/session changes share one Serializable transaction.
 - `UserRepository.findByIdForSecurityUpdate(id)` takes a transaction-scoped
   advisory lock keyed by the user ID and returns the current row. Login success,
   self password change, and every Task 6 reset/disable/enable mutation must use
@@ -770,10 +779,11 @@ health 503s, or infrastructure failures.
 - `SessionRepository.create` persists `createdAt: input.now` as well as
   `lastSeenAt: input.now`; injected clocks therefore control the complete
   expiry record. No migration/schema change is needed.
-- Security transactions stay `Serializable`. Prisma serialization/deadlock
-  conflicts receive a small bounded retry; programming/infrastructure errors
-  propagate. Tests with the real PostgreSQL adapter prove rollback and race
-  behavior rather than claiming atomicity from fakes.
+- Security transactions stay `Serializable`. Retry exactly once and only when
+  Prisma reports `P2034` (serialization/write-conflict or deadlock); every other
+  programming/infrastructure error propagates without retry. Tests with the real
+  PostgreSQL adapter prove rollback and race behavior rather than claiming
+  atomicity from fakes.
 
 **Session authentication and cookies:**
 
@@ -826,10 +836,19 @@ hash, then recheck the locked user state before storing it. Credential state
 changing during verification causes one bounded full retry; a second change
 fails generically and never creates a session.
 
-- Each credential failure registers the identifier failure and appends
-  `LOGIN_FAILED/FAILURE` in one UoW transaction. Concurrent failure and success
-  are linearizable under the same throttle lock: whichever commits last leaves
-  the corresponding clear or attempt-one state.
+- A transaction that must persist throttle/audit state returns a discriminated
+  committed outcome; throw the public `AuthApplicationError` only after the UoW
+  resolves. Never throw public 401/429 from inside a transaction whose
+  throttle/audit writes must commit.
+- A pre-existing blocked bucket runs a short transaction that `getLocked`s,
+  appends `LOGIN_FAILED/FAILURE` with `THROTTLED_IDENTIFIER`, commits, then
+  returns 429 without Argon work or another attempt increment. Attempts 1–4
+  register the failure and audit the actual `UNKNOWN_IDENTIFIER`,
+  `INVALID_PASSWORD`, or `USER_DISABLED` reason. The fifth failure registers
+  the blocked state and audits `THROTTLED_IDENTIFIER`, commits, then returns 429. Valid credentials recheck the bucket inside the success transaction; a
+  block that committed first is audited and preserved with no clear/session. If
+  success commits first, a later failure leaves attempt one. Thus concurrent
+  failure/success outcomes are linearizable under the same key lock.
 
 **Logout, password change, and audit:**
 
@@ -850,13 +869,39 @@ Cookie set/clear occurs only after its database transaction commits. Any DB
 failure leaves the browser cookie unchanged. Audit metadata never includes
 email, IP, password, cookie, raw token, token hash, or password hash.
 
-**Module composition:**
+- Self password change uses the same user-security lock. A missing/disabled user
+  under that lock performs no mutation. If the password hash changed after the
+  first verification, redo the complete current-password verification once;
+  if it no longer matches, commit only the failure audit and return the exact
+  wrong-current-password 401 after the transaction resolves.
+
+**Application port and module composition:**
+
+- Freeze the controller port and injection token:
+
+```ts
+export const AUTH_APPLICATION_PORT = Symbol("AUTH_APPLICATION_PORT");
+
+export interface AuthApplicationPort {
+  login(input: {
+    email: string;
+    password: string;
+  }): Promise<{ user: PublicUser; sessionToken: string }>;
+  logout(input: { userId: string; sessionId: string }): Promise<void>;
+  changePassword(input: {
+    userId: string;
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<void>;
+}
+```
 
 - Add an injectable `AuthApplicationPort` for the controller. Production
   `AppModule.forProduction` wires real repositories/UoW/AuthService from its
   one provided database client. Testing composition accepts an optional fake
-  application port and never constructs Prisma; its omitted service fails
-  closed.
+  through exact additive option `authApplication?: AuthApplicationPort` and
+  never constructs Prisma. Its omitted service never returns success, a session
+  token, or a mutation, so it fails closed.
 - Task 4's omitted `sessionAuthenticator` behavior remains deny-all.
   `main.ts` creates the concrete `SessionAuthenticator` from the same one
   Prisma client and passes it explicitly to `forProduction`; it must not leave
@@ -893,6 +938,7 @@ Run:
 
 ```powershell
 corepack pnpm vitest run apps/api/src/auth/auth.schemas.spec.ts apps/api/src/auth/session-authenticator.spec.ts apps/api/src/auth/session-cookie.service.spec.ts apps/api/src/auth/login-throttle.service.spec.ts apps/api/src/auth/auth.service.spec.ts apps/api/src/auth/auth.e2e.spec.ts
+corepack pnpm vitest run packages/db/src/user.repository.spec.ts packages/db/src/session.repository.spec.ts packages/db/src/login-throttle.repository.spec.ts packages/db/src/identity-unit-of-work.spec.ts
 ```
 
 Expected: FAIL because the auth endpoints/service are absent.
