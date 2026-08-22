@@ -10,7 +10,7 @@ export interface CsrfRequestInput {
 }
 
 export function validateCsrfRequest(input: CsrfRequestInput): boolean {
-  if (SAFE_METHODS.has(input.method.toUpperCase())) {
+  if (SAFE_METHODS.has(input.method)) {
     return true;
   }
 

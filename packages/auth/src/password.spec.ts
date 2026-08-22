@@ -95,6 +95,31 @@ describe("password primitives", () => {
     });
   });
 
+  it.each([
+    {
+      boundary: "salt",
+      options: { salt: Buffer.alloc(8, 1), hashLength: 32 },
+    },
+    {
+      boundary: "digest",
+      options: { salt: Buffer.alloc(16, 1), hashLength: 16 },
+    },
+  ])("does not leave a valid hash with an undersized $boundary unflagged", async ({ options }) => {
+    const password = "valid password for PHC shape";
+    const undersizedHash = await argon2.hash(password, {
+      type: argon2.argon2id,
+      memoryCost: 65_536,
+      timeCost: 3,
+      parallelism: 1,
+      ...options,
+    });
+
+    await expect(verifyPassword(undersizedHash, password)).resolves.toEqual({
+      valid: true,
+      needsRehash: true,
+    });
+  });
+
   it("treats malformed stored hashes as invalid credentials", async () => {
     await expect(verifyPassword("not-a-phc-hash", "valid password value")).resolves.toEqual({
       valid: false,

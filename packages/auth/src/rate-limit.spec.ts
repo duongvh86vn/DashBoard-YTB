@@ -27,6 +27,16 @@ describe("login throttle state", () => {
     expect(state.windowStartedAt).not.toBe(now);
   });
 
+  it("blocks the first failure when a new window has a one-attempt threshold", () => {
+    const now = new Date("2026-08-22T00:00:00.000Z");
+
+    expect(nextThrottleState(null, now, { ...policy, maxAttempts: 1 })).toEqual({
+      attemptCount: 1,
+      windowStartedAt: new Date("2026-08-22T00:00:00.000Z"),
+      blockedUntil: new Date("2026-08-22T00:15:00.000Z"),
+    });
+  });
+
   it("increments inside the failure window and blocks on the maximum attempt", () => {
     const now = new Date("2026-08-22T00:00:00.000Z");
     const fourFailures: ThrottleState = {
@@ -60,6 +70,21 @@ describe("login throttle state", () => {
       attemptCount: 1,
       windowStartedAt: new Date("2026-08-22T00:15:00.000Z"),
       blockedUntil: null,
+    });
+  });
+
+  it("blocks the first reset failure when the new window has a one-attempt threshold", () => {
+    const current: ThrottleState = {
+      attemptCount: 4,
+      windowStartedAt: new Date("2026-08-22T00:00:00.000Z"),
+      blockedUntil: null,
+    };
+    const now = new Date("2026-08-22T00:15:00.000Z");
+
+    expect(nextThrottleState(current, now, { ...policy, maxAttempts: 1 })).toEqual({
+      attemptCount: 1,
+      windowStartedAt: new Date("2026-08-22T00:15:00.000Z"),
+      blockedUntil: new Date("2026-08-22T00:30:00.000Z"),
     });
   });
 

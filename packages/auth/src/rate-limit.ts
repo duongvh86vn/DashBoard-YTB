@@ -16,11 +16,17 @@ export function isThrottleBlocked(state: ThrottleState, now: Date): boolean {
   return state.blockedUntil !== null && state.blockedUntil.getTime() > now.getTime();
 }
 
-function startThrottleWindow(now: Date): ThrottleState {
+function startThrottleWindow(now: Date, policy: ThrottlePolicy): ThrottleState {
+  const nowMilliseconds = now.getTime();
+  const attemptCount = 1;
+
   return {
-    attemptCount: 1,
-    windowStartedAt: new Date(now.getTime()),
-    blockedUntil: null,
+    attemptCount,
+    windowStartedAt: new Date(nowMilliseconds),
+    blockedUntil:
+      attemptCount >= policy.maxAttempts
+        ? new Date(nowMilliseconds + policy.lockMinutes * MILLISECONDS_PER_MINUTE)
+        : null,
   };
 }
 
@@ -30,7 +36,7 @@ export function nextThrottleState(
   policy: ThrottlePolicy,
 ): ThrottleState {
   if (current === null) {
-    return startThrottleWindow(now);
+    return startThrottleWindow(now, policy);
   }
 
   if (isThrottleBlocked(current, now)) {
@@ -42,7 +48,7 @@ export function nextThrottleState(
     current.windowStartedAt.getTime() + policy.windowMinutes * MILLISECONDS_PER_MINUTE;
 
   if (nowMilliseconds >= windowEndsAt) {
-    return startThrottleWindow(now);
+    return startThrottleWindow(now, policy);
   }
 
   const attemptCount = current.attemptCount + 1;

@@ -12,6 +12,16 @@ const ARGON2_OPTIONS = {
   hashLength: 32,
 } as const;
 
+function hasCurrentPhcShape(hash: string): boolean {
+  const fields = hash.split("$");
+
+  return (
+    fields[1] === "argon2id" &&
+    Buffer.from(fields[4] ?? "", "base64").byteLength >= 16 &&
+    Buffer.from(fields[5] ?? "", "base64").byteLength === ARGON2_OPTIONS.hashLength
+  );
+}
+
 export class AuthInputError extends Error {
   readonly code = "VALIDATION_ERROR" as const;
 
@@ -56,7 +66,7 @@ export async function verifyPassword(
 
     return {
       valid: true,
-      needsRehash: !hash.startsWith("$argon2id$") || argon2.needsRehash(hash, ARGON2_OPTIONS),
+      needsRehash: !hasCurrentPhcShape(hash) || argon2.needsRehash(hash, ARGON2_OPTIONS),
     };
   } catch {
     return { valid: false, needsRehash: false };

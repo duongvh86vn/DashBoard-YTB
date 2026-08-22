@@ -23,6 +23,21 @@ describe("CSRF request validation", () => {
     ).toBe(true);
   });
 
+  it.each(["get", "gEt", "head", "options"])(
+    "does not exempt case-variant method token %s from unsafe validation",
+    (method) => {
+      expect(
+        validateCsrfRequest({
+          method,
+          origin: undefined,
+          contentType: undefined,
+          protectionHeader: undefined,
+          allowedOrigins: [],
+        }),
+      ).toBe(false);
+    },
+  );
+
   it("allows an unsafe JSON request with an exact allowed origin and protection header", () => {
     expect(validateCsrfRequest(validUnsafeRequest)).toBe(true);
   });
