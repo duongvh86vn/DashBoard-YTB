@@ -134,10 +134,98 @@ git commit -m "chore: define phase one auth contracts"
 
 **Interfaces:**
 
-- Produces `normalizeEmail(email): string`, `assertPasswordPolicy(password): void`, `hashPassword(password): Promise<string>`, and `verifyPassword(hash,password): Promise<{valid:boolean;needsRehash:boolean}>`.
-- Produces `createSessionCredential(secret, randomBytes?): {token:string;tokenHash:Uint8Array}` and `hashSessionToken(secret,token): Uint8Array`.
-- Produces `calculateSessionExpiry(now,idleMinutes,absoluteHours)` and `isSessionUsable(session,now)` with exclusive expiry boundaries.
-- Produces `validateCsrfRequest(input): boolean`, `canManageUsers(role): boolean`, `nextThrottleState(current,now,policy)`, and `createSessionCookiePolicy(mode,absoluteHours)`.
+- Passwords are never normalized. `assertPasswordPolicy` accepts 12–128 Unicode
+  code points and otherwise throws `AuthInputError` with
+  `code: "VALIDATION_ERROR"`. `normalizeEmail` trims and lowercases only email.
+- `hashPassword` uses Argon2id v1.3 with `memoryCost: 65_536` KiB,
+  `timeCost: 3`, `parallelism: 1`, `hashLength: 32`, and the library-generated
+  random salt (at least 16 bytes). `verifyPassword` returns
+  `{valid:false,needsRehash:false}` for a wrong/malformed hash and reports
+  `needsRehash` only after a valid verification.
+- `createSessionCredential(secret, entropy?)` accepts an optional exact
+  32-byte `Uint8Array` test entropy, returns a 43-character base64url token and
+  its 32-byte `HMAC-SHA-256(SESSION_SECRET, token)` hash. Any non-32-byte test
+  entropy is rejected. `hashSessionToken(secret,token)` returns the same hash.
+- Session/expiry types are exact:
+
+```ts
+interface SessionExpiry {
+  createdAt: Date;
+  lastSeenAt: Date;
+  idleExpiresAt: Date;
+  absoluteExpiresAt: Date;
+}
+
+interface SessionUsabilityInput {
+  revokedAt: Date | null;
+  idleExpiresAt: Date;
+  absoluteExpiresAt: Date;
+  userEnabled: boolean;
+}
+```
+
+`calculateSessionExpiry(now,idleMinutes,absoluteHours)` sets both created/last
+seen to copies of `now`, absolute expiry to `now + absoluteHours`, and idle
+expiry to the earlier of `now + idleMinutes` and absolute expiry.
+`isSessionUsable(input,now)` is true only when enabled, not revoked, and
+`now` is strictly before both expiries; equality is expired.
+
+- CSRF input is exact:
+
+```ts
+interface CsrfRequestInput {
+  method: string;
+  origin: string | undefined;
+  contentType: string | undefined;
+  protectionHeader: string | undefined;
+  allowedOrigins: readonly string[];
+}
+```
+
+`GET`, `HEAD`, and `OPTIONS` return true without headers. Every other method
+requires exact origin membership, media type `application/json` (optional
+charset parameters allowed), and protection header value exactly `"1"`.
+
+- `canManageUsers(role)` is true only for `ADMIN`.
+- Throttle types/semantics are exact:
+
+```ts
+interface ThrottleState {
+  attemptCount: number;
+  windowStartedAt: Date;
+  blockedUntil: Date | null;
+}
+
+interface ThrottlePolicy {
+  maxAttempts: number;
+  windowMinutes: number;
+  lockMinutes: number;
+}
+```
+
+`nextThrottleState(null,now,policy)` starts at one failure. Before the window
+boundary it increments; reaching `maxAttempts` sets `blockedUntil` to
+`now + lockMinutes`. At the window boundary a non-blocked state resets to one.
+A state with `blockedUntil > now` is returned unchanged; equality is unblocked.
+`isThrottleBlocked(state,now)` uses that same strict boundary.
+
+- `createSessionCookiePolicy(mode,absoluteHours)` returns exactly:
+
+```ts
+interface SessionCookiePolicy {
+  name: "yhm_session" | "__Host-yhm_session";
+  options: {
+    httpOnly: true;
+    secure: boolean;
+    sameSite: "lax";
+    path: "/";
+    maxAge: number;
+  };
+}
+```
+
+`maxAge` is `absoluteHours * 60 * 60` seconds, `secure` is true only for
+`PUBLIC`, and no `domain` property is present.
 
 - [ ] **Step 1: Write RED tests for every observable security boundary**
 
@@ -163,7 +251,9 @@ Expected: FAIL because the primitive modules are absent.
 
 - [ ] **Step 3: Implement only the tested primitives**
 
-Use Node `randomBytes`/`createHmac`/`timingSafeEqual`, `argon2.argon2id` with the fixed parameters above, exact Origin comparison, and immutable date calculations. Cookie policy returns no `domain` field.
+Use Node `randomBytes`/`createHmac`/`timingSafeEqual`, the exact Argon2id
+parameters and boundary semantics above, exact Origin comparison, and immutable
+date calculations. Cookie policy returns no `domain` field.
 
 - [ ] **Step 4: Run GREEN and package gates**
 
