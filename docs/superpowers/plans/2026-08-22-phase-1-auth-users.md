@@ -283,17 +283,174 @@ git commit -m "feat: add authentication primitives"
 
 - Modify: `prisma/schema.prisma`, `prisma.config.ts`, `packages/db/src/index.ts`
 - Create: `prisma/migrations/20260822000000_phase1_auth_users/migration.sql`
+- Create: `packages/db/src/identity-records.ts`, `identity-errors.ts`, `identity-unit-of-work.ts`
 - Create: `packages/db/src/user.repository.ts`, `session.repository.ts`, `login-throttle.repository.ts`, `audit-log.repository.ts`
 - Test: matching unit and `*.integration.spec.ts` repository tests
 - Create: `packages/db/src/seed-admin.ts`, `packages/db/src/seed-admin.spec.ts`, `prisma/seed.ts`
+- Create: `scripts/test-phase1-db.ps1`
 - Modify: `packages/db/package.json`, `package.json`
 
 **Interfaces:**
 
-- Adds `UserRole { ADMIN VIEWER }`, `AuditOutcome { SUCCESS FAILURE }`, and models `User`, `Session`, `LoginThrottle`, `AuditLog`.
-- `Session.tokenHash` and `LoginThrottle.keyHash` are PostgreSQL `bytea` values with unique/index constraints.
-- Produces repositories for canonical-email lookup/create/list/update, active-session lookup/touch/revoke, atomic throttle failure/clear, and append-only audit.
-- Produces `seedInitialAdmin({email,password}, dependencies)`. It creates one active ADMIN only in an empty identity store, is idempotent for the same active ADMIN, and aborts on conflicting or populated-without-admin state.
+- Adds these exact enums/models; the SQL migration uses the mapped snake-case
+  table/column/index names and PostgreSQL `timestamptz(3)`/`uuid`/`bytea` types:
+
+```prisma
+enum UserRole {
+  ADMIN
+  VIEWER
+}
+
+enum LoginThrottleScope {
+  IDENTIFIER
+  SOURCE
+}
+
+enum AuditOutcome {
+  SUCCESS
+  FAILURE
+}
+
+enum AuditAction {
+  LOGIN_SUCCEEDED
+  LOGIN_FAILED
+  LOGOUT
+  PASSWORD_CHANGED
+  USER_CREATED
+  USER_EMAIL_CHANGED
+  USER_PASSWORD_RESET
+  USER_SESSIONS_REVOKED
+  USER_DISABLED
+  USER_ENABLED
+  AUTHORIZATION_DENIED
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique(map: "users_email_key") @db.VarChar(320)
+  passwordHash String    @map("password_hash") @db.Text
+  role         UserRole
+  isEnabled    Boolean   @default(true) @map("is_enabled")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  disabledAt   DateTime? @map("disabled_at") @db.Timestamptz(3)
+  sessions     Session[]
+  auditAsActor  AuditLog[] @relation("AuditActor")
+  auditAsTarget AuditLog[] @relation("AuditTarget")
+
+  @@index([role, isEnabled], map: "users_role_enabled_idx")
+  @@map("users")
+}
+
+model Session {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  tokenHash        Bytes     @unique(map: "sessions_token_hash_key") @map("token_hash") @db.ByteA
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt       DateTime  @map("last_seen_at") @db.Timestamptz(3)
+  idleExpiresAt    DateTime  @map("idle_expires_at") @db.Timestamptz(3)
+  absoluteExpiresAt DateTime @map("absolute_expires_at") @db.Timestamptz(3)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(3)
+  revocationReason String?   @map("revocation_reason") @db.VarChar(64)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, revokedAt], map: "sessions_user_revoked_idx")
+  @@index([idleExpiresAt], map: "sessions_idle_expiry_idx")
+  @@index([absoluteExpiresAt], map: "sessions_absolute_expiry_idx")
+  @@map("sessions")
+}
+
+model LoginThrottle {
+  id              String             @id @default(uuid()) @db.Uuid
+  scope           LoginThrottleScope
+  keyHash         Bytes              @map("key_hash") @db.ByteA
+  attemptCount    Int                @default(0) @map("attempt_count")
+  windowStartedAt DateTime           @map("window_started_at") @db.Timestamptz(3)
+  blockedUntil    DateTime?          @map("blocked_until") @db.Timestamptz(3)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([scope, keyHash], map: "login_throttles_scope_key_hash_key")
+  @@index([blockedUntil], map: "login_throttles_blocked_until_idx")
+  @@map("login_throttles")
+}
+
+model AuditLog {
+  id           String       @id @default(uuid()) @db.Uuid
+  actorUserId  String?      @map("actor_user_id") @db.Uuid
+  targetUserId String?      @map("target_user_id") @db.Uuid
+  action       AuditAction
+  outcome      AuditOutcome
+  requestId    String?      @map("request_id") @db.VarChar(128)
+  metadata     Json?
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  actor        User?        @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  target       User?        @relation("AuditTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId, createdAt(sort: Desc)], map: "audit_logs_actor_created_idx")
+  @@index([targetUserId, createdAt(sort: Desc)], map: "audit_logs_target_created_idx")
+  @@index([createdAt(sort: Desc)], map: "audit_logs_created_at_idx")
+  @@map("audit_logs")
+}
+```
+
+- `UserRecord` mirrors safe identity fields plus `passwordHash` for server-only
+  services; `toPublicUser` is not a DB concern. All repository inputs use
+  already-normalized email and already-hashed password/token values.
+- `UserRepository` produces:
+
+```ts
+findById(id: string): Promise<UserRecord | null>;
+findByCanonicalEmail(email: string): Promise<UserRecord | null>;
+countAll(): Promise<number>;
+countByRole(role: "ADMIN" | "VIEWER"): Promise<number>;
+create(input: {email:string;passwordHash:string;role:"ADMIN"|"VIEWER"}): Promise<UserRecord>;
+list(input: {page:number;pageSize:number}): Promise<{items:UserRecord[];total:number}>;
+updateEmail(id: string, email: string): Promise<UserRecord>;
+updatePasswordHash(id: string, passwordHash: string): Promise<void>;
+setEnabled(id: string, enabled: boolean, now: Date): Promise<UserRecord>;
+```
+
+Duplicate email maps to `IdentityConflictError` with
+`code: "USER_ALREADY_EXISTS"`; a missing ID maps to `IdentityNotFoundError`
+with `code: "USER_NOT_FOUND"`. List order is `createdAt DESC, id DESC`.
+`setEnabled(false,now)` sets `disabledAt=now`; `setEnabled(true,now)` clears
+`disabledAt`.
+
+- `SessionRepository` produces `create`, `findUsableByHash`, `touch`,
+  `revokeById`, and `revokeAllForUser`. `findUsableByHash(hash,now)` requires
+  `revokedAt=null`, both expiries strictly greater than `now`, and joined
+  `user.isEnabled=true`; it returns the session plus current user role/state.
+  `touch(id,now,requestedIdleExpiry)` sets `lastSeenAt=now` and idle expiry to
+  the earlier of the requested value and the row's absolute expiry.
+- `LoginThrottleRepository.get(scope,keyHash)` and
+  `registerFailure(scope,keyHash,now,policy)` return `ThrottleState`;
+  `clear(scope,keyHash)` is idempotent. `registerFailure` serializes each
+  `(scope,keyHash)` with a transaction/advisory or row lock, applies Task 2's
+  `nextThrottleState`, and cannot let concurrent fifth failures bypass the lock.
+- `AuditLogRepository.append` accepts only enum action/outcome, nullable actor/
+  target/request ID, and `Record<string,string|number|boolean|null> | null`.
+  The repository is append-only and has no update/delete method.
+- `IdentityUnitOfWork.transaction(work)` constructs User/Session/Audit
+  repositories over one Prisma transaction at `Serializable` isolation so
+  callers can commit a security mutation and semantic audit atomically.
+- `seedInitialAdmin({email,password}, dependencies)` normalizes/validates and
+  hashes through `@yt-monitor/auth`. Under a transaction-wide advisory lock:
+  empty identity store creates one active ADMIN; exactly one matching active
+  ADMIN returns `{status:"UNCHANGED"}` without verifying/resetting its password;
+  any users without an ADMIN, a different ADMIN email, a matching VIEWER, a
+  disabled ADMIN, or multiple ADMIN rows throws `SeedAdminConflictError` with
+  `code:"SEED_ADMIN_CONFLICT"`. Concurrent empty-database runs converge to one
+  ADMIN. The CLI reads only `DATABASE_URL`, `SEED_ADMIN_EMAIL`, and
+  `SEED_ADMIN_PASSWORD`, prints only `CREATED`/`UNCHANGED`, and disconnects.
+- `prisma.config.ts` sets `migrations.seed: "tsx prisma/seed.ts"`; root script
+  `db:seed` is `prisma db seed`. `@yt-monitor/db` depends on
+  `@yt-monitor/auth`.
+- `scripts/test-phase1-db.ps1` creates a collision-resistant
+  `ytmonitor-authdb-$PID-<8 hex>` Compose project, random database password and
+  schema, starts only Postgres, builds/runs `db-migrate`, deploys migrations
+  twice, invokes the DB integration suite and seed twice, validates exact
+  project labels before cleanup, and removes only its own containers/networks/
+  volumes/images in `finally`. No generated secret value is printed.
 
 - [ ] **Step 1: Write RED repository and seed tests**
 
@@ -307,11 +464,15 @@ expect(await seedInitialAdmin(input, fakes)).toEqual({ status: "CREATED" });
 expect(await seedInitialAdmin(input, fakes)).toEqual({ status: "UNCHANGED" });
 ```
 
-Integration tests prove atomic fifth-failure blocking under concurrent calls, revoked/disabled sessions are unusable, pagination ordering is stable, audit rows contain no planted credential markers, and ADMIN bootstrap cannot silently promote/reset/re-enable.
+Integration tests prove atomic fifth-failure blocking under concurrent calls,
+revoked/disabled sessions are unusable, pagination ordering is stable, audit
+rows contain no planted credential markers, migration replay is safe, and ADMIN
+bootstrap cannot silently promote/reset/re-enable.
 
 - [ ] **Step 2: Run RED**
 
-Run: `corepack pnpm db:generate && corepack pnpm vitest run packages/db/src/seed-admin.spec.ts packages/db/src/user.repository.spec.ts`
+Run:
+`corepack pnpm db:generate && corepack pnpm vitest run packages/db/src/seed-admin.spec.ts packages/db/src/user.repository.spec.ts`
 
 Expected: FAIL because schema models and repositories do not exist.
 
@@ -328,6 +489,7 @@ corepack pnpm db:validate
 corepack pnpm db:generate
 corepack pnpm vitest run packages/db
 corepack pnpm --filter @yt-monitor/db typecheck
+corepack pnpm test:auth:integration
 corepack pnpm lint
 corepack pnpm test
 ```
@@ -337,7 +499,7 @@ Expected: schema, repository/seed tests, and global unit gates PASS.
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add prisma packages/db package.json
+git add prisma packages/db scripts/test-phase1-db.ps1 package.json
 git commit -m "feat: persist users sessions and audit history"
 ```
 
