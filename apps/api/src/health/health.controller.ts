@@ -1,9 +1,11 @@
 import { Controller, Get, Header, HttpException } from "@nestjs/common";
 import type { HealthResponse } from "@yt-monitor/shared";
 
+import { Roles } from "../auth/roles.decorator.js";
 import { HealthService, type HealthResult } from "./health.service.js";
 
 @Controller("health")
+@Roles("ADMIN")
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 
