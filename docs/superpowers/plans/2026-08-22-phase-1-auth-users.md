@@ -773,9 +773,10 @@ or infrastructure failures.
   advisory lock keyed by the user ID and returns the current row. Login success,
   self password change, and every Task 6 reset/disable/enable mutation must use
   this same primitive. After password verification the transaction rechecks
-  `isEnabled` and the exact verified password-hash state before creating a
-  session or changing credentials. This prevents a login verified against an
-  old password from creating a session after a concurrent reset/revoke.
+  `isEnabled`, canonical email equality, and the exact verified password-hash
+  state before creating a session or changing credentials. This prevents a
+  login verified against an old email/password from creating a session after a
+  concurrent rename/reset/revoke.
 - `SessionRepository.create` persists `createdAt: input.now` as well as
   `lastSeenAt: input.now`; injected clocks therefore control the complete
   expiry record. No migration/schema change is needed.
@@ -832,9 +833,10 @@ $argon2id$v=19$m=65536,p=1,t=3$WUhNLWR1bW15LXYxLXNhbHQ$j4f7wiVxLcRxDd1+QepaC+f3t
 
 Disabled users still perform real verification; wrong/malformed hashes never
 rehash. Valid credentials with `needsRehash=true` compute a Task 2 replacement
-hash, then recheck the locked user state before storing it. Credential state
-changing during verification causes one bounded full retry; a second change
-fails generically and never creates a session.
+hash, then recheck the locked enabled/email/password-hash state before storing
+it. Email or credential state changing during verification causes one bounded
+full retry from canonical lookup; a second change fails generically, audits
+`CREDENTIAL_STATE_CHANGED`, and never creates a session.
 
 - A transaction that must persist throttle/audit state returns a discriminated
   committed outcome; throw the public `AuthApplicationError` only after the UoW
@@ -929,8 +931,8 @@ fixation prevention, cookie modes, session strict expiry/touch, rehash, rollback
 audit allowlists, logout, and current-password failure/success. Real
 `auth.integration.spec.ts` covers HMAC-only session storage, transactional
 throttle clear/failure races, login-versus-credential-reset locking, rehash
-persistence, logout/password-change revoke+audit atomicity, and planted-secret
-absence.
+persistence, login-versus-email-rename locking, logout/password-change
+revoke+audit atomicity, and planted-secret absence.
 
 - [ ] **Step 2: Run RED**
 
