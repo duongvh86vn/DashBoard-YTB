@@ -37,7 +37,7 @@
 - Session tokens contain 32 CSPRNG bytes encoded base64url. PostgreSQL stores only `HMAC-SHA-256(SESSION_SECRET, token)`. Defaults are 120-minute idle and 24-hour absolute expiry.
 - Local cookie: `yhm_session`, `Secure=false`. Public cookie: `__Host-yhm_session`, `Secure=true`. Both are host-only, `HttpOnly`, `SameSite=Lax`, `Path=/`, with no `Domain`.
 - Unsafe requests require JSON content type, an exact allowed `Origin`, and `X-CSRF-Protection: 1`. CORS remains disabled and GET routes stay side-effect-free.
-- Login throttling is PostgreSQL-backed and atomic for normalized-identifier and source buckets. At 5 failures within 15 minutes the bucket is blocked for 15 minutes. Unknown, disabled, locked, and wrong-password users share `AUTH_INVALID_CREDENTIALS`.
+- Login throttling is PostgreSQL-backed and atomic for a normalized-identifier bucket. At 5 failures within 15 minutes the bucket is blocked for 15 minutes and returns `AUTH_RATE_LIMITED`; unknown, disabled, and wrong-password users otherwise share `AUTH_INVALID_CREDENTIALS`. The persisted SOURCE scope remains inactive until Phase 9 supplies a trustworthy, sanitized proxy/client-source boundary.
 - Successful password change, admin password reset, and disable revoke all target sessions. Self password change clears the current cookie and requires a new login.
 - API errors use `{error:{code,message}}`. Status/code pairs: 400/`VALIDATION_ERROR`, 401/`AUTH_UNAUTHENTICATED`, 401/`AUTH_INVALID_CREDENTIALS`, 403/`AUTH_FORBIDDEN`, 403/`AUTH_CSRF_INVALID`, 404/`USER_NOT_FOUND`, 409/`USER_ALREADY_EXISTS`, 429/`AUTH_RATE_LIMITED`.
 - Audit actions are semantic service events, committed in the same transaction as successful security mutations. Audit metadata is an allowlisted object and never stores credentials.
@@ -695,16 +695,172 @@ git commit -m "feat: enforce default deny API security"
 **Files:**
 
 - Create: `apps/api/src/auth/auth.controller.ts`, `auth.service.ts`, `auth.schemas.ts`
-- Create: `apps/api/src/auth/session-authenticator.ts`, `session-cookie.service.ts`, `login-throttle.service.ts`
-- Test: matching unit tests and `apps/api/src/auth/auth.e2e-spec.ts`
-- Modify: `apps/api/src/app.module.ts`
+- Create: `apps/api/src/auth/auth-application.port.ts`, `auth-application.error.ts`, and the narrowly matching application exception filter
+- Create: `apps/api/src/auth/session-authenticator.ts`, `session-cookie.service.ts`, `login-throttle.service.ts`, and deterministic clock/entropy/password ports as needed
+- Test: `auth.schemas.spec.ts`, `session-authenticator.spec.ts`, `session-cookie.service.spec.ts`, `login-throttle.service.spec.ts`, `auth.service.spec.ts`, `auth.e2e.spec.ts`, `auth.integration.spec.ts`
+- Modify: `apps/api/src/app.module.ts`, `apps/api/src/main.ts`, `apps/api/package.json`, `pnpm-lock.yaml`
+- Modify: `packages/db/src/user.repository.ts`, `session.repository.ts`, `login-throttle.repository.ts`, `identity-unit-of-work.ts`, exports, and focused unit/integration tests
 
 **Interfaces:**
 
-- `POST /api/v1/auth/login` accepts `{email,password}`, returns `{user:PublicUser}`, and sets a fresh opaque session cookie.
-- `POST /api/v1/auth/logout` returns 204, revokes the current session, and clears the matching cookie.
-- `GET /api/v1/auth/me` returns `{user:PublicUser}`.
-- `POST /api/v1/auth/change-password` accepts `{currentPassword,newPassword}`, returns 204, revokes every user session, and clears the cookie.
+- Exact HTTP contract; every success and known error uses
+  `Cache-Control: no-store`:
+
+| Route                               | Access and strict input                                                                     | Success                                                           |
+| ----------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `POST /api/v1/auth/login`           | the only production `@Public()` route; global CSRF still applies; strict `{email,password}` | `200 {"user":PublicUser}` plus one fresh active-mode cookie       |
+| `POST /api/v1/auth/logout`          | any authenticated role; strict empty JSON object                                            | `204`, empty body, current session revoked, active cookie cleared |
+| `GET /api/v1/auth/me`               | any authenticated role; no body                                                             | `200 {"user":PublicUser}` from the safe request principal         |
+| `POST /api/v1/auth/change-password` | any authenticated role; strict `{currentPassword,newPassword}`                              | `204`, empty body, all sessions revoked, active cookie cleared    |
+
+- `apps/api` adds the direct exact dependency `zod@4.4.3`. Schemas reject
+  non-objects, missing/extra keys, and wrong types. Email is trimmed/lowercased
+  before semantic validation and is at most 320 characters. Password text is
+  never trimmed or normalized. A new password uses Task 2's 12–128 Unicode
+  code-point policy. Structurally invalid JSON/DTOs return exactly:
+
+```json
+HTTP 400
+{"error":{"code":"VALIDATION_ERROR","message":"Invalid request"}}
+```
+
+Invalid email/current-login-password strings become generic credential
+failures rather than revealing account or stored-password policy state.
+
+- Freeze the other exact application errors with no extra response keys:
+
+```json
+HTTP 401 — login
+{"error":{"code":"AUTH_INVALID_CREDENTIALS","message":"Invalid email or password"}}
+
+HTTP 401 — wrong current password
+{"error":{"code":"AUTH_INVALID_CREDENTIALS","message":"Current password is incorrect"}}
+
+HTTP 429
+{"error":{"code":"AUTH_RATE_LIMITED","message":"Too many login attempts"}}
+```
+
+A 429 includes integer `Retry-After = ceil((blockedUntil-now)/1000)`, minimum
+one second. The new application filter catches only its dedicated error plus
+malformed-JSON `BadRequestException`; it must not wrap Task 4 policy errors,
+health 503s, or infrastructure failures.
+
+- Precedence is observable: login with bad CSRF returns Task 4 CSRF 403 before
+  DTO/service work; anonymous unsafe logout/change-password returns 401 before
+  CSRF; authenticated unsafe logout/change-password reaches CSRF. `/me`,
+  logout, change-password, health, and all future routes remain default-deny.
+
+**Task 5 database correction:**
+
+- Refactor the throttle implementation into a transaction-scoped repository
+  over Prisma's transaction client plus the existing root wrapper. The
+  transaction repository exposes `getLocked`, `registerFailure`, and `clear`;
+  every mutation takes the exact Task 3 per-key advisory lock without opening
+  a nested transaction. Root `LoginThrottleRepository` delegates each mutation
+  through its own transaction. `IdentityRepositories` now includes
+  `throttles`, so throttle mutation and audit/session changes share one
+  Serializable transaction.
+- `UserRepository.findByIdForSecurityUpdate(id)` takes a transaction-scoped
+  advisory lock keyed by the user ID and returns the current row. Login success,
+  self password change, and every Task 6 reset/disable/enable mutation must use
+  this same primitive. After password verification the transaction rechecks
+  `isEnabled` and the exact verified password-hash state before creating a
+  session or changing credentials. This prevents a login verified against an
+  old password from creating a session after a concurrent reset/revoke.
+- `SessionRepository.create` persists `createdAt: input.now` as well as
+  `lastSeenAt: input.now`; injected clocks therefore control the complete
+  expiry record. No migration/schema change is needed.
+- Security transactions stay `Serializable`. Prisma serialization/deadlock
+  conflicts receive a small bounded retry; programming/infrastructure errors
+  propagate. Tests with the real PostgreSQL adapter prove rollback and race
+  behavior rather than claiming atomicity from fakes.
+
+**Session authentication and cookies:**
+
+- Task 4 continues to parse the raw Cookie header and pass only a validated
+  43-character active-mode token. The concrete `SessionAuthenticator`
+  implements Task 4's existing port; it never parses Request/cookies itself.
+- Capture the injected clock once, HMAC the token with `SESSION_SECRET`, call
+  `findUsableByHash(hash,now)`, and return `null` without touch on any miss,
+  revoke, equality/expiry, or disabled-user state. On a hit, touch to
+  `min(now + SESSION_IDLE_MINUTES, absoluteExpiresAt)` and return only
+  `{user:PublicUser,session:{id}}`. A failed touch returns `null`; DB/programming
+  exceptions propagate. No raw token/hash/DB row enters the principal or log.
+- Login always generates a new 32-byte credential and never adopts an incoming
+  cookie. Set only the active mode name using Task 2's host-only `HttpOnly`,
+  `SameSite=Lax`, `Path=/`, mode-specific `Secure`, and absolute `Max-Age`
+  policy. Clear only that name after a successful logout/password-change commit
+  with the same attributes plus `Max-Age=0` and Unix-epoch `Expires`; never set
+  `Domain`.
+
+**Login and throttle flow:**
+
+- `LoginThrottleService` derives only this 32-byte, domain-separated key and
+  never stores/logs raw email:
+
+```text
+HMAC-SHA-256(SESSION_SECRET, "login-throttle:identifier:v1\0" + canonicalEmail)
+```
+
+Use `LOGIN_MAX_ATTEMPTS`, a fixed 15-minute window, and
+`LOGIN_LOCK_MINUTES`. `blockedUntil > now` is blocked; equality is unblocked.
+The fifth failed attempt creates the block and itself returns 429. A blocked
+bucket is rechecked while holding its key lock before login success and is
+not cleared early. Successful login clears the identifier bucket in the same
+transaction as optional rehash, session creation, and success audit.
+
+- Do not derive or trust a source bucket from `X-Forwarded-For`, `req.ip`, or the
+  API socket in Phase 1: Next 16 preserves a supplied forwarding header while
+  the API socket sees the shared Web proxy. SOURCE activation belongs to Phase
+  9 after proxy sanitization/trust tests; Task 5 must not claim it is active.
+- Unknown identifiers perform one verification against this fixed non-account
+  Argon2id PHC before returning the same public error:
+
+```text
+$argon2id$v=19$m=65536,p=1,t=3$WUhNLWR1bW15LXYxLXNhbHQ$j4f7wiVxLcRxDd1+QepaC+f3tRFUpYYLkNZ8iitDVb4
+```
+
+Disabled users still perform real verification; wrong/malformed hashes never
+rehash. Valid credentials with `needsRehash=true` compute a Task 2 replacement
+hash, then recheck the locked user state before storing it. Credential state
+changing during verification causes one bounded full retry; a second change
+fails generically and never creates a session.
+
+- Each credential failure registers the identifier failure and appends
+  `LOGIN_FAILED/FAILURE` in one UoW transaction. Concurrent failure and success
+  are linearizable under the same throttle lock: whichever commits last leaves
+  the corresponding clear or attempt-one state.
+
+**Logout, password change, and audit:**
+
+- Use injected `Clock`, 32-byte entropy source, and password hash/verify ports;
+  service tests never call ambient time/randomness. `requestId` remains `null`
+  in Phase 1 rather than trusting a client header.
+- Exact semantic rows and allowlisted metadata:
+
+| Event                  | Atomic row/mutation                                                                                                                                                                          |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| login success          | `LOGIN_SUCCEEDED/SUCCESS`, actor=target=user, `{passwordRehashed:boolean}` with identifier clear + optional rehash + session create                                                          |
+| login failure          | `LOGIN_FAILED/FAILURE`, actor null, target known user or null, `{reason}` from `UNKNOWN_IDENTIFIER`, `INVALID_PASSWORD`, `USER_DISABLED`, `THROTTLED_IDENTIFIER`, `CREDENTIAL_STATE_CHANGED` |
+| logout                 | `LOGOUT/SUCCESS`, actor=target=current user, metadata null with `revokeById(session.id,now,"logout")`                                                                                        |
+| wrong current password | `PASSWORD_CHANGED/FAILURE`, actor=target=self, `{reason:"INVALID_CURRENT_PASSWORD"}` and no password/session mutation                                                                        |
+| password change        | `PASSWORD_CHANGED/SUCCESS`, actor=target=self, `{revokedSessionCount:number}` with locked password update + `revokeAllForUser(...,"password-changed")`                                       |
+
+Cookie set/clear occurs only after its database transaction commits. Any DB
+failure leaves the browser cookie unchanged. Audit metadata never includes
+email, IP, password, cookie, raw token, token hash, or password hash.
+
+**Module composition:**
+
+- Add an injectable `AuthApplicationPort` for the controller. Production
+  `AppModule.forProduction` wires real repositories/UoW/AuthService from its
+  one provided database client. Testing composition accepts an optional fake
+  application port and never constructs Prisma; its omitted service fails
+  closed.
+- Task 4's omitted `sessionAuthenticator` behavior remains deny-all.
+  `main.ts` creates the concrete `SessionAuthenticator` from the same one
+  Prisma client and passes it explicitly to `forProduction`; it must not leave
+  production permanently deny-all or create a second client.
 
 - [ ] **Step 1: Write RED service and HTTP tests**
 
@@ -721,17 +877,30 @@ await loggedIn.post("/api/v1/auth/logout").set(validCsrfHeaders).expect(204);
 await loggedIn.get("/api/v1/auth/me").expect(401);
 ```
 
-Tests cover local/public cookie attributes, generic invalid-credential behavior, identifier/source throttles including expiry, session idle/absolute expiry, disabled users, login fixation prevention, logout revocation, password rehash, and password-change revocation/audit.
+Unit/HTTP tests cover structural validation, exact error/no-store bodies,
+CSRF/auth precedence, identifier throttle fifth-attempt/equality/expiry,
+domain-separated HMAC privacy, dummy verification, disabled/wrong users,
+fixation prevention, cookie modes, session strict expiry/touch, rehash, rollback,
+audit allowlists, logout, and current-password failure/success. Real
+`auth.integration.spec.ts` covers HMAC-only session storage, transactional
+throttle clear/failure races, login-versus-credential-reset locking, rehash
+persistence, logout/password-change revoke+audit atomicity, and planted-secret
+absence.
 
 - [ ] **Step 2: Run RED**
 
-Run: `corepack pnpm vitest run apps/api/src/auth/auth.e2e-spec.ts apps/api/src/auth/auth.service.spec.ts`
+Run:
+
+```powershell
+corepack pnpm vitest run apps/api/src/auth/auth.schemas.spec.ts apps/api/src/auth/session-authenticator.spec.ts apps/api/src/auth/session-cookie.service.spec.ts apps/api/src/auth/login-throttle.service.spec.ts apps/api/src/auth/auth.service.spec.ts apps/api/src/auth/auth.e2e.spec.ts
+```
 
 Expected: FAIL because the auth endpoints/service are absent.
 
 - [ ] **Step 3: Implement the minimal transactional auth flow**
 
-Unknown-user verification uses a fixed non-account Argon2id dummy PHC string. Login success clears identifier throttle state, creates a new session, and audits without storing email/password/token. Failed paths use one public message; internal reason codes are allowlisted audit values.
+Implement the minimal frozen contracts above. Do not add signup, remember-me,
+refresh tokens, bearer auth, source-IP trust, ADMIN management, or Web UI early.
 
 - [ ] **Step 4: Run GREEN and API gates**
 
@@ -741,6 +910,7 @@ Run:
 corepack pnpm vitest run apps/api/src/auth
 corepack pnpm --filter @yt-monitor/api typecheck
 corepack pnpm --filter @yt-monitor/api build
+corepack pnpm test:auth:integration
 corepack pnpm lint
 corepack pnpm test
 ```
@@ -750,7 +920,7 @@ Expected: auth endpoint matrix and all unit gates PASS.
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add apps/api/src/auth apps/api/src/app.module.ts
+git add apps/api packages/db pnpm-lock.yaml
 git commit -m "feat: add server side session authentication"
 ```
 
