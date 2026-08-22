@@ -251,9 +251,10 @@ Expected: FAIL because the primitive modules are absent.
 
 - [ ] **Step 3: Implement only the tested primitives**
 
-Use Node `randomBytes`/`createHmac`/`timingSafeEqual`, the exact Argon2id
-parameters and boundary semantics above, exact Origin comparison, and immutable
-date calculations. Cookie policy returns no `domain` field.
+Use Node `randomBytes`/`createHmac`, the exact Argon2id parameters and boundary
+semantics above, exact Origin comparison, and immutable date calculations.
+The HMAC is a PostgreSQL lookup key, so Task 2 does not add an unused hash
+comparison API. Cookie policy returns no `domain` field.
 
 - [ ] **Step 4: Run GREEN and package gates**
 
