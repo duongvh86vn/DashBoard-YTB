@@ -24,7 +24,10 @@ export type {
   UserRoleValue,
 } from "./identity-records.js";
 export { IdentityUnitOfWork, type IdentityRepositories } from "./identity-unit-of-work.js";
-export { LoginThrottleRepository } from "./login-throttle.repository.js";
+export {
+  LoginThrottleRepository,
+  TransactionLoginThrottleRepository,
+} from "./login-throttle.repository.js";
 export {
   seedInitialAdmin,
   type SeedAdminDependencies,

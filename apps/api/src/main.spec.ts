@@ -11,6 +11,9 @@ const bootstrapHarness = vi.hoisted(() => ({
   listens: 0,
   createOptions: undefined as { abortOnError?: boolean; bufferLogs?: boolean } | undefined,
   client: undefined as { $disconnect(): Promise<void> } | undefined,
+  repositoryClient: undefined as unknown,
+  productionOptions: undefined as
+    { databaseClient?: unknown; sessionAuthenticator?: unknown } | undefined,
 }));
 
 vi.mock("@yt-monitor/config", () => ({
@@ -34,11 +37,17 @@ vi.mock("@yt-monitor/db", () => ({
     bootstrapHarness.client = client;
     return client;
   },
+  SessionRepository: class TestSessionRepository {
+    constructor(client: unknown) {
+      bootstrapHarness.repositoryClient = client;
+    }
+  },
 }));
 
 vi.mock("./app.module.js", () => ({
   AppModule: {
-    forProduction() {
+    forProduction(options: { databaseClient?: unknown; sessionAuthenticator?: unknown }) {
+      bootstrapHarness.productionOptions = options;
       return { module: "test-app-module" };
     },
   },
@@ -99,6 +108,8 @@ describe("API bootstrap failure cleanup", () => {
     bootstrapHarness.listens = 0;
     bootstrapHarness.createOptions = undefined;
     bootstrapHarness.client = undefined;
+    bootstrapHarness.repositoryClient = undefined;
+    bootstrapHarness.productionOptions = undefined;
   });
 
   afterEach(() => {
@@ -121,6 +132,11 @@ describe("API bootstrap failure cleanup", () => {
     expect(bootstrapHarness.parseCalls).toBe(1);
     expect(bootstrapHarness.clientCreations).toBe(1);
     expect(bootstrapHarness.factoryCreates).toBe(1);
+    expect(bootstrapHarness.repositoryClient).toBe(bootstrapHarness.client);
+    expect(bootstrapHarness.productionOptions).toMatchObject({
+      databaseClient: bootstrapHarness.client,
+      sessionAuthenticator: expect.any(Object),
+    });
     expect(bootstrapHarness.appCloses).toBe(0);
     expect(process.exitCode).toBe(1);
   });

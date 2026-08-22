@@ -7,7 +7,7 @@ import {
   IdentityNotFoundError,
 } from "./identity-errors.js";
 
-type UserClient = Pick<Prisma.TransactionClient, "user">;
+type UserClient = Pick<Prisma.TransactionClient, "$executeRaw" | "user">;
 
 export interface CreateUserInput {
   email: string;
@@ -43,6 +43,14 @@ export class UserRepository {
   constructor(private readonly client: UserClient) {}
 
   findById(id: string): Promise<UserRecord | null> {
+    return this.client.user.findUnique({ where: { id } });
+  }
+
+  async findByIdForSecurityUpdate(id: string): Promise<UserRecord | null> {
+    const lockKey = `user-security:${id}`;
+    await this.client.$executeRaw`
+      SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
+    `;
     return this.client.user.findUnique({ where: { id } });
   }
 

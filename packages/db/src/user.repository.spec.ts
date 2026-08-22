@@ -14,6 +14,20 @@ const userRecord = {
 };
 
 describe("UserRepository", () => {
+  it("locks the shared user security key before reading a security-update row", async () => {
+    const lock = vi.fn(async () => 1);
+    const findUnique = vi.fn(async () => userRecord);
+    const repository = new UserRepository({
+      $executeRaw: lock,
+      user: { findUnique },
+    } as never);
+
+    await expect(repository.findByIdForSecurityUpdate(userRecord.id)).resolves.toEqual(userRecord);
+    expect(lock).toHaveBeenCalledOnce();
+    expect(findUnique).toHaveBeenCalledWith({ where: { id: userRecord.id } });
+    expect(lock.mock.invocationCallOrder[0]).toBeLessThan(findUnique.mock.invocationCallOrder[0]!);
+  });
+
   it("maps a duplicate canonical email to USER_ALREADY_EXISTS", async () => {
     const create = vi
       .fn()

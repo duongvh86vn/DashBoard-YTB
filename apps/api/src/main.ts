@@ -3,10 +3,12 @@ import "reflect-metadata";
 import type { INestApplication } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { parseApiEnv } from "@yt-monitor/config";
-import { createPrismaClient, type DatabaseClient } from "@yt-monitor/db";
+import { createPrismaClient, SessionRepository, type DatabaseClient } from "@yt-monitor/db";
 import { Logger } from "nestjs-pino";
 
 import { AppModule } from "./app.module.js";
+import { systemClock } from "./auth/auth-runtime.ports.js";
+import { SessionAuthenticator } from "./auth/session-authenticator.js";
 
 async function bootstrap(): Promise<void> {
   const env = parseApiEnv(process.env);
@@ -15,10 +17,19 @@ async function bootstrap(): Promise<void> {
 
   try {
     databaseClient = createPrismaClient(env.DATABASE_URL);
-    app = await NestFactory.create(AppModule.forProduction({ env, databaseClient }), {
-      abortOnError: false,
-      bufferLogs: true,
+    const sessionAuthenticator = new SessionAuthenticator({
+      sessions: new SessionRepository(databaseClient),
+      sessionSecret: env.SESSION_SECRET,
+      idleMinutes: env.SESSION_IDLE_MINUTES,
+      clock: systemClock,
     });
+    app = await NestFactory.create(
+      AppModule.forProduction({ env, databaseClient, sessionAuthenticator }),
+      {
+        abortOnError: false,
+        bufferLogs: true,
+      },
+    );
 
     app.useLogger(app.get(Logger));
     app.enableShutdownHooks();

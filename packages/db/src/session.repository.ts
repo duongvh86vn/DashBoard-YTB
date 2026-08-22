@@ -30,6 +30,7 @@ export class SessionRepository {
       data: {
         userId: input.userId,
         tokenHash: Uint8Array.from(input.tokenHash),
+        createdAt: input.now,
         lastSeenAt: input.now,
         idleExpiresAt: input.idleExpiresAt,
         absoluteExpiresAt: input.absoluteExpiresAt,

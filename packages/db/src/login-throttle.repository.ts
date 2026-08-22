@@ -1,7 +1,10 @@
 import { nextThrottleState, type ThrottlePolicy, type ThrottleState } from "@yt-monitor/auth";
 
 import type { DatabaseClient } from "./client.js";
+import type { Prisma } from "./generated/prisma/client.js";
 import type { LoginThrottleScopeValue } from "./identity-records.js";
+
+type ThrottleTransactionClient = Pick<Prisma.TransactionClient, "$executeRaw" | "loginThrottle">;
 
 function toThrottleState(record: {
   attemptCount: number;
@@ -19,16 +22,15 @@ function createThrottleLockKey(scope: LoginThrottleScopeValue, keyHash: Uint8Arr
   return `${scope}:${Buffer.from(keyHash).toString("base64url")}`;
 }
 
-export class LoginThrottleRepository {
-  constructor(private readonly client: DatabaseClient) {}
+export class TransactionLoginThrottleRepository {
+  constructor(private readonly client: ThrottleTransactionClient) {}
 
-  async get(scope: LoginThrottleScopeValue, keyHash: Uint8Array): Promise<ThrottleState | null> {
-    const databaseKeyHash = Uint8Array.from(keyHash);
-    const record = await this.client.loginThrottle.findUnique({
-      where: { scope_keyHash: { scope, keyHash: databaseKeyHash } },
-    });
-
-    return record === null ? null : toThrottleState(record);
+  async getLocked(
+    scope: LoginThrottleScopeValue,
+    keyHash: Uint8Array,
+  ): Promise<ThrottleState | null> {
+    await this.acquireLock(scope, keyHash);
+    return this.get(scope, keyHash);
   }
 
   async registerFailure(
@@ -37,60 +39,100 @@ export class LoginThrottleRepository {
     now: Date,
     policy: ThrottlePolicy,
   ): Promise<ThrottleState> {
-    const lockKey = createThrottleLockKey(scope, keyHash);
+    await this.acquireLock(scope, keyHash);
     const databaseKeyHash = Uint8Array.from(keyHash);
+    const current = await this.client.loginThrottle.findUnique({
+      where: { scope_keyHash: { scope, keyHash: databaseKeyHash } },
+    });
+    const currentState = current === null ? null : toThrottleState(current);
+    const next = nextThrottleState(currentState, now, policy);
 
-    return this.client.$transaction(async (transaction) => {
-      await transaction.$executeRaw`
-        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
-      `;
+    if (current !== null && next === currentState) {
+      return next;
+    }
 
-      const current = await transaction.loginThrottle.findUnique({
-        where: { scope_keyHash: { scope, keyHash: databaseKeyHash } },
-      });
-      const currentState = current === null ? null : toThrottleState(current);
-      const next = nextThrottleState(currentState, now, policy);
-
-      if (current !== null && next === currentState) {
-        return next;
-      }
-
-      if (current === null) {
-        const created = await transaction.loginThrottle.create({
-          data: {
-            scope,
-            keyHash: databaseKeyHash,
-            attemptCount: next.attemptCount,
-            windowStartedAt: next.windowStartedAt,
-            blockedUntil: next.blockedUntil,
-          },
-        });
-        return toThrottleState(created);
-      }
-
-      const updated = await transaction.loginThrottle.update({
-        where: { id: current.id },
+    if (current === null) {
+      const created = await this.client.loginThrottle.create({
         data: {
+          scope,
+          keyHash: databaseKeyHash,
           attemptCount: next.attemptCount,
           windowStartedAt: next.windowStartedAt,
           blockedUntil: next.blockedUntil,
         },
       });
-      return toThrottleState(updated);
+      return toThrottleState(created);
+    }
+
+    const updated = await this.client.loginThrottle.update({
+      where: { id: current.id },
+      data: {
+        attemptCount: next.attemptCount,
+        windowStartedAt: next.windowStartedAt,
+        blockedUntil: next.blockedUntil,
+      },
     });
+    return toThrottleState(updated);
   }
 
   async clear(scope: LoginThrottleScopeValue, keyHash: Uint8Array): Promise<void> {
-    const lockKey = createThrottleLockKey(scope, keyHash);
-    const databaseKeyHash = Uint8Array.from(keyHash);
-
-    await this.client.$transaction(async (transaction) => {
-      await transaction.$executeRaw`
-        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
-      `;
-      await transaction.loginThrottle.deleteMany({
-        where: { scope, keyHash: databaseKeyHash },
-      });
+    await this.acquireLock(scope, keyHash);
+    await this.client.loginThrottle.deleteMany({
+      where: { scope, keyHash: Uint8Array.from(keyHash) },
     });
+  }
+
+  private async get(
+    scope: LoginThrottleScopeValue,
+    keyHash: Uint8Array,
+  ): Promise<ThrottleState | null> {
+    const record = await this.client.loginThrottle.findUnique({
+      where: {
+        scope_keyHash: { scope, keyHash: Uint8Array.from(keyHash) },
+      },
+    });
+    return record === null ? null : toThrottleState(record);
+  }
+
+  private async acquireLock(scope: LoginThrottleScopeValue, keyHash: Uint8Array): Promise<void> {
+    const lockKey = createThrottleLockKey(scope, keyHash);
+    await this.client.$executeRaw`
+      SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
+    `;
+  }
+}
+
+export class LoginThrottleRepository {
+  constructor(private readonly client: DatabaseClient) {}
+
+  async get(scope: LoginThrottleScopeValue, keyHash: Uint8Array): Promise<ThrottleState | null> {
+    const record = await this.client.loginThrottle.findUnique({
+      where: {
+        scope_keyHash: { scope, keyHash: Uint8Array.from(keyHash) },
+      },
+    });
+    return record === null ? null : toThrottleState(record);
+  }
+
+  registerFailure(
+    scope: LoginThrottleScopeValue,
+    keyHash: Uint8Array,
+    now: Date,
+    policy: ThrottlePolicy,
+  ): Promise<ThrottleState> {
+    return this.client.$transaction((transaction) =>
+      new TransactionLoginThrottleRepository(transaction).registerFailure(
+        scope,
+        keyHash,
+        now,
+        policy,
+      ),
+    );
+  }
+
+  clear(scope: LoginThrottleScopeValue, keyHash: Uint8Array): Promise<void> {
+    return this.client.$transaction((transaction) =>
+      new TransactionLoginThrottleRepository(transaction).clear(scope, keyHash),
+    );
   }
 }
