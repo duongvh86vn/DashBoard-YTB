@@ -85,4 +85,22 @@ describe("UserRepository", () => {
       disabledAt: null,
     });
   });
+
+  it("pages VIEWER rows only with deterministic tied ordering and a VIEWER-only total", async () => {
+    const findMany = vi.fn(async () => [userRecord]);
+    const count = vi.fn(async () => 7);
+    const repository = new UserRepository({ user: { findMany, count } } as never);
+
+    await expect(repository.listViewers({ page: 3, pageSize: 25 })).resolves.toEqual({
+      items: [userRecord],
+      total: 7,
+    });
+    expect(findMany).toHaveBeenCalledWith({
+      where: { role: "VIEWER" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip: 50,
+      take: 25,
+    });
+    expect(count).toHaveBeenCalledWith({ where: { role: "VIEWER" } });
+  });
 });

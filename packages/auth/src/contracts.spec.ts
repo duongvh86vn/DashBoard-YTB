@@ -4,6 +4,7 @@ import {
   CSRF_HEADER_NAME,
   SESSION_COOKIE_LOCAL,
   SESSION_COOKIE_PUBLIC,
+  type AuthErrorCode,
 } from "./index.js";
 
 describe("auth transport contracts", () => {
@@ -14,5 +15,15 @@ describe("auth transport contracts", () => {
 
   it("uses the required CSRF request-header name", () => {
     expect(CSRF_HEADER_NAME).toBe("x-csrf-protection");
+  });
+
+  it("exposes the browser-safe validation and user-management error codes", () => {
+    const codes = [
+      "VALIDATION_ERROR",
+      "USER_NOT_FOUND",
+      "USER_ALREADY_EXISTS",
+    ] as const satisfies readonly AuthErrorCode[];
+
+    expect(codes).toEqual(["VALIDATION_ERROR", "USER_NOT_FOUND", "USER_ALREADY_EXISTS"]);
   });
 });

@@ -28,7 +28,10 @@ export type AuthErrorCode =
   | "AUTH_INVALID_CREDENTIALS"
   | "AUTH_FORBIDDEN"
   | "AUTH_CSRF_INVALID"
-  | "AUTH_RATE_LIMITED";
+  | "AUTH_RATE_LIMITED"
+  | "VALIDATION_ERROR"
+  | "USER_NOT_FOUND"
+  | "USER_ALREADY_EXISTS";
 
 export const SESSION_COOKIE_LOCAL = "yhm_session";
 export const SESSION_COOKIE_PUBLIC = "__Host-yhm_session";

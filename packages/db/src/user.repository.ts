@@ -83,6 +83,20 @@ export class UserRepository {
     return { items, total };
   }
 
+  async listViewers(input: ListUsersInput): Promise<UserPage> {
+    const [items, total] = await Promise.all([
+      this.client.user.findMany({
+        where: { role: "VIEWER" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip: (input.page - 1) * input.pageSize,
+        take: input.pageSize,
+      }),
+      this.client.user.count({ where: { role: "VIEWER" } }),
+    ]);
+
+    return { items, total };
+  }
+
   updateEmail(id: string, email: string): Promise<UserRecord> {
     return mapUserMutation(() => this.client.user.update({ where: { id }, data: { email } }));
   }

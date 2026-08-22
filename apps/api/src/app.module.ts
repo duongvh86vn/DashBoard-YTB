@@ -41,6 +41,13 @@ import {
   type DatabaseHealthReader,
   type WorkerHeartbeatReader,
 } from "./health/health.service.js";
+import { UserApplicationError } from "./users/user-application.error.js";
+import {
+  USERS_APPLICATION_PORT,
+  type UsersApplicationPort,
+} from "./users/users-application.port.js";
+import { UsersController } from "./users/users.controller.js";
+import { UsersService } from "./users/users.service.js";
 
 export { API_ENV } from "./auth/api-environment.port.js";
 export const DATABASE_CLIENT = Symbol("DATABASE_CLIENT");
@@ -59,6 +66,7 @@ export interface TestingAppModuleOptions {
   workerHeartbeatReader: WorkerHeartbeatReader;
   sessionAuthenticator?: SessionAuthenticationPort;
   authApplication?: AuthApplicationPort;
+  usersApplication?: UsersApplicationPort;
 }
 
 const denyAllSessionAuthenticator: SessionAuthenticationPort = {
@@ -79,6 +87,30 @@ const denyAllAuthApplication: AuthApplicationPort = {
   },
 };
 
+const denyAllUsersApplication: UsersApplicationPort = {
+  async list(): Promise<never> {
+    throw UserApplicationError.unauthenticated();
+  },
+  async create(): Promise<never> {
+    throw UserApplicationError.unauthenticated();
+  },
+  async updateEmail(): Promise<never> {
+    throw UserApplicationError.unauthenticated();
+  },
+  async resetPassword(): Promise<never> {
+    throw UserApplicationError.unauthenticated();
+  },
+  async revokeSessions(): Promise<never> {
+    throw UserApplicationError.unauthenticated();
+  },
+  async disable(): Promise<never> {
+    throw UserApplicationError.unauthenticated();
+  },
+  async enable(): Promise<never> {
+    throw UserApplicationError.unauthenticated();
+  },
+};
+
 @Injectable()
 class DatabaseLifecycle implements OnApplicationShutdown {
   constructor(@Inject(DATABASE_CLIENT) private readonly client: DatabaseClient) {}
@@ -94,6 +126,7 @@ function applicationProviders(
   workerHeartbeatReader: WorkerHeartbeatReader,
   sessionAuthenticator: SessionAuthenticationPort,
   authApplication: AuthApplicationPort,
+  usersApplication: UsersApplicationPort,
 ): Provider[] {
   return [
     { provide: API_ENV, useValue: env },
@@ -101,6 +134,7 @@ function applicationProviders(
     { provide: WORKER_HEARTBEAT_READER, useValue: workerHeartbeatReader },
     { provide: SESSION_AUTHENTICATION_PORT, useValue: sessionAuthenticator },
     { provide: AUTH_APPLICATION_PORT, useValue: authApplication },
+    { provide: USERS_APPLICATION_PORT, useValue: usersApplication },
     {
       provide: SessionCookieService,
       useValue: new SessionCookieService(env.DEPLOYMENT_MODE, env.SESSION_ABSOLUTE_HOURS),
@@ -129,9 +163,11 @@ export class AppModule {
       maxAttempts: options.env.LOGIN_MAX_ATTEMPTS,
       lockMinutes: options.env.LOGIN_LOCK_MINUTES,
     });
+    const userRepository = new UserRepository(options.databaseClient);
+    const identityUnitOfWork = new IdentityUnitOfWork(options.databaseClient);
     const authApplication = new AuthService({
-      users: new UserRepository(options.databaseClient),
-      unitOfWork: new IdentityUnitOfWork(options.databaseClient),
+      users: userRepository,
+      unitOfWork: identityUnitOfWork,
       throttle,
       clock: systemClock,
       entropy: systemEntropy,
@@ -139,6 +175,11 @@ export class AppModule {
       sessionSecret: options.env.SESSION_SECRET,
       sessionIdleMinutes: options.env.SESSION_IDLE_MINUTES,
       sessionAbsoluteHours: options.env.SESSION_ABSOLUTE_HOURS,
+    });
+    const usersApplication = new UsersService({
+      unitOfWork: identityUnitOfWork,
+      clock: systemClock,
+      passwords: systemPasswords,
     });
 
     return {
@@ -148,7 +189,7 @@ export class AppModule {
           pinoHttp: createPinoOptions("api", options.env.LOG_LEVEL),
         }),
       ],
-      controllers: [AuthController, HealthController],
+      controllers: [AuthController, HealthController, UsersController],
       providers: [
         ...applicationProviders(
           options.env,
@@ -156,6 +197,7 @@ export class AppModule {
           heartbeatRepository,
           options.sessionAuthenticator ?? denyAllSessionAuthenticator,
           authApplication,
+          usersApplication,
         ),
         { provide: DATABASE_CLIENT, useValue: options.databaseClient },
         DatabaseLifecycle,
@@ -166,13 +208,14 @@ export class AppModule {
   static forTesting(options: TestingAppModuleOptions): DynamicModule {
     return {
       module: AppModule,
-      controllers: [AuthController, HealthController],
+      controllers: [AuthController, HealthController, UsersController],
       providers: applicationProviders(
         options.env,
         options.databaseHealthReader,
         options.workerHeartbeatReader,
         options.sessionAuthenticator ?? denyAllSessionAuthenticator,
         options.authApplication ?? denyAllAuthApplication,
+        options.usersApplication ?? denyAllUsersApplication,
       ),
     };
   }
