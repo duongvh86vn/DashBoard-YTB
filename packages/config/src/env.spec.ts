@@ -31,6 +31,17 @@ describe("environment parsing", () => {
     ).toEqual(["http://127.0.0.1:3000"]);
   });
 
+  it("permits an IPv6 loopback HTTP public URL in LOCAL mode", () => {
+    expect(
+      parseApiEnv(
+        validApiEnv({
+          APP_PUBLIC_URL: "http://[::1]:3000",
+          APP_ALLOWED_ORIGINS: "http://[::1]:3000",
+        }),
+      ).APP_PUBLIC_URL,
+    ).toBe("http://[::1]:3000");
+  });
+
   it("rejects a PUBLIC deployment with a non-HTTPS public URL", () => {
     expect(() =>
       parseApiEnv(
