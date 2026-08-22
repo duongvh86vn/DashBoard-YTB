@@ -6,7 +6,10 @@ import { type FormEvent, useRef, useState } from "react";
 import { getVietnameseApiMessage } from "../lib/api-client";
 import { useAuth } from "../lib/auth-context";
 
-export function ChangePasswordForm({ onClose }: Readonly<{ onClose(): void }>) {
+export function ChangePasswordForm({
+  onClose,
+  onPendingChange,
+}: Readonly<{ onClose(): void; onPendingChange?(pending: boolean): void }>) {
   const auth = useAuth();
   const router = useRouter();
   const pendingRef = useRef(false);
@@ -26,6 +29,7 @@ export function ChangePasswordForm({ onClose }: Readonly<{ onClose(): void }>) {
     event.preventDefault();
     if (pendingRef.current) return;
     pendingRef.current = true;
+    onPendingChange?.(true);
     setPending(true);
     setError(null);
     try {
@@ -43,6 +47,7 @@ export function ChangePasswordForm({ onClose }: Readonly<{ onClose(): void }>) {
       }
     } finally {
       pendingRef.current = false;
+      onPendingChange?.(false);
       setPending(false);
     }
   }

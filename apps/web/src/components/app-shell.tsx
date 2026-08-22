@@ -7,6 +7,7 @@ import { useRef, useState } from "react";
 
 import { getVietnameseApiMessage } from "../lib/api-client";
 import { useAuth } from "../lib/auth-context";
+import { AccessibleDialog } from "./accessible-dialog";
 import { ChangePasswordForm } from "./change-password-form";
 
 export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
@@ -14,7 +15,9 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
   const router = useRouter();
   const pathname = usePathname();
   const pendingRef = useRef(false);
+  const passwordTriggerRef = useRef<HTMLButtonElement>(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [passwordPending, setPasswordPending] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,9 +75,13 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
+              ref={passwordTriggerRef}
               className="button-dark-secondary"
               type="button"
-              onClick={() => setPasswordOpen(true)}
+              onClick={() => {
+                setPasswordPending(false);
+                setPasswordOpen(true);
+              }}
             >
               Đổi mật khẩu
             </button>
@@ -98,27 +105,22 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
       <main className="min-w-0 px-5 py-8 sm:px-8 lg:px-12 lg:py-10">{children}</main>
 
       {passwordOpen ? (
-        <div
-          className="dialog-backdrop"
-          role="presentation"
-          onKeyDown={(event) => {
-            if (event.key === "Escape") setPasswordOpen(false);
-          }}
+        <AccessibleDialog
+          labelledBy="change-password-title"
+          closeDisabled={passwordPending}
+          onClose={() => setPasswordOpen(false)}
+          returnFocusRef={passwordTriggerRef}
         >
-          <section
-            className="dialog-panel"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="change-password-title"
-          >
-            <h2 id="change-password-title" className="text-xl font-bold text-slate-950">
-              Đổi mật khẩu
-            </h2>
-            <div className="mt-4">
-              <ChangePasswordForm onClose={() => setPasswordOpen(false)} />
-            </div>
-          </section>
-        </div>
+          <h2 id="change-password-title" className="text-xl font-bold text-slate-950">
+            Đổi mật khẩu
+          </h2>
+          <div className="mt-4">
+            <ChangePasswordForm
+              onClose={() => setPasswordOpen(false)}
+              onPendingChange={setPasswordPending}
+            />
+          </div>
+        </AccessibleDialog>
       ) : null}
     </div>
   );

@@ -102,7 +102,10 @@ async function requestApi<T>(path: string, options: RequestOptions<T>): Promise<
     throw new ApiError(0, null);
   }
 
-  if (response.status === 204) return undefined as T;
+  if (response.status === 204) {
+    if (options.schema) throw new ApiError(response.status, null);
+    return undefined as T;
+  }
   if (!isJsonResponse(response)) throw new ApiError(response.status, null);
 
   let payload: unknown;

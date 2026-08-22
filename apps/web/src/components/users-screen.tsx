@@ -15,6 +15,7 @@ import {
   updateViewerEmail,
 } from "../lib/api-client";
 import { useAuth } from "../lib/auth-context";
+import { AccessibleDialog } from "./accessible-dialog";
 
 const PAGE_SIZE = 20;
 
@@ -68,9 +69,11 @@ export function UsersScreen() {
   const [createEmail, setCreateEmail] = useState("");
   const [createPassword, setCreatePassword] = useState("");
   const [dialog, setDialog] = useState<DialogAction | null>(null);
+  const [dialogError, setDialogError] = useState<string | null>(null);
   const [dialogValue, setDialogValue] = useState("");
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
+  const dialogTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -102,8 +105,10 @@ export function UsersScreen() {
     setRefreshVersion((version) => version + 1);
   }
 
-  function openDialog(next: DialogAction) {
+  function openDialog(next: DialogAction, trigger: HTMLButtonElement) {
+    dialogTriggerRef.current = trigger;
     setError(null);
+    setDialogError(null);
     setNotice(null);
     setDialogValue(next.kind === "edit" ? next.user.email : "");
     setDialog(next);
@@ -111,6 +116,7 @@ export function UsersScreen() {
 
   function closeDialog() {
     if (pendingRef.current) return;
+    setDialogError(null);
     setDialogValue("");
     setDialog(null);
   }
@@ -118,11 +124,13 @@ export function UsersScreen() {
   async function runMutation(
     work: () => Promise<unknown>,
     successMessage: string,
+    errorTarget: "page" | "dialog" = "page",
   ): Promise<boolean> {
     if (pendingRef.current) return false;
     pendingRef.current = true;
     setPending(true);
     setError(null);
+    setDialogError(null);
     setNotice(null);
     try {
       await work();
@@ -136,7 +144,9 @@ export function UsersScreen() {
         setDialogValue("");
         setDialog(null);
       } else {
-        setError(getVietnameseApiMessage(reason, "users"));
+        const message = getVietnameseApiMessage(reason, "users");
+        if (errorTarget === "dialog") setDialogError(message);
+        else setError(message);
       }
       return false;
     } finally {
@@ -166,27 +176,35 @@ export function UsersScreen() {
         await runMutation(
           () => updateViewerEmail(dialog.user.id, dialogValue),
           "Đã cập nhật email VIEWER.",
+          "dialog",
         );
         return;
       case "reset":
         await runMutation(
           () => resetViewerPassword(dialog.user.id, dialogValue),
           "Đã đặt lại mật khẩu và thu hồi các phiên cũ.",
+          "dialog",
         );
         return;
       case "revoke":
         await runMutation(
           () => revokeViewerSessions(dialog.user.id),
           "Đã thu hồi tất cả phiên đăng nhập.",
+          "dialog",
         );
         return;
       case "disable":
-        await runMutation(() => disableViewer(dialog.user.id), "Đã vô hiệu hóa tài khoản VIEWER.");
+        await runMutation(
+          () => disableViewer(dialog.user.id),
+          "Đã vô hiệu hóa tài khoản VIEWER.",
+          "dialog",
+        );
         return;
       case "delete":
         await runMutation(
           () => deleteViewer(dialog.user.id),
           "Đã vô hiệu hóa tài khoản qua thao tác xóa.",
+          "dialog",
         );
     }
   }
@@ -298,7 +316,9 @@ export function UsersScreen() {
                         <button
                           className="button-table"
                           type="button"
-                          onClick={() => openDialog({ kind: "edit", user })}
+                          onClick={(event) =>
+                            openDialog({ kind: "edit", user }, event.currentTarget)
+                          }
                           disabled={pending}
                         >
                           <span aria-hidden="true">Đổi email</span>
@@ -307,7 +327,9 @@ export function UsersScreen() {
                         <button
                           className="button-table"
                           type="button"
-                          onClick={() => openDialog({ kind: "reset", user })}
+                          onClick={(event) =>
+                            openDialog({ kind: "reset", user }, event.currentTarget)
+                          }
                           disabled={pending}
                           aria-label={`Đặt lại mật khẩu của ${user.email}`}
                         >
@@ -316,7 +338,9 @@ export function UsersScreen() {
                         <button
                           className="button-table"
                           type="button"
-                          onClick={() => openDialog({ kind: "revoke", user })}
+                          onClick={(event) =>
+                            openDialog({ kind: "revoke", user }, event.currentTarget)
+                          }
                           disabled={pending}
                           aria-label={`Thu hồi phiên của ${user.email}`}
                         >
@@ -326,7 +350,9 @@ export function UsersScreen() {
                           <button
                             className="button-table-danger"
                             type="button"
-                            onClick={() => openDialog({ kind: "disable", user })}
+                            onClick={(event) =>
+                              openDialog({ kind: "disable", user }, event.currentTarget)
+                            }
                             disabled={pending}
                             aria-label={`Vô hiệu hóa ${user.email}`}
                           >
@@ -351,7 +377,9 @@ export function UsersScreen() {
                         <button
                           className="button-table-danger"
                           type="button"
-                          onClick={() => openDialog({ kind: "delete", user })}
+                          onClick={(event) =>
+                            openDialog({ kind: "delete", user }, event.currentTarget)
+                          }
                           disabled={pending}
                           aria-label={`Xóa (vô hiệu hóa) ${user.email}`}
                         >
@@ -388,80 +416,74 @@ export function UsersScreen() {
       </section>
 
       {dialog ? (
-        <div
-          className="dialog-backdrop"
-          role="presentation"
-          onKeyDown={(event) => {
-            if (event.key === "Escape") closeDialog();
-          }}
+        <AccessibleDialog
+          labelledBy="viewer-dialog-title"
+          closeDisabled={pending}
+          onClose={closeDialog}
+          returnFocusRef={dialogTriggerRef}
         >
-          <section
-            className="dialog-panel"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="viewer-dialog-title"
-          >
-            <h2 id="viewer-dialog-title" className="text-xl font-bold text-slate-950">
-              {dialogCopy[dialog.kind].title}
-            </h2>
-            <p className="mt-3 text-sm font-medium text-slate-700">{dialog.user.email}</p>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              {dialogCopy[dialog.kind].description}
-            </p>
-            <form className="mt-5 space-y-4" onSubmit={confirmDialog}>
-              {dialog.kind === "edit" ? (
-                <label className="field-label">
-                  <span>Email mới</span>
-                  <input
-                    className="field-input"
-                    type="text"
-                    maxLength={320}
-                    required
-                    autoFocus
-                    value={dialogValue}
-                    onChange={(event) => setDialogValue(event.target.value)}
-                  />
-                </label>
-              ) : null}
-              {dialog.kind === "reset" ? (
-                <label className="field-label">
-                  <span>Mật khẩu mới</span>
-                  <input
-                    className="field-input"
-                    type="password"
-                    autoComplete="new-password"
-                    required
-                    autoFocus
-                    value={dialogValue}
-                    onChange={(event) => setDialogValue(event.target.value)}
-                  />
-                </label>
-              ) : null}
-              <div className="flex flex-wrap justify-end gap-3">
-                <button
-                  className="button-secondary"
-                  type="button"
-                  autoFocus={dialog.kind !== "edit" && dialog.kind !== "reset"}
-                  onClick={closeDialog}
-                  disabled={pending}
-                >
-                  Hủy
-                </button>
-                <button
-                  className={
-                    dialog.kind === "disable" || dialog.kind === "delete"
-                      ? "button-danger"
-                      : "button-primary"
-                  }
-                  type="submit"
-                  disabled={pending}
-                >
-                  {pending ? "Đang xử lý…" : dialogCopy[dialog.kind].confirmation}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
+          <h2 id="viewer-dialog-title" className="text-xl font-bold text-slate-950">
+            {dialogCopy[dialog.kind].title}
+          </h2>
+          <p className="mt-3 text-sm font-medium text-slate-700">{dialog.user.email}</p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            {dialogCopy[dialog.kind].description}
+          </p>
+          <form className="mt-5 space-y-4" onSubmit={confirmDialog}>
+            {dialog.kind === "edit" ? (
+              <label className="field-label">
+                <span>Email mới</span>
+                <input
+                  className="field-input"
+                  type="text"
+                  maxLength={320}
+                  required
+                  value={dialogValue}
+                  onChange={(event) => setDialogValue(event.target.value)}
+                />
+              </label>
+            ) : null}
+            {dialog.kind === "reset" ? (
+              <label className="field-label">
+                <span>Mật khẩu mới</span>
+                <input
+                  className="field-input"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  value={dialogValue}
+                  onChange={(event) => setDialogValue(event.target.value)}
+                />
+              </label>
+            ) : null}
+            {dialogError ? (
+              <p className="alert-error" role="alert" aria-live="assertive">
+                {dialogError}
+              </p>
+            ) : null}
+            <div className="flex flex-wrap justify-end gap-3">
+              <button
+                className="button-secondary"
+                type="button"
+                onClick={closeDialog}
+                disabled={pending}
+              >
+                Hủy
+              </button>
+              <button
+                className={
+                  dialog.kind === "disable" || dialog.kind === "delete"
+                    ? "button-danger"
+                    : "button-primary"
+                }
+                type="submit"
+                disabled={pending}
+              >
+                {pending ? "Đang xử lý…" : dialogCopy[dialog.kind].confirmation}
+              </button>
+            </div>
+          </form>
+        </AccessibleDialog>
       ) : null}
     </div>
   );

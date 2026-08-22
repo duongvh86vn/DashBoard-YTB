@@ -197,6 +197,35 @@ describe("UsersScreen", () => {
     expect(password).toHaveValue("");
   });
 
+  it("traps dialog focus, closes on Escape, and restores the invoking control", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ user: admin }))
+      .mockResolvedValueOnce(jsonResponse({ items: [viewer], page: 1, pageSize: 20, total: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderUsers();
+
+    const trigger = await screen.findByRole("button", {
+      name: `Thu hồi phiên của ${viewer.email}`,
+    });
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Thu hồi phiên đăng nhập" });
+    const cancel = within(dialog).getByRole("button", { name: "Hủy" });
+    const confirm = within(dialog).getByRole("button", { name: "Xác nhận thu hồi phiên" });
+    expect(cancel).toHaveFocus();
+
+    confirm.focus();
+    fireEvent.keyDown(confirm, { key: "Tab" });
+    expect(cancel).toHaveFocus();
+    cancel.focus();
+    fireEvent.keyDown(cancel, { key: "Tab", shiftKey: true });
+    expect(confirm).toHaveFocus();
+
+    fireEvent.keyDown(confirm, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Thu hồi phiên đăng nhập" })).toBeNull();
+    expect(trigger).toHaveFocus();
+  });
+
   it("uses semantic confirmations, suppresses duplicate revoke, and refetches after success", async () => {
     let resolveRevoke!: (response: Response) => void;
     const fetchMock = vi
@@ -214,13 +243,16 @@ describe("UsersScreen", () => {
     renderUsers();
     expect(await screen.findByText(viewer.email)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: `Thu hồi phiên của ${viewer.email}` }));
+    const trigger = screen.getByRole("button", { name: `Thu hồi phiên của ${viewer.email}` });
+    fireEvent.click(trigger);
     const dialog = screen.getByRole("dialog", { name: "Thu hồi phiên đăng nhập" });
     expect(dialog).toHaveTextContent("tất cả phiên đăng nhập");
     expect(within(dialog).getByRole("button", { name: "Hủy" })).toHaveFocus();
     const confirm = within(dialog).getByRole("button", { name: "Xác nhận thu hồi phiên" });
     fireEvent.click(confirm);
     fireEvent.click(confirm);
+    fireEvent.keyDown(confirm, { key: "Escape" });
+    expect(screen.getByRole("dialog", { name: "Thu hồi phiên đăng nhập" })).toBeInTheDocument();
 
     expect(
       fetchMock.mock.calls.filter(
@@ -230,6 +262,29 @@ describe("UsersScreen", () => {
     resolveRevoke(new Response(null, { status: 204 }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("renders a fixed mutation error inside the active modal", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ user: admin }))
+      .mockResolvedValueOnce(jsonResponse({ items: [viewer], page: 1, pageSize: 20, total: 1 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ error: { code: "AUTH_FORBIDDEN", message: "planted server text" } }, 403),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    renderUsers();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: `Thu hồi phiên của ${viewer.email}` }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Thu hồi phiên đăng nhập" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận thu hồi phiên" }));
+
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert).toHaveTextContent("Bạn không có quyền thực hiện thao tác này.");
+    expect(alert).not.toHaveTextContent("planted server text");
   });
 
   it("wires email, reset, disable, and enable controls to server-refetched lifecycle state", async () => {
@@ -314,7 +369,55 @@ describe("UsersScreen", () => {
     expect(calls[8]?.[0]).toBe(`/api/v1/users/${viewer.id}/enable`);
   });
 
-  it("falls back one page after the final item is disabled through the delete alias", async () => {
+  it("keeps a delete-alias target in the VIEWER list as disabled with an unchanged total", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ user: admin }))
+      .mockResolvedValueOnce(jsonResponse({ items: [viewer], page: 1, pageSize: 20, total: 21 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ items: [secondViewer], page: 2, pageSize: 20, total: 21 }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          items: [
+            {
+              ...secondViewer,
+              isEnabled: false,
+              disabledAt: "2026-08-22T02:00:00.000Z",
+            },
+          ],
+          page: 2,
+          pageSize: 20,
+          total: 21,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    renderUsers();
+
+    expect(await screen.findByText(viewer.email)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    expect(await screen.findByText(secondViewer.email)).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: `Xóa (vô hiệu hóa) ${secondViewer.email}` }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Xóa theo nghiệp vụ" });
+    expect(dialog).toHaveTextContent("không xóa dữ liệu");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận vô hiệu hóa" }));
+
+    expect(await screen.findByText("Đã vô hiệu hóa")).toBeInTheDocument();
+    expect(screen.getByText(secondViewer.email)).toBeInTheDocument();
+    expect(screen.getByText("21 VIEWER")).toBeInTheDocument();
+    expect(screen.getByText("Trang 2")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock.mock.calls[3]).toMatchObject([
+      `/api/v1/users/${secondViewer.id}`,
+      { method: "DELETE", body: "{}" },
+    ]);
+    expect(fetchMock.mock.calls[4]?.[0]).toBe("/api/v1/users?page=2&pageSize=20");
+  });
+
+  it("falls back one page when a refetch observes an unrelated out-of-band list shrink", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ user: admin }))
@@ -332,16 +435,19 @@ describe("UsersScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
     expect(await screen.findByText(secondViewer.email)).toBeInTheDocument();
     fireEvent.click(
-      screen.getByRole("button", { name: `Xóa (vô hiệu hóa) ${secondViewer.email}` }),
+      screen.getByRole("button", { name: `Thu hồi phiên của ${secondViewer.email}` }),
     );
-    const dialog = screen.getByRole("dialog", { name: "Xóa theo nghiệp vụ" });
-    expect(dialog).toHaveTextContent("không xóa dữ liệu");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận vô hiệu hóa" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Xác nhận thu hồi phiên",
+      }),
+    );
 
     await waitFor(() =>
       expect(fetchMock.mock.calls[5]?.[0]).toBe("/api/v1/users?page=1&pageSize=20"),
     );
     expect(await screen.findByText(viewer.email)).toBeInTheDocument();
+    expect(screen.getByText("Trang 1")).toBeInTheDocument();
   });
 
   it.each([

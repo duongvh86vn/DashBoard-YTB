@@ -97,6 +97,26 @@ describe("same-origin API client", () => {
     expect(init.body).toBe("{}");
   });
 
+  it("rejects 204 as a typed generic error when an endpoint requires a response body", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const operations = [
+      () => getCurrentUser(),
+      () => createViewer({ email: viewer.email, password: "password-long-enough" }),
+      () => updateViewerEmail(viewer.id, "next@example.com"),
+    ];
+
+    for (const operation of operations) {
+      const error = await operation().catch((reason: unknown) => reason);
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).not.toBeInstanceOf(TypeError);
+      expect(error).toMatchObject({ status: 204, code: null });
+      expect(String(error)).toBe("ApiError: API request failed");
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("turns non-JSON and schema-invalid success/error payloads into generic failures", async () => {
     const fetchMock = vi
       .fn()

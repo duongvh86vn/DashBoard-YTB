@@ -108,11 +108,56 @@ describe("AppShell", () => {
       </AuthProvider>,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Đổi mật khẩu" }));
+    const trigger = await screen.findByRole("button", { name: "Đổi mật khẩu" });
+    fireEvent.click(trigger);
     expect(screen.getByRole("dialog", { name: "Đổi mật khẩu" })).toBeInTheDocument();
     const currentPassword = screen.getByLabelText("Mật khẩu hiện tại");
+    const submit = screen.getByRole("button", { name: "Lưu mật khẩu mới" });
     expect(currentPassword).toHaveFocus();
-    fireEvent.keyDown(currentPassword, { key: "Escape" });
+    submit.focus();
+    fireEvent.keyDown(submit, { key: "Tab" });
+    expect(currentPassword).toHaveFocus();
+    fireEvent.keyDown(currentPassword, { key: "Tab", shiftKey: true });
+    expect(submit).toHaveFocus();
+    fireEvent.keyDown(submit, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Đổi mật khẩu" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("does not let Escape close the password dialog while submission is pending", async () => {
+    let resolvePasswordChange!: (response: Response) => void;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ user: { ...baseUser, role: "VIEWER" } }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolvePasswordChange = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <AuthProvider>
+        <AppShell>
+          <div>Nội dung</div>
+        </AppShell>
+      </AuthProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Đổi mật khẩu" }));
+    fireEvent.change(screen.getByLabelText("Mật khẩu hiện tại"), {
+      target: { value: "current-password" },
+    });
+    fireEvent.change(screen.getByLabelText("Mật khẩu mới"), {
+      target: { value: "replacement-password" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Lưu mật khẩu mới" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Đổi mật khẩu" });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(dialog).toBeInTheDocument();
+
+    resolvePasswordChange(new Response(null, { status: 204 }));
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/login"));
   });
 });

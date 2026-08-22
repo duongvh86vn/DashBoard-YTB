@@ -15,12 +15,12 @@ export {
   AuthInputError,
   assertPasswordPolicy,
   hashPassword,
-  isValidCanonicalEmail,
   normalizeEmail,
   rehashVerifiedPassword,
   verifyPassword,
   type PasswordVerification,
 } from "./password.js";
+export { isValidCanonicalEmail } from "@yt-monitor/shared/browser-auth";
 export {
   isThrottleBlocked,
   nextThrottleState,

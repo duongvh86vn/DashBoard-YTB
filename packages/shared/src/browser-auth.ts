@@ -1,15 +1,28 @@
 import { z } from "zod";
 
+const MAX_CANONICAL_EMAIL_LENGTH = 320;
+const CANONICAL_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+const DATABASE_UNSAFE_EMAIL_PATTERN = /[\p{Cc}\p{Cs}]/u;
+
+export function isValidCanonicalEmail(email: string): boolean {
+  return (
+    email.length > 0 &&
+    email.length <= MAX_CANONICAL_EMAIL_LENGTH &&
+    !DATABASE_UNSAFE_EMAIL_PATTERN.test(email) &&
+    CANONICAL_EMAIL_PATTERN.test(email)
+  );
+}
+
 export const UserRoleValueSchema = z.enum(["ADMIN", "VIEWER"]);
 export type UserRoleValue = z.infer<typeof UserRoleValueSchema>;
 
-const boundedEmailSchema = z.string().min(1).max(320);
+const canonicalEmailSchema = z.string().refine(isValidCanonicalEmail);
 const timestampSchema = z.iso.datetime();
 
 export const PublicUserSchema = z
   .object({
     id: z.uuid(),
-    email: boundedEmailSchema,
+    email: canonicalEmailSchema,
     role: UserRoleValueSchema,
     isEnabled: z.boolean(),
     createdAt: timestampSchema,
