@@ -976,15 +976,92 @@ git commit -m "feat: add server side session authentication"
 
 **Files:**
 
+- Create: `apps/api/src/users/users-application.port.ts`, `apps/api/src/users/user-application.error.ts`
 - Create: `apps/api/src/users/users.controller.ts`, `users.service.ts`, `users.schemas.ts`
-- Test: `apps/api/src/users/users.service.spec.ts`, `users.e2e-spec.ts`
-- Modify: `apps/api/src/app.module.ts`
+- Test: `apps/api/src/users/users.schemas.spec.ts`, `users.service.spec.ts`, `users.e2e.spec.ts`, `users.integration.spec.ts`
+- Modify: `apps/api/src/auth/auth-application-exception.filter.ts`, `apps/api/src/app.module.ts`
+- Modify/Test: `packages/auth/src/contracts.ts`, `packages/auth/src/contracts.spec.ts`
+- Modify/Test: `packages/db/src/user.repository.ts`, `packages/db/src/user.repository.spec.ts`
 
 **Interfaces:**
 
-- Implements every §71 route under `/api/v1/users` with the exact DTOs and lifecycle rules in this plan.
-- Every route requires ADMIN. VIEWER receives 403/`AUTH_FORBIDDEN`; anonymous receives 401/`AUTH_UNAUTHENTICATED`.
-- Create, email update, reset, revoke, disable, enable, and delete-alias operations append semantic audit rows atomically with the mutation.
+- Implements the eight, and only the eight, §71 routes under `/api/v1/users`. There is no `GET /users/:id` route.
+- Every route has `@Roles("ADMIN")`. Anonymous receives exact 401/`AUTH_UNAUTHENTICATED`; a VIEWER caller receives exact 403/`AUTH_FORBIDDEN` before request validation.
+- Existing ADMIN rows are protected targets for `PATCH`, reset, revoke, disable, enable, and `DELETE`, including self-targets. The service commits an `AUTHORIZATION_DENIED` audit before returning exact 403/`AUTH_FORBIDDEN`; it never mutates an ADMIN.
+- All successful and known-error responses use `Cache-Control: no-store`. `PublicUser` timestamps are ISO strings and neither password nor hash/session fields are returned.
+
+Exact transport contract:
+
+| Method/path                              | Strict input                                                                                                                                 | Success                                        |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `GET /api/v1/users`                      | query keys only `page`, `pageSize`; defaults `1`, `20`; positive safe decimal integers; `pageSize <= 100`; reject unknown or repeated values | `200 {items:PublicUser[],page,pageSize,total}` |
+| `POST /api/v1/users`                     | `{email:string,password:string}`                                                                                                             | `201 {user:PublicUser}`                        |
+| `PATCH /api/v1/users/:id`                | UUID; `{email:string}`                                                                                                                       | `200 {user:PublicUser}`                        |
+| `POST /api/v1/users/:id/reset-password`  | UUID; `{password:string}`                                                                                                                    | `204`, empty                                   |
+| `POST /api/v1/users/:id/revoke-sessions` | UUID; absent body or exact `{}`                                                                                                              | `204`, empty                                   |
+| `POST /api/v1/users/:id/disable`         | UUID; absent body or exact `{}`                                                                                                              | `204`, empty                                   |
+| `POST /api/v1/users/:id/enable`          | UUID; absent body or exact `{}`                                                                                                              | `204`, empty                                   |
+| `DELETE /api/v1/users/:id`               | UUID; absent body or exact `{}`                                                                                                              | `204`, empty; exact disable alias              |
+
+Unsafe routes retain the Task 4 guard contract: JSON content type, exact allowed `Origin`, and `X-CSRF-Protection: 1`, including zero-semantic-body actions. Email is trimmed/lowercased and then validated as a maximum-320-character email; passwords are not normalized and use the 12–128 Unicode-code-point policy. Primitive/array bodies, unknown keys, `role`, empty `PATCH`, invalid UUID/query/email/password, and non-empty action bodies are exact 400/`VALIDATION_ERROR`.
+
+The list contains VIEWER rows only, both enabled and disabled, ordered by `createdAt DESC, id DESC`; `items` and VIEWER-only `total` are read in one Serializable transaction snapshot. Offset pagination is deterministic per snapshot, not promised stable across separate requests with concurrent inserts.
+
+For syntactically valid JSON, precedence is session 401, caller-role 403, CSRF 403, request validation 400, locked target lookup (missing 404, ADMIN target 403), then canonical-email conflict 409. Malformed JSON may be rejected by the body parser before guards, as frozen in Task 5. Exact additional errors are 404/`USER_NOT_FOUND`/`User not found` and 409/`USER_ALREADY_EXISTS`/`A user with that email already exists`.
+
+The controller depends only on this frozen application port:
+
+```ts
+export const USERS_APPLICATION_PORT = Symbol("USERS_APPLICATION_PORT");
+
+export interface UsersApplicationPort {
+  list(input: { page: number; pageSize: number }): Promise<{
+    items: PublicUser[];
+    page: number;
+    pageSize: number;
+    total: number;
+  }>;
+  create(input: { actorUserId: string; email: string; password: string }): Promise<PublicUser>;
+  updateEmail(input: {
+    actorUserId: string;
+    targetUserId: string;
+    email: string;
+  }): Promise<PublicUser>;
+  resetPassword(input: {
+    actorUserId: string;
+    targetUserId: string;
+    password: string;
+  }): Promise<void>;
+  revokeSessions(input: { actorUserId: string; targetUserId: string }): Promise<void>;
+  disable(input: {
+    actorUserId: string;
+    targetUserId: string;
+    via: "DISABLE_ENDPOINT" | "DELETE_ALIAS";
+  }): Promise<void>;
+  enable(input: { actorUserId: string; targetUserId: string }): Promise<void>;
+}
+```
+
+`TestingAppModuleOptions` gains additive optional `usersApplication?: UsersApplicationPort`; omission fails closed without constructing Prisma. Production constructs the real Auth and Users services from the same explicitly provided database client and shared `IdentityUnitOfWork`, clock, and password port. Extend the existing application exception filter rather than registering an ambiguously ordered second global filter.
+
+Every target operation, including email update and session revoke, first calls `findByIdForSecurityUpdate` inside the same UoW transaction used by Task 5 login. This linearizes session creation against reset/revoke/disable: if login wins, the later mutation revokes its session; if the mutation wins, a genuinely later login may create a new session only when the resulting user state permits it. All security transactions use the shared Serializable UoW and retry exactly once only for Prisma `P2034`.
+
+Capture the clock once per service call. Validate and Argon2-hash create/reset passwords exactly once outside the transaction/user lock and reuse the hash/time on a P2034 retry. Create is not idempotent; a canonical duplicate is always 409. Same-canonical email update is state-idempotent, does not change `updatedAt`, and audits `changed:false`. Reset intentionally creates a new hash and revokes every session on every success. Revoke is idempotent. Disable and `DELETE` are idempotent state transitions but always ensure all sessions are revoked. Enable is idempotent, never restores a revoked session, and requires a new login.
+
+Audit rows are allowlisted, use `requestId:null`, and commit atomically:
+
+| Operation              | Action/outcome                  | Metadata                                               |
+| ---------------------- | ------------------------------- | ------------------------------------------------------ |
+| create VIEWER          | `USER_CREATED/SUCCESS`          | `null`                                                 |
+| email update           | `USER_EMAIL_CHANGED/SUCCESS`    | `{changed}`                                            |
+| reset password         | `USER_PASSWORD_RESET/SUCCESS`   | `{revokedSessionCount}`                                |
+| revoke sessions        | `USER_SESSIONS_REVOKED/SUCCESS` | `{revokedSessionCount}`                                |
+| disable endpoint       | `USER_DISABLED/SUCCESS`         | `{changed,revokedSessionCount,via:"DISABLE_ENDPOINT"}` |
+| delete alias           | `USER_DISABLED/SUCCESS`         | `{changed,revokedSessionCount,via:"DELETE_ALIAS"}`     |
+| enable                 | `USER_ENABLED/SUCCESS`          | `{changed}`                                            |
+| protected ADMIN target | `AUTHORIZATION_DENIED/FAILURE`  | `{operation,reason:"ADMIN_TARGET_PROTECTED"}`          |
+
+Actor is always the authenticated ADMIN; target is the affected VIEWER or protected ADMIN. For protected-target audits, `operation` is exactly one of `UPDATE_EMAIL`, `RESET_PASSWORD`, `REVOKE_SESSIONS`, `DISABLE`, `ENABLE`, or `DELETE_ALIAS`. Validation, missing-target, and duplicate-email failures do not append semantic mutation audits. ADMIN-target denial uses Task 5's committed-outcome pattern: throw the public 403 only after the UoW resolves. Metadata never contains email, password, hashes, tokens/cookies, IP, or secrets.
 
 - [ ] **Step 1: Write RED authorization/lifecycle tests**
 
@@ -992,22 +1069,29 @@ git commit -m "feat: add server side session authentication"
 await anonymous.get("/api/v1/users").expect(401);
 await viewer.get("/api/v1/users").expect(403);
 await admin.post("/api/v1/users").send(newViewer).expect(201);
-await admin.post("/api/v1/users/admin-id/disable").expect(403);
-await admin.delete("/api/v1/users/viewer-id").expect(204);
+await admin.post("/api/v1/users/admin-id/disable").send({}).expect(403);
+await admin.delete("/api/v1/users/viewer-id").send({}).expect(204);
 expect(await loadUser("viewer-id")).toMatchObject({ isEnabled: false });
 ```
 
-Cover all nine §71 endpoints, validation, duplicate canonical email, stable pagination, disabled-session rejection, reset/revoke behavior, idempotent disable/enable, ADMIN-target protection, and secret-safe audits.
+Unit/service tests use fake UoW, clock, and password ports to prove validation, precedence, idempotency, hash-once retry, committed denial audit, rollback behavior, and allowlisted metadata. HTTP tests use `AppModule.forTesting` plus a fake Users port and cover all eight routes, guards/CSRF, exact schemas/statuses/errors/headers, VIEWER-only serialization, and fail-closed omission. Repository tests prove VIEWER filtering, order, and same-transaction page/count behavior.
+
+Real PostgreSQL integration covers concurrent canonical create, audit rollback, tied pagination/filtering, reset/revoke/disable races with login, old-email login racing canonical rename, and re-enable not resurrecting revoked sessions. Plant sentinel credentials/tokens and assert none appears in audit metadata or returned payloads.
 
 - [ ] **Step 2: Run RED**
 
-Run: `corepack pnpm vitest run apps/api/src/users`
+Run:
 
-Expected: FAIL because the Users module is absent.
+```powershell
+corepack pnpm vitest run apps/api/src/users/users.schemas.spec.ts apps/api/src/users/users.service.spec.ts apps/api/src/users/users.e2e.spec.ts packages/db/src/user.repository.spec.ts
+corepack pnpm test:auth:integration
+```
+
+Expected: focused suites FAIL because the Users module/contracts are absent; the real-PostgreSQL gate fails once the new integration cases are present but production behavior is missing.
 
 - [ ] **Step 3: Implement schemas, service transactions, controller**
 
-Never accept a role field, never return `passwordHash`, and never hard-delete. `PATCH` rejects empty or extra-key bodies. Reset password uses the same policy and Argon2id implementation as self-change.
+Add `VALIDATION_ERROR`, `USER_NOT_FOUND`, and `USER_ALREADY_EXISTS` to the browser-safe error-code union. Add a VIEWER-filtered repository page primitive; do not weaken or silently repurpose an all-role method used by bootstrap. Never add hard-delete or role-update repository/application methods and do not add a schema migration or audit enum.
 
 - [ ] **Step 4: Run GREEN and API gates**
 
@@ -1015,18 +1099,21 @@ Run:
 
 ```powershell
 corepack pnpm vitest run apps/api/src/users apps/api/src/auth
+corepack pnpm vitest run packages/db/src/user.repository.spec.ts
+corepack pnpm --filter @yt-monitor/db typecheck
 corepack pnpm --filter @yt-monitor/api typecheck
 corepack pnpm --filter @yt-monitor/api build
+corepack pnpm test:auth:integration
 corepack pnpm lint
 corepack pnpm test
 ```
 
-Expected: endpoint/role/lifecycle tests and global unit gates PASS.
+Expected: exact endpoint/role/lifecycle tests, real PostgreSQL races, typechecks/build, and global unit/lint gates PASS.
 
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add apps/api/src/users apps/api/src/app.module.ts
+git add apps/api/src/users apps/api/src/auth/auth-application-exception.filter.ts apps/api/src/app.module.ts packages/auth/src/contracts.ts packages/auth/src/contracts.spec.ts packages/db/src/user.repository.ts packages/db/src/user.repository.spec.ts
 git commit -m "feat: add viewer account administration"
 ```
 
