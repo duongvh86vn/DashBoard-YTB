@@ -7,6 +7,9 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
+      "@yt-monitor/auth": fileURLToPath(
+        new URL("./packages/auth/src/index.ts", import.meta.url),
+      ),
       "@yt-monitor/config": fileURLToPath(
         new URL("./packages/config/src/index.ts", import.meta.url),
       ),
