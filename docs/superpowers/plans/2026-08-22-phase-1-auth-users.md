@@ -32,7 +32,7 @@
 - User APIs manage VIEWER accounts only. ADMIN bootstrap is environment-only; APIs cannot create, promote, disable, reset, revoke, or delete an ADMIN.
 - `POST /users` accepts `{email,password}` and creates VIEWER. `PATCH /users/:id` accepts only `{email}`. Password reset accepts `{password}`. `DELETE` has the same disable semantics as `POST /disable`.
 - User list shape is `{items,page,pageSize,total}` with `page >= 1`, `1 <= pageSize <= 100`, ordered by `createdAt DESC, id DESC`.
-- Email is trimmed and lowercased before persistence; password text is never normalized. Password policy is 12–128 Unicode code points.
+- Email is trimmed/lowercased and validated by one shared canonical predicate used by seed, login, and user administration; it preserves the original seed-compatible Unicode/broad syntax while rejecting whitespace, control/surrogate/DB-unsafe text, missing `@`/domain dot, and values over 320 characters. Password text is never normalized. Password policy is 12–128 Unicode code points.
 - Argon2id parameters are version 1.3, 64 MiB memory, time cost 3, parallelism 1, 32-byte hash, and a library-generated salt of at least 16 bytes.
 - Session tokens contain 32 CSPRNG bytes encoded base64url. PostgreSQL stores only `HMAC-SHA-256(SESSION_SECRET, token)`. Defaults are 120-minute idle and 24-hour absolute expiry.
 - Local cookie: `yhm_session`, `Secure=false`. Public cookie: `__Host-yhm_session`, `Secure=true`. Both are host-only, `HttpOnly`, `SameSite=Lax`, `Path=/`, with no `Domain`.
@@ -717,8 +717,10 @@ git commit -m "feat: enforce default deny API security"
   strict object shape, required keys, and string types. Logout has no semantic
   body: accept an absent body or exact `{}`, reject any non-empty object,
   primitive, or array; Task 4 still requires JSON Content-Type for this unsafe
-  request. Email is trimmed/lowercased in the service. Invalid email syntax or
-  normalized length greater than 320 follows the credential/throttle path,
+  request. Email is trimmed/lowercased in the service and lookup eligibility
+  uses the same exported canonical-email predicate as bootstrap seed; do not
+  replace it with a narrower validator that can lock out a persisted ADMIN.
+  Invalid/DB-unsafe syntax or normalized length greater than 320 follows the credential/throttle path,
   never a validation 400. Login password and current password do not apply the
   account-creation minimum before verification; any wrong string is a generic
   credential result. Password text is never trimmed or normalized. Only a new
@@ -1003,7 +1005,7 @@ Exact transport contract:
 | `POST /api/v1/users/:id/enable`          | UUID; absent body or exact `{}`                                                                                                                                              | `204`, empty                                   |
 | `DELETE /api/v1/users/:id`               | UUID; absent body or exact `{}`                                                                                                                                              | `204`, empty; exact disable alias              |
 
-Unsafe routes retain the Task 4 guard contract: JSON content type, exact allowed `Origin`, and `X-CSRF-Protection: 1`, including zero-semantic-body actions. Email is trimmed/lowercased and then validated as a maximum-320-character email; passwords are not normalized and use the 12–128 Unicode-code-point policy. Primitive/array bodies, unknown keys, `role`, empty `PATCH`, invalid UUID/query/email/password, and non-empty action bodies are exact 400/`VALIDATION_ERROR`.
+Unsafe routes retain the Task 4 guard contract: JSON content type, exact allowed `Origin`, and `X-CSRF-Protection: 1`, including zero-semantic-body actions. Email is trimmed/lowercased and validated with the exported seed/login-compatible canonical-email predicate; Task 6 must not introduce a narrower Zod email semantic. Passwords are not normalized and use the 12–128 Unicode-code-point policy. Primitive/array bodies, unknown keys, `role`, empty `PATCH`, invalid UUID/query/email/password, and non-empty action bodies are exact 400/`VALIDATION_ERROR`.
 
 `page` and `pageSize` accept only canonical ASCII decimal strings matching `/^[1-9]\d*$/`; signs, whitespace, leading zeroes, fractions, and exponent notation are invalid. After conversion, both values and the derived offset `(page - 1) * pageSize` must be safe integers or the request returns 400. The list contains VIEWER rows only, both enabled and disabled, ordered by `createdAt DESC, id DESC`; `items` and VIEWER-only `total` are read in one Serializable transaction snapshot. Offset pagination is deterministic per snapshot, not promised stable across separate requests with concurrent inserts.
 
