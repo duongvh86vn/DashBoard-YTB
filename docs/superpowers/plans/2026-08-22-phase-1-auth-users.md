@@ -1127,7 +1127,7 @@ git commit -m "feat: add viewer account administration"
 - Create/Test: `apps/web/src/components/auth-gate.tsx`, `login-form.tsx`, `change-password-form.tsx`, `app-shell.tsx`, `users-screen.tsx` and one matching `*.spec.tsx` for each component
 - Create: `apps/web/src/app/login/page.tsx`, `apps/web/src/app/(authenticated)/layout.tsx`, `apps/web/src/app/(authenticated)/page.tsx`, `apps/web/src/app/(authenticated)/users/page.tsx`
 - Delete: `apps/web/src/app/page.tsx`, `apps/web/src/app/page.spec.tsx`; the authenticated route-group page becomes the one and only `/` route
-- Modify: `apps/web/src/app/layout.tsx`, `apps/web/src/app/globals.css`, `apps/web/package.json`, `apps/web/next.config.ts`
+- Modify: `apps/web/src/app/layout.tsx`, `apps/web/src/app/globals.css`, `apps/web/package.json`, `apps/web/next.config.ts`, `vitest.config.ts`, `vitest.integration.config.ts`
 
 **Interfaces:**
 
@@ -1206,17 +1206,34 @@ git commit -m "feat: add Vietnamese login and users UI"
 
 **Files:**
 
-- Create: `playwright.config.ts`, `tests/e2e/auth-users.spec.ts`
-- Create: `scripts/test-phase1-docker.ps1`
-- Modify: `package.json`, `pnpm-lock.yaml`, `docker/Dockerfile`, `docker-compose.yml`
-- Modify: `scripts/test-phase0-docker.ps1` for the Phase 1 liveness/admin-health contract
+- Create: `playwright.config.ts`, `tsconfig.e2e.json`, `tests/e2e/auth-users.spec.ts`
+- Create: `scripts/test-phase1-docker.ps1`, `scripts/start-local.ps1`, `scripts/start-local.cmd`, `.prettierignore`
+- Modify: `package.json`, `pnpm-lock.yaml`, `tsconfig.json`, `vitest.config.ts`, `vitest.integration.config.ts`, `.env.example`, `.gitignore`
+- Modify: `docker/Dockerfile`, `docker-compose.yml`, `scripts/test-phase1-db.ps1`, `scripts/health-check.ps1`, and health assertion helpers/tests as needed
+- Delete: `scripts/test-phase0-docker.ps1` after migrating every still-valid foundation assertion into the Phase 1 harness
+- Delete: `apps/web/src/app/health/route.ts`, `route.spec.ts`, `apps/web/src/lib/create-health-response.ts`, `create-health-response.spec.ts`
 - Modify: `README.md`, `docs/ARCHITECTURE.md`, `docs/TESTING.md`, `WORKLOG.md`, `IMPLEMENTATION_PLAN.md`
 
 **Interfaces:**
 
-- Adds exact-pinned `@playwright/test@1.62.1` and scripts `test:auth:integration`, `test:e2e`, `test:integration`, and `verify:phase1`.
-- Adds a one-shot `db-seed` image/service profile. Only that process receives `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`.
-- The isolated PowerShell test uses collision-resistant Compose names/ports/secrets, validates labels before cleanup, and removes only resources it created.
+- Add exact-pinned `@playwright/test@1.62.1`, `test:e2e`, the full-stack `test:integration`, and `verify:phase1`. Preserve and rerun the existing `test:auth:integration`; Task 8 must not claim to create it. `verify:phase1` is exactly the normal `verify` gate followed by isolated auth-DB integration and full Docker/browser integration.
+- `test:integration` invokes `scripts/test-phase1-docker.ps1`, which owns one collision-resistant Compose project, unused loopback Web port, random database/session/test credentials, and complete cleanup. Inside that already-isolated stack it runs raw `test:db:integration` with a dedicated schema; it never invokes the `test:auth:integration` wrapper and therefore never creates a nested Compose project.
+- Add a one-shot/profile-only `db-seed` image/service on the database network. Only that process receives `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`; it does not run during ordinary `docker compose up`. Production Web/API/Worker/Postgres never receive the bootstrap password.
+- Add a profile-only E2E image/service built from `mcr.microsoft.com/playwright:v1.62.1-noble`, matching the package and providing its browser binary independently of Windows 10/11 host support. It joins only the frontend network, uses the internal Web URL, one worker and zero retries, and receives isolated E2E credentials only. Trace, screenshot, video, HTML/blob report, and other credential-bearing artifacts are disabled.
+- Add `tsconfig.e2e.json` to the root typecheck and explicitly exclude `tests/e2e/**` from Vitest. Playwright never auto-starts a server or retries unsafe flows.
+- API Compose environment explicitly requires `DEPLOYMENT_MODE`, `APP_PUBLIC_URL`, `APP_ALLOWED_ORIGINS`, `SESSION_SECRET`, idle/absolute session settings, login attempt/lock settings, database URL, and heartbeat policy; no auth secret has a Compose fallback. LOCAL full-stack tests use `http://127.0.0.1:<random-port>`. `TRUST_PROXY` remains absent/deferred until Phase 9.
+- API and Web process readiness use bounded container-internal TCP probes. Delete the anonymous Web `/health` route atomically with the Web healthcheck change. Every `/api/v1/health*` route remains ADMIN-only; there is no anonymous HTTP liveness exception.
+- `.prettierignore` ignores only generated/internal serializer artifacts that should not be rewritten: `.superpowers/sdd/**` and `pnpm-lock.yaml`. Prettier fixes every tracked source/config finding, including the known Phase 1 baseline files; `format:check` and `git diff --check` must both pass. Do not ignore source directories or tests.
+- The isolated script validates Compose labels, exact names, service/network/volume topology, and loopback binding before any cleanup, then removes only resources/images it created and proves none remains. It never prints a command containing credentials or dumps raw Docker logs before scanning/redacting planted secret markers.
+
+**Clone/local quick start:**
+
+- `scripts/start-local.ps1` targets Windows PowerShell 5.1+ and uses Docker Compose directly; the user does not need host Node, Corepack, pnpm, `Copy-Item`, or a relaxed execution policy. `scripts/start-local.cmd` invokes it with a script-scoped execution-policy bypass, so the same entry point works from CMD and Git Bash.
+- On first run only, create ignored `.env` with cryptographically random URL-safe PostgreSQL password and 32-byte `SESSION_SECRET`; do not print either and do not rotate them on restart. Use LOCAL `http://127.0.0.1:3000` defaults and a password that needs no URL encoding. Refuse to overwrite a non-empty existing `.env` automatically.
+- Build/start PostgreSQL, apply migrations, and inspect only the ADMIN-count state. If no user exists, prompt for bootstrap admin email and a hidden password, pass them to the one-shot seed service only, then erase the process environment values. If identity state is ambiguous or lacks exactly one enabled ADMIN, stop with a safe message rather than rewriting identity data. Existing initialized volumes restart without another password prompt.
+- Start the remaining stack with `--wait`, verify container process health, then open or clearly print `http://127.0.0.1:3000/login`. A `-NoOpen` switch supports automation. `scripts/health-check.ps1` checks Compose/process health without needing an anonymous/authenticated HTTP credential.
+- README provides exact commands for PowerShell, CMD, and Git Bash; restart/stop preserves the volume. Document the separate destructive volume-removal command with an explicit data-loss warning. Do not claim LAN/public HTTPS support before Phase 9.
+- Because GitHub's default branch still points at Phase 0, README and handoff use `git clone --branch codex/phase-1-auth-users --single-branch https://github.com/duongvh86vn/DashBoard-YTB.git`. Do not merge, force-push, or change the remote default branch without separate owner direction.
 
 - [ ] **Step 1: Write the failing real-stack and browser acceptance gate**
 
@@ -1226,28 +1243,35 @@ The script must prove:
 clean migration deploy and repeat deploy
 seed creates exactly one ADMIN and repeat seed is unchanged
 no plaintext admin/viewer password or raw session token in database/logs
-anonymous liveness 200; anonymous detailed health/protected route 401
-ADMIN detailed health and every user write succeed
-VIEWER read-only domain shell works and every §71 user endpoint is 403
+Web /health is absent (404); anonymous every /api/v1/health* and protected route 401
+ADMIN receives the exact five detailed-health contracts and every user write succeeds
+all eight §71 routes exist; VIEWER receives 403 on all eight; ADMIN targets receive 403
 disabled VIEWER loses an existing session
-logout and password changes revoke sessions
-cookie attributes are correct for LOCAL and PUBLIC API integration modes
+revoked/reset-password VIEWER loses the session on its next request
+logout and self password change revoke sessions
+LOCAL cookie attributes work in the browser; PUBLIC attributes remain covered by API integration until Phase 9 HTTPS
 CSRF hostile Origin/missing-header requests fail
-Web/API/Worker/Postgres healthy; only Web has a loopback host binding
-browser: ADMIN login → create VIEWER → VIEWER login → no Users action → ADMIN disable
-no signup route
+Web/API/Worker/Postgres process health succeeds; only Web has a loopback host binding
+worker stop preserves ADMIN auth and returns exact worker/aggregate 503; restart recovers
+Postgres stop makes DB/session-backed API unavailable without secret leakage; restart recovers
+browser: ADMIN login → create VIEWER → VIEWER login/read-only shell → no Users action/direct Users API call → ADMIN disable → next VIEWER request returns to login
+no signup API/page/link and no fabricated channel/video metric
 all isolated containers/networks/volumes/images are absent after cleanup
 ```
+
+The API matrix also locks the deferred Task 4 minor: each health path has the exact expected check-key set. Add an explicit composition seam assertion that importing/testing `AppModule` constructs zero Prisma clients, rather than relying only on an invalid URL. Plant unique password/token/session-secret markers and scan database/audit/log/artifact surfaces without emitting the marker values.
 
 - [ ] **Step 2: Run RED**
 
 Run: `corepack pnpm test:integration`
 
-Expected: FAIL because Phase 1 Compose wiring, seed target, scripts, and browser E2E are incomplete.
+Expected: FAIL because the Phase 1 Compose profiles/env, no-public-health topology, seed target, E2E runner, quick-start wiring, and full acceptance script are incomplete.
 
 - [ ] **Step 3: Complete Docker/env wiring, safe test orchestration, and documentation**
 
-README quick start generates a random 32-byte `SESSION_SECRET`, requires the owner to choose admin email/password at seed time, runs migration/start, seeds once, and opens `http://127.0.0.1:3000/login`. It never prints or commits a credential. `WORKLOG.md` records commands/results without secret values.
+Migrate every valid Phase 0 topology/migration/worker-recovery assertion into the Phase 1 script before deleting the stale Phase 0 runner. The full harness seeds `CREATED` then `UNCHANGED`, proves exactly one ADMIN, exercises all eight user routes plus browser flow, and cleans up even on failure. Do not assert a structured authenticated DB-health 503 after stopping PostgreSQL because session authentication itself requires PostgreSQL; assert bounded unavailability/no leakage/recovery instead.
+
+README describes Phase 1 truthfully: login and user administration work, while channel/video collectors and monitoring metrics remain later phases. `WORKLOG.md` appends commands/counts/evidence without rewriting Phase 0 history or storing secrets. Update `IMPLEMENTATION_PLAN.md` scope authorization from stale “stops at Phase 0” to the owner's continued Phase 1 instruction, remove every “minimal public liveness” statement, and mark Phase 1 complete only after the actual final review/gates.
 
 - [ ] **Step 4: Run the complete Phase 1 gate**
 
@@ -1262,12 +1286,12 @@ corepack pnpm lint
 corepack pnpm format:check
 corepack pnpm test
 corepack pnpm build
+corepack pnpm test:auth:integration
 corepack pnpm test:integration
+git diff --check
 ```
 
-`test:integration` owns the isolated stack and invokes both `test:auth:integration`
-with its temporary database URL and `test:e2e` with its temporary Web URL and
-ephemeral credentials.
+`test:integration` owns its one isolated stack, invokes raw database integration inside it, exercises the full API matrix, and runs `test:e2e` in the exact Playwright container with its temporary internal Web URL and ephemeral credentials. `test:auth:integration` remains a separate fresh isolated gate.
 
 Expected: all commands exit 0; lint has zero warnings; auth integration and
 browser E2E report zero failures; migration replay and cleanup assertions pass.
@@ -1275,17 +1299,19 @@ browser E2E report zero failures; migration replay and cleanup assertions pass.
 - [ ] **Step 5: Mark Phase 1 evidence and commit**
 
 ```powershell
-git add playwright.config.ts tests/e2e scripts package.json pnpm-lock.yaml docker docker-compose.yml README.md docs WORKLOG.md IMPLEMENTATION_PLAN.md
+git add .prettierignore .env.example .gitignore playwright.config.ts tsconfig.json tsconfig.e2e.json vitest.config.ts vitest.integration.config.ts tests/e2e scripts package.json pnpm-lock.yaml docker docker-compose.yml apps/web/src/app/health apps/web/src/lib/create-health-response.ts apps/web/src/lib/create-health-response.spec.ts README.md docs WORKLOG.md IMPLEMENTATION_PLAN.md
 git commit -m "feat: complete phase one authentication"
 git status --short
 ```
+
+The Task 8 implementer does not push. After independent whole-branch review and a fresh repeat of every final gate, the root agent pushes `codex/phase-1-auth-users` without force and verifies `git ls-remote` equals local HEAD.
 
 ## Phase 1 exit checklist
 
 - [ ] ADMIN login and environment-only bootstrap work.
 - [ ] ADMIN creates, edits, resets, revokes, disables, and enables VIEWER accounts.
 - [ ] VIEWER can enter the authenticated read-only shell and cannot invoke user writes.
-- [ ] Anonymous access is denied except minimal liveness and the login route.
+- [ ] Anonymous access is denied everywhere except the login credential-submission route; no HTTP health route is public.
 - [ ] Detailed health requires ADMIN.
 - [ ] No signup/OAuth/Google Login exists.
 - [ ] Session, CSRF, throttle, revocation, audit, migration, Docker, and browser gates pass.
