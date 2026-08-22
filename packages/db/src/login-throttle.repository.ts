@@ -15,6 +15,10 @@ function toThrottleState(record: {
   };
 }
 
+function createThrottleLockKey(scope: LoginThrottleScopeValue, keyHash: Uint8Array): string {
+  return `${scope}:${Buffer.from(keyHash).toString("base64url")}`;
+}
+
 export class LoginThrottleRepository {
   constructor(private readonly client: DatabaseClient) {}
 
@@ -33,7 +37,7 @@ export class LoginThrottleRepository {
     now: Date,
     policy: ThrottlePolicy,
   ): Promise<ThrottleState> {
-    const lockKey = `${scope}:${Buffer.from(keyHash).toString("base64url")}`;
+    const lockKey = createThrottleLockKey(scope, keyHash);
     const databaseKeyHash = Uint8Array.from(keyHash);
 
     return this.client.$transaction(async (transaction) => {
@@ -77,8 +81,16 @@ export class LoginThrottleRepository {
   }
 
   async clear(scope: LoginThrottleScopeValue, keyHash: Uint8Array): Promise<void> {
-    await this.client.loginThrottle.deleteMany({
-      where: { scope, keyHash: Uint8Array.from(keyHash) },
+    const lockKey = createThrottleLockKey(scope, keyHash);
+    const databaseKeyHash = Uint8Array.from(keyHash);
+
+    await this.client.$transaction(async (transaction) => {
+      await transaction.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
+      `;
+      await transaction.loginThrottle.deleteMany({
+        where: { scope, keyHash: databaseKeyHash },
+      });
     });
   }
 }

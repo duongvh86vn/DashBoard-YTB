@@ -42,10 +42,18 @@ describe("LoginThrottleRepository", () => {
     expect(lock).toHaveBeenCalledOnce();
   });
 
-  it("clears a missing throttle row idempotently", async () => {
+  it("clears a missing throttle row idempotently while holding the per-key lock", async () => {
+    const lock = vi.fn(async () => 1);
     const deleteMany = vi.fn(async () => ({ count: 0 }));
-    const repository = new LoginThrottleRepository({ loginThrottle: { deleteMany } } as never);
+    const transaction = vi.fn(async (work: (transactionClient: unknown) => Promise<unknown>) =>
+      work({
+        $executeRaw: lock,
+        loginThrottle: { deleteMany },
+      }),
+    );
+    const repository = new LoginThrottleRepository({ $transaction: transaction } as never);
 
     await expect(repository.clear("SOURCE", new Uint8Array([9, 9, 9]))).resolves.toBeUndefined();
+    expect(lock).toHaveBeenCalledOnce();
   });
 });

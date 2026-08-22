@@ -18,6 +18,83 @@ const sessions = new SessionRepository(client);
 const throttles = new LoginThrottleRepository(client);
 const unitOfWork = new IdentityUnitOfWork(client);
 
+function createDeferred() {
+  let resolvePromise: () => void = () => undefined;
+  const promise = new Promise<void>((resolve) => {
+    resolvePromise = resolve;
+  });
+
+  return { promise, resolve: resolvePromise };
+}
+
+function createThrottleClientPausedAfterRead(
+  rowRead: ReturnType<typeof createDeferred>,
+  continueAfterRead: ReturnType<typeof createDeferred>,
+) {
+  return {
+    loginThrottle: client.loginThrottle,
+    $transaction: <T>(work: (transaction: unknown) => Promise<T>) =>
+      client.$transaction(async (transaction) => {
+        const pausedLoginThrottle = new Proxy(transaction.loginThrottle, {
+          get(target, property) {
+            if (property === "findUnique") {
+              return async (args: Parameters<typeof transaction.loginThrottle.findUnique>[0]) => {
+                const result = await transaction.loginThrottle.findUnique(args);
+                rowRead.resolve();
+                await continueAfterRead.promise;
+                return result;
+              };
+            }
+
+            const value = Reflect.get(target, property, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+        const pausedTransaction = new Proxy(transaction, {
+          get(target, property) {
+            if (property === "loginThrottle") {
+              return pausedLoginThrottle;
+            }
+
+            const value = Reflect.get(target, property, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+
+        return work(pausedTransaction);
+      }),
+  };
+}
+
+async function waitUntilClearCompletesOrWaitsForAdvisoryLock(
+  hasClearSettled: () => boolean,
+): Promise<void> {
+  const deadline = Date.now() + 2_000;
+
+  while (!hasClearSettled()) {
+    const rows = await client.$queryRaw<Array<{ waiting: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM pg_locks
+        WHERE
+          locktype = 'advisory'
+          AND NOT granted
+          AND database = (
+            SELECT oid FROM pg_database WHERE datname = current_database()
+          )
+      ) AS "waiting"
+    `;
+    if (rows[0]?.waiting) {
+      return;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error("clear neither completed nor waited for the throttle advisory lock");
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 async function createUser(
   email: string,
   role: "ADMIN" | "VIEWER" = "VIEWER",
@@ -199,6 +276,44 @@ describe("identity persistence", () => {
     });
     await expect(throttles.clear("IDENTIFIER", keyHash)).resolves.toBeUndefined();
     await expect(throttles.get("IDENTIFIER", keyHash)).resolves.toBeNull();
+  });
+
+  it("serializes clear with a concurrent failure registration for an existing bucket", async () => {
+    const keyHash = new Uint8Array([4, 3, 2, 1]);
+    const now = new Date("2026-08-22T01:00:00.000Z");
+    const policy = { maxAttempts: 5, windowMinutes: 15, lockMinutes: 30 };
+    await throttles.registerFailure("SOURCE", keyHash, now, policy);
+
+    const rowRead = createDeferred();
+    const continueAfterRead = createDeferred();
+    const pausedThrottles = new LoginThrottleRepository(
+      createThrottleClientPausedAfterRead(rowRead, continueAfterRead) as never,
+    );
+    const registration = pausedThrottles.registerFailure("SOURCE", keyHash, now, policy);
+    await rowRead.promise;
+
+    let clearSettled = false;
+    const clearing = throttles.clear("SOURCE", keyHash).then(
+      () => {
+        clearSettled = true;
+      },
+      (error: unknown) => {
+        clearSettled = true;
+        throw error;
+      },
+    );
+    await waitUntilClearCompletesOrWaitsForAdvisoryLock(() => clearSettled);
+    continueAfterRead.resolve();
+
+    await expect(Promise.all([registration, clearing])).resolves.toEqual([
+      {
+        attemptCount: 2,
+        windowStartedAt: now,
+        blockedUntil: null,
+      },
+      undefined,
+    ]);
+    await expect(throttles.get("SOURCE", keyHash)).resolves.toBeNull();
   });
 
   it("commits a security mutation and semantic audit together without credential markers", async () => {
