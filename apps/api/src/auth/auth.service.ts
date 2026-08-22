@@ -92,11 +92,11 @@ export class AuthService implements AuthApplicationPort {
       if (target === null) {
         return this.throwCommittedLoginFailure(keyHash, now, null, "UNKNOWN_IDENTIFIER");
       }
-      if (!verification.valid) {
-        return this.throwCommittedLoginFailure(keyHash, now, target, "INVALID_PASSWORD");
-      }
       if (!target.isEnabled) {
         return this.throwCommittedLoginFailure(keyHash, now, target, "USER_DISABLED");
+      }
+      if (!verification.valid) {
+        return this.throwCommittedLoginFailure(keyHash, now, target, "INVALID_PASSWORD");
       }
 
       const replacementHash = verification.needsRehash

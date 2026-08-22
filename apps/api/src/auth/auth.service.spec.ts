@@ -275,6 +275,23 @@ describe("AuthService login", () => {
     expect(harness.state.sessions).toHaveLength(0);
   });
 
+  it("classifies a disabled account after real verification even when the password is wrong", async () => {
+    const disabled = user({ isEnabled: false, disabledAt: NOW });
+    const harness = createHarness({
+      state: { users: [disabled], throttles: new Map(), sessions: [], audits: [] },
+    });
+
+    await captureApplicationError(
+      harness.service.login({ email: disabled.email, password: "wrong" }),
+    );
+
+    expect(harness.passwords.verify).toHaveBeenCalledExactlyOnceWith(
+      disabled.passwordHash,
+      "wrong",
+    );
+    expect(harness.state.audits[0]?.metadata).toEqual({ reason: "USER_DISABLED" });
+  });
+
   it("never rehashes a wrong password or malformed stored PHC", async () => {
     const passwords = createPasswordPort();
     passwords.verify.mockResolvedValue({ valid: false, needsRehash: true });
