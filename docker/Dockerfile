@@ -71,4 +71,4 @@ ENV NODE_ENV=production
 
 USER node
 
-CMD ["pnpm", "db:migrate:deploy"]
+CMD ["node", "/app/node_modules/prisma/build/index.js", "migrate", "deploy"]

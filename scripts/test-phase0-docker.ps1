@@ -431,6 +431,17 @@ try {
 
   Invoke-PhaseCompose run --rm db-migrate
 
+  # Runtime package-manager state must not make the non-root migration image
+  # attempt to mutate /app. A direct Prisma entrypoint ignores this setting,
+  # while a pnpm script entrypoint tries to reconcile node_modules first.
+  Invoke-PhaseCompose -ComposeArguments @(
+    'run',
+    '--rm',
+    '-e',
+    'pnpm_config_node_linker=hoisted',
+    'db-migrate'
+  )
+
   $heartbeatCount = (& docker compose -f docker-compose.yml -p $phaseProjectName exec -T postgres psql -U $env:POSTGRES_USER -d $env:POSTGRES_DB -tAc "SELECT COUNT(*) FROM worker_heartbeats WHERE worker_id = 'worker-primary';").Trim()
   if ($LASTEXITCODE -ne 0 -or $heartbeatCount -ne '1') {
     throw "Expected one idempotent worker heartbeat row, received '$heartbeatCount'"

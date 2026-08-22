@@ -83,3 +83,33 @@
 - Outer `$disconnect()` deadlines, pruned runtime images and digest-pinned bases
   remain non-blocking hardening follow-ups; query/statement/dependency/shutdown
   work is already bounded for Phase 0.
+
+## 2026-08-22 — Phase 0 clone runtime fix
+
+### Root cause and invariant-safe fix
+
+- A clean clone exposed a pnpm 11 runtime dependency-status check in the
+  non-root `db-migrate` container. When pnpm considered `node_modules` stale, it
+  attempted an implicit install and failed to create `/app/_tmp_*` with
+  `EACCES` because `/app` is intentionally root-owned.
+- The migration entrypoint now invokes the installed Prisma CLI directly rather
+  than starting a package manager at runtime. The one-shot migration contract,
+  `USER node`, startup dependency order, database topology and all critical
+  invariants remain unchanged.
+- The Docker integration harness now repeats migration deployment with an
+  intentionally different runtime pnpm linker setting. Before the fix this
+  reproduced the reported implicit-install `EACCES`; after the fix migration is
+  idempotent and does not attempt to mutate the image filesystem.
+
+### Verification evidence — 2026-08-22
+
+- RED: `corepack pnpm test:integration` failed in isolated project
+  `ytmonitor-phase0-31596-f161ff98` with pnpm install exit 243 and
+  `EACCES: permission denied, open '/app/_tmp_*'`.
+- GREEN: `corepack pnpm test:integration` passed in isolated project
+  `ytmonitor-phase0-26108-9b030a26`, including the new runtime-config drift
+  regression, clean/repeat migration, health transitions, network/port
+  assertions and verified resource cleanup.
+- `corepack pnpm verify` — PASS: Prisma validate/generate, strict typecheck,
+  ESLint with zero warnings, Prettier, 13 test files / 55 tests and all
+  production builds.
