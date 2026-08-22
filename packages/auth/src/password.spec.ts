@@ -1,7 +1,13 @@
 import argon2 from "argon2";
 import { describe, expect, it } from "vitest";
 
-import { assertPasswordPolicy, hashPassword, normalizeEmail, verifyPassword } from "./index.js";
+import {
+  assertPasswordPolicy,
+  hashPassword,
+  normalizeEmail,
+  rehashVerifiedPassword,
+  verifyPassword,
+} from "./index.js";
 
 describe("password primitives", () => {
   it("normalizes email without preserving surrounding space or letter case", () => {
@@ -75,6 +81,27 @@ describe("password primitives", () => {
     });
     await expect(verifyPassword(outdatedHash, "wrong password value")).resolves.toEqual({
       valid: false,
+      needsRehash: false,
+    });
+  });
+
+  it("rehashes a verified legacy password below the creation minimum with current parameters", async () => {
+    const password = "short";
+    const legacyHash =
+      "$argon2id$v=19$m=32768,p=1,t=2$bGVnYWN5LXNob3J0LXYxIQ$7Ke/JZF31bktXxF4+HxwF46QYJ3Tt/V36tCxDpAmeC8";
+
+    await expect(verifyPassword(legacyHash, password)).resolves.toEqual({
+      valid: true,
+      needsRehash: true,
+    });
+    const currentHash = await rehashVerifiedPassword(password);
+    const fields = currentHash.split("$");
+
+    expect(new Set((fields[3] ?? "").split(","))).toEqual(new Set(["m=65536", "t=3", "p=1"]));
+    expect(Buffer.from(fields[4] ?? "", "base64").length).toBeGreaterThanOrEqual(16);
+    expect(Buffer.from(fields[5] ?? "", "base64")).toHaveLength(32);
+    await expect(verifyPassword(currentHash, password)).resolves.toEqual({
+      valid: true,
       needsRehash: false,
     });
   });

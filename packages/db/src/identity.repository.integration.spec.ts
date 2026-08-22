@@ -258,6 +258,71 @@ describe("identity persistence", () => {
     await expect(sessions.revokeAllForUser(user.id, now, "password-changed")).resolves.toBe(0);
   });
 
+  it("atomically rejects touch when revoke or disable wins after lookup", async () => {
+    const user = await createUser("touch-race@example.com");
+    const createdAt = new Date("2026-08-22T01:00:00.000Z");
+    const lookupAt = new Date("2026-08-22T01:15:00.000Z");
+    const touchAt = new Date("2026-08-22T01:30:00.000Z");
+    const idleExpiresAt = new Date("2026-08-22T02:00:00.000Z");
+    const absoluteExpiresAt = new Date("2026-08-22T03:00:00.000Z");
+
+    const valid = await sessions.create({
+      userId: user.id,
+      tokenHash: new Uint8Array([11]),
+      now: createdAt,
+      idleExpiresAt,
+      absoluteExpiresAt,
+    });
+    await expect(
+      sessions.touch(valid.id, touchAt, new Date("2026-08-22T04:00:00.000Z")),
+    ).resolves.toMatchObject({
+      lastSeenAt: touchAt,
+      idleExpiresAt: absoluteExpiresAt,
+      revokedAt: null,
+    });
+
+    const revoked = await sessions.create({
+      userId: user.id,
+      tokenHash: new Uint8Array([12]),
+      now: createdAt,
+      idleExpiresAt,
+      absoluteExpiresAt,
+    });
+    await expect(sessions.findUsableByHash(new Uint8Array([12]), lookupAt)).resolves.toMatchObject({
+      id: revoked.id,
+    });
+    await sessions.revokeById(revoked.id, lookupAt, "logout");
+    await expect(
+      sessions.touch(revoked.id, touchAt, new Date("2026-08-22T02:30:00.000Z")),
+    ).resolves.toBeNull();
+    await expect(client.session.findUnique({ where: { id: revoked.id } })).resolves.toMatchObject({
+      revokedAt: lookupAt,
+      revocationReason: "logout",
+      lastSeenAt: createdAt,
+      idleExpiresAt,
+    });
+
+    const disabled = await sessions.create({
+      userId: user.id,
+      tokenHash: new Uint8Array([13]),
+      now: createdAt,
+      idleExpiresAt,
+      absoluteExpiresAt,
+    });
+    await expect(sessions.findUsableByHash(new Uint8Array([13]), lookupAt)).resolves.toMatchObject({
+      id: disabled.id,
+    });
+    await users.setEnabled(user.id, false, lookupAt);
+    await expect(
+      sessions.touch(disabled.id, touchAt, new Date("2026-08-22T02:30:00.000Z")),
+    ).resolves.toBeNull();
+    await expect(client.session.findUnique({ where: { id: disabled.id } })).resolves.toMatchObject({
+      revokedAt: null,
+      lastSeenAt: createdAt,
+      idleExpiresAt,
+    });
+  });
+
   it("atomically blocks the fifth concurrent failure for one throttle key", async () => {
     const keyHash = new Uint8Array([9, 8, 7, 6]);
     const now = new Date("2026-08-22T01:00:00.000Z");

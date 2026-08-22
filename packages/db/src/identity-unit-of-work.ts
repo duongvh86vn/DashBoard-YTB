@@ -1,6 +1,6 @@
 import type { DatabaseClient } from "./client.js";
 import { AuditLogRepository } from "./audit-log.repository.js";
-import { hasPrismaErrorCode } from "./identity-errors.js";
+import { Prisma } from "./generated/prisma/client.js";
 import { TransactionLoginThrottleRepository } from "./login-throttle.repository.js";
 import { SessionRepository } from "./session.repository.js";
 import { UserRepository } from "./user.repository.js";
@@ -29,7 +29,11 @@ export class IdentityUnitOfWork {
           { isolationLevel: "Serializable" },
         );
       } catch (error) {
-        if (attempt === 0 && hasPrismaErrorCode(error, "P2034")) {
+        if (
+          attempt === 0 &&
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2034"
+        ) {
           continue;
         }
         throw error;

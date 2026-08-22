@@ -34,13 +34,13 @@ describe("SessionRepository", () => {
       revokedAt: null,
       revocationReason: null,
     };
-    const findUnique = vi.fn(async () => session);
-    const update = vi.fn(async ({ data }: { data: { lastSeenAt: Date; idleExpiresAt: Date } }) => ({
-      ...session,
-      ...data,
-    }));
-    const repository = new SessionRepository({ session: { findUnique, update } } as never);
     const now = new Date("2026-08-22T00:30:00.000Z");
+    const touched = { ...session, lastSeenAt: now, idleExpiresAt: absoluteExpiresAt };
+    const queryRaw = vi.fn(async (...parameters: unknown[]) => {
+      void parameters;
+      return [touched];
+    });
+    const repository = new SessionRepository({ $queryRaw: queryRaw } as never);
 
     await expect(
       repository.touch(session.id, now, new Date("2026-08-22T05:00:00.000Z")),
@@ -48,15 +48,25 @@ describe("SessionRepository", () => {
       lastSeenAt: now,
       idleExpiresAt: absoluteExpiresAt,
     });
+
+    expect(queryRaw).toHaveBeenCalledOnce();
+    const [query, id, boundNow, requestedIdleExpiry] = queryRaw.mock.calls[0] ?? [];
+    expect(Array.from(query as unknown as TemplateStringsArray).join("?")).toMatch(
+      /UPDATE "sessions" AS session[\s\S]*LEAST\([\s\S]*FROM "users" AS account[\s\S]*session\."revoked_at" IS NULL[\s\S]*session\."idle_expires_at" >[\s\S]*session\."absolute_expires_at" >[\s\S]*account\."is_enabled" = TRUE/u,
+    );
+    expect([id, boundNow, requestedIdleExpiry]).toEqual([
+      session.id,
+      now,
+      new Date("2026-08-22T05:00:00.000Z"),
+    ]);
   });
 
-  it("returns null instead of touching a missing session", async () => {
-    const repository = new SessionRepository({
-      session: {
-        findUnique: vi.fn(async () => null),
-        update: vi.fn(),
-      },
-    } as never);
+  it("returns null when the atomic usable-session update affects no row", async () => {
+    const queryRaw = vi.fn(async (...parameters: unknown[]) => {
+      void parameters;
+      return [];
+    });
+    const repository = new SessionRepository({ $queryRaw: queryRaw } as never);
 
     await expect(
       repository.touch(
@@ -65,5 +75,6 @@ describe("SessionRepository", () => {
         new Date("2026-08-22T01:30:00.000Z"),
       ),
     ).resolves.toBeNull();
+    expect(queryRaw).toHaveBeenCalledOnce();
   });
 });

@@ -2,7 +2,7 @@ import type { Prisma } from "./generated/prisma/client.js";
 
 import type { SessionRecord, UsableSessionRecord } from "./identity-records.js";
 
-type SessionClient = Pick<Prisma.TransactionClient, "session">;
+type SessionClient = Pick<Prisma.TransactionClient, "$queryRaw" | "session">;
 
 export interface CreateSessionInput {
   userId: string;
@@ -54,20 +54,38 @@ export class SessionRepository {
   }
 
   async touch(id: string, now: Date, requestedIdleExpiry: Date): Promise<SessionRecord | null> {
-    const session = await this.client.session.findUnique({ where: { id } });
-    if (session === null) {
-      return null;
-    }
+    const touched = await this.client.$queryRaw<SessionRecord[]>`
+      WITH input AS (
+        SELECT
+          ${id}::uuid AS id,
+          ${now}::timestamptz AS now,
+          ${requestedIdleExpiry}::timestamptz AS requested_idle_expiry
+      )
+      UPDATE "sessions" AS session
+      SET
+        "last_seen_at" = input.now,
+        "idle_expires_at" = LEAST(input.requested_idle_expiry, session."absolute_expires_at")
+      FROM "users" AS account, input
+      WHERE
+        session."id" = input.id
+        AND account."id" = session."user_id"
+        AND session."revoked_at" IS NULL
+        AND session."idle_expires_at" > input.now
+        AND session."absolute_expires_at" > input.now
+        AND account."is_enabled" = TRUE
+      RETURNING
+        session."id",
+        session."user_id" AS "userId",
+        session."token_hash" AS "tokenHash",
+        session."created_at" AS "createdAt",
+        session."last_seen_at" AS "lastSeenAt",
+        session."idle_expires_at" AS "idleExpiresAt",
+        session."absolute_expires_at" AS "absoluteExpiresAt",
+        session."revoked_at" AS "revokedAt",
+        session."revocation_reason" AS "revocationReason"
+    `;
 
-    const idleExpiresAt =
-      requestedIdleExpiry.getTime() < session.absoluteExpiresAt.getTime()
-        ? requestedIdleExpiry
-        : session.absoluteExpiresAt;
-
-    return this.client.session.update({
-      where: { id },
-      data: { lastSeenAt: now, idleExpiresAt },
-    });
+    return touched[0] ?? null;
   }
 
   async revokeById(id: string, now: Date, reason: string): Promise<void> {

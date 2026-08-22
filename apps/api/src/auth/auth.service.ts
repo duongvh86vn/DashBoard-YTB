@@ -6,6 +6,7 @@ import {
   type PublicUser,
 } from "@yt-monitor/auth";
 import type { IdentityRepositories, UserRecord } from "@yt-monitor/db";
+import { z } from "zod";
 
 import { AuthApplicationError } from "./auth-application.error.js";
 import type { AuthApplicationPort } from "./auth-application.port.js";
@@ -55,8 +56,10 @@ function toPublicUser(user: UserRecord): PublicUser {
   };
 }
 
+const loginEmailLookupSchema = z.email().max(320);
+
 function isLookupSafeEmail(email: string): boolean {
-  return email.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email);
+  return !/[\p{Cc}\p{Cs}]/u.test(email) && loginEmailLookupSchema.safeParse(email).success;
 }
 
 export class AuthService implements AuthApplicationPort {
@@ -100,7 +103,7 @@ export class AuthService implements AuthApplicationPort {
       }
 
       const replacementHash = verification.needsRehash
-        ? await this.dependencies.passwords.hash(input.password)
+        ? await this.dependencies.passwords.rehash(input.password)
         : null;
       const credential = createSessionCredential(
         this.dependencies.sessionSecret,
@@ -129,9 +132,10 @@ export class AuthService implements AuthApplicationPort {
           return { kind: "credential-state-changed" as const };
         }
 
-        if (replacementHash !== null) {
-          await repositories.users.updatePasswordHash(locked.id, replacementHash);
-        }
+        const authenticatedUser =
+          replacementHash === null
+            ? locked
+            : await repositories.users.updatePasswordHash(locked.id, replacementHash);
         await repositories.throttles.clear("IDENTIFIER", keyHash);
         await repositories.sessions.create({
           userId: locked.id,
@@ -148,7 +152,7 @@ export class AuthService implements AuthApplicationPort {
           requestId: null,
           metadata: { passwordRehashed: replacementHash !== null },
         });
-        return { kind: "success" as const, user: toPublicUser(locked) };
+        return { kind: "success" as const, user: toPublicUser(authenticatedUser) };
       });
 
       if (outcome.kind === "success") {

@@ -16,6 +16,7 @@ export {
   assertPasswordPolicy,
   hashPassword,
   normalizeEmail,
+  rehashVerifiedPassword,
   verifyPassword,
   type PasswordVerification,
 } from "./password.js";

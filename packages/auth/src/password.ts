@@ -45,7 +45,15 @@ export function assertPasswordPolicy(password: string): void {
 
 export async function hashPassword(password: string): Promise<string> {
   assertPasswordPolicy(password);
+  return hashWithCurrentParameters(password);
+}
+
+async function hashWithCurrentParameters(password: string): Promise<string> {
   return argon2.hash(password, ARGON2_OPTIONS);
+}
+
+export function rehashVerifiedPassword(password: string): Promise<string> {
+  return hashWithCurrentParameters(password);
 }
 
 export interface PasswordVerification {

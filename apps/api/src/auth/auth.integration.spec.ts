@@ -11,6 +11,7 @@ import {
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthService } from "./auth.service.js";
+import { systemPasswords } from "./auth-runtime.ports.js";
 import { LoginThrottleService } from "./login-throttle.service.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -37,6 +38,7 @@ function deferred() {
 function createService(passwords: {
   verify(hash: string, password: string): Promise<PasswordVerification>;
   hash(password: string): Promise<string>;
+  rehash(password: string): Promise<string>;
 }) {
   return new AuthService({
     users,
@@ -91,6 +93,7 @@ describe("real PostgreSQL auth flow", () => {
         needsRehash: hash === plantedHash && password === plantedPassword,
       })),
       hash: vi.fn(async () => replacementHash),
+      rehash: vi.fn(async () => replacementHash),
     });
 
     const result = await service.login({ email: account.email, password: plantedPassword });
@@ -113,6 +116,55 @@ describe("real PostgreSQL auth flow", () => {
     expect(JSON.stringify(auditRows)).not.toContain(result.sessionToken);
     expect(auditRows).toHaveLength(1);
     expect(auditRows[0]?.metadata).toEqual({ passwordRehashed: true });
+  });
+
+  it("rehashes a real verified short legacy password and returns the persisted timestamp", async () => {
+    const password = "short";
+    const legacyHash =
+      "$argon2id$v=19$m=32768,p=1,t=2$bGVnYWN5LXNob3J0LXYxIQ$7Ke/JZF31bktXxF4+HxwF46QYJ3Tt/V36tCxDpAmeC8";
+    const account = await users.create({
+      email: "legacy-rehash@example.com",
+      passwordHash: legacyHash,
+      role: "VIEWER",
+    });
+    const oldUpdatedAt = new Date("2026-08-20T00:00:00.000Z");
+    await client.user.update({ where: { id: account.id }, data: { updatedAt: oldUpdatedAt } });
+
+    const result = await createService(systemPasswords).login({ email: account.email, password });
+    const stored = await users.findById(account.id);
+    const audits = await client.auditLog.findMany();
+
+    expect(stored?.passwordHash).not.toBe(legacyHash);
+    await expect(systemPasswords.verify(stored?.passwordHash ?? "", password)).resolves.toEqual({
+      valid: true,
+      needsRehash: false,
+    });
+    expect(stored?.updatedAt).not.toEqual(oldUpdatedAt);
+    expect(result.user.updatedAt).toBe(stored?.updatedAt.toISOString());
+    expect(audits[0]?.metadata).toEqual({ passwordRehashed: true });
+    expect(JSON.stringify({ audits, result })).not.toMatch(/short|bGVnYWN5LXNob3J0/u);
+  });
+
+  it("routes a PostgreSQL-unsafe control identifier through HMAC throttle without planting it", async () => {
+    const email = "pg-db-unsafe\u0000sentinel@example.com";
+    const password = "pg-planted-control-password";
+
+    await expectCredentialFailure(createService(systemPasswords).login({ email, password }));
+
+    const throttleRows = await client.loginThrottle.findMany();
+    const audits = await client.auditLog.findMany();
+    expect(throttleRows).toHaveLength(1);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      actorUserId: null,
+      targetUserId: null,
+      action: "LOGIN_FAILED",
+      outcome: "FAILURE",
+      metadata: { reason: "UNKNOWN_IDENTIFIER" },
+    });
+    expect(JSON.stringify({ throttleRows, audits })).not.toMatch(
+      /pg-db-unsafe|pg-planted-control-password/u,
+    );
   });
 
   it("linearizes a success clear before a concurrent failure under the same throttle lock", async () => {
@@ -169,6 +221,9 @@ describe("real PostgreSQL auth flow", () => {
       async hash(password) {
         return `hash:${password}`;
       },
+      async rehash(password) {
+        return `hash:${password}`;
+      },
     });
 
     const login = service.login({ email: account.email, password: "old password" });
@@ -203,6 +258,9 @@ describe("real PostgreSQL auth flow", () => {
         return { valid: false, needsRehash: false };
       },
       async hash(password) {
+        return `hash:${password}`;
+      },
+      async rehash(password) {
         return `hash:${password}`;
       },
     });
@@ -240,6 +298,9 @@ describe("real PostgreSQL auth flow", () => {
         return { valid: hash === `hash:${password}`, needsRehash: false };
       },
       async hash(password) {
+        return `hash:${password}`;
+      },
+      async rehash(password) {
         return `hash:${password}`;
       },
     });

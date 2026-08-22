@@ -14,6 +14,7 @@ import { AuthService } from "./auth.service.js";
 import { LoginThrottleService } from "./login-throttle.service.js";
 
 const NOW = new Date("2026-08-22T01:00:00.000Z");
+const PASSWORD_UPDATED_AT = new Date("2026-08-22T01:00:01.000Z");
 const USER_ID = "00000000-0000-4000-8000-000000000001";
 const SESSION_ID = "00000000-0000-4000-8000-000000000002";
 const CURRENT_PASSWORD = "current password";
@@ -77,9 +78,12 @@ function createUnitOfWork(
             return draft.users.find((candidate) => candidate.id === id) ?? null;
           },
           async updatePasswordHash(id: string, passwordHash: string) {
-            const target = draft.users.find((candidate) => candidate.id === id);
+            const index = draft.users.findIndex((candidate) => candidate.id === id);
+            const target = draft.users[index];
             if (!target) throw new Error("missing user");
-            target.passwordHash = passwordHash;
+            const updated = { ...target, passwordHash, updatedAt: PASSWORD_UPDATED_AT };
+            draft.users[index] = updated;
+            return structuredClone(updated);
           },
         },
         throttles: {
@@ -160,6 +164,7 @@ function createPasswordPort() {
       return { valid: hash === `hash:${password}`, needsRehash: false };
     }),
     hash: vi.fn(async (password: string) => `hash:${password}`),
+    rehash: vi.fn(async (password: string) => `hash:${password}`),
   };
 }
 
@@ -256,6 +261,41 @@ describe("AuthService login", () => {
     expect(JSON.stringify(harness.state)).not.toMatch(/unknown@example\.com|wrong/u);
   });
 
+  it.each([
+    ["NUL", "db-unsafe\u0000sentinel@example.com"],
+    ["C0 control", "db-unsafe\u0001sentinel@example.com"],
+    ["unpaired surrogate", "db-unsafe\ud800sentinel@example.com"],
+    ["invalid dot syntax", "db-unsafe..sentinel@example.com"],
+  ])(
+    "routes a %s identifier through dummy verification without a database lookup",
+    async (_, email) => {
+      const findByCanonicalEmail = vi.fn(async () => {
+        throw new Error("unsafe identifier reached the database");
+      });
+      const harness = createHarness({
+        state: { users: [], throttles: new Map(), sessions: [], audits: [] },
+        users: {
+          findByCanonicalEmail,
+          findById: vi.fn(async () => null),
+        },
+      });
+
+      const error = await captureApplicationError(
+        harness.service.login({ email, password: "planted-control-password" }),
+      );
+
+      expect(error).toMatchObject({ status: 401, code: "AUTH_INVALID_CREDENTIALS" });
+      expect(findByCanonicalEmail).not.toHaveBeenCalled();
+      expect(harness.passwords.verify).toHaveBeenCalledExactlyOnceWith(
+        FIXED_DUMMY_PASSWORD_HASH,
+        "planted-control-password",
+      );
+      expect(harness.state.audits[0]?.metadata).toEqual({ reason: "UNKNOWN_IDENTIFIER" });
+      expect(harness.state.throttles.size).toBe(1);
+      expect(JSON.stringify(harness.state)).not.toMatch(/db-unsafe|planted-control-password/u);
+    },
+  );
+
   it("real-verifies disabled users and reports their failure only after committing it", async () => {
     const disabled = user({ isEnabled: false, disabledAt: NOW });
     const harness = createHarness({
@@ -310,6 +350,7 @@ describe("AuthService login", () => {
     );
 
     expect(passwords.hash).not.toHaveBeenCalled();
+    expect(passwords.rehash).not.toHaveBeenCalled();
     expect(harness.state.audits[0]?.metadata).toEqual({ reason: "INVALID_PASSWORD" });
   });
 
@@ -426,11 +467,13 @@ describe("AuthService login", () => {
         role: "VIEWER",
         isEnabled: true,
         createdAt: legacyUser.createdAt.toISOString(),
-        updatedAt: legacyUser.updatedAt.toISOString(),
+        updatedAt: PASSWORD_UPDATED_AT.toISOString(),
         disabledAt: null,
       },
       sessionToken: expectedToken,
     });
+    expect(harness.passwords.hash).not.toHaveBeenCalled();
+    expect(harness.passwords.rehash).toHaveBeenCalledExactlyOnceWith(CURRENT_PASSWORD);
     expect(state.users[0]?.passwordHash).toBe(`hash:${CURRENT_PASSWORD}`);
     expect(state.throttles.size).toBe(0);
     expect(state.sessions).toEqual([

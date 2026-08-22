@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { AuditLogRepository } from "./audit-log.repository.js";
+import { Prisma } from "./generated/prisma/client.js";
 import { IdentityUnitOfWork } from "./identity-unit-of-work.js";
 import { TransactionLoginThrottleRepository } from "./login-throttle.repository.js";
 import { SessionRepository } from "./session.repository.js";
@@ -34,8 +35,11 @@ describe("IdentityUnitOfWork", () => {
     ).resolves.toBe("committed");
   });
 
-  it("retries a P2034 transaction exactly once", async () => {
-    const conflict = Object.assign(new Error("write conflict"), { code: "P2034" });
+  it("retries a real Prisma P2034 transaction exactly once", async () => {
+    const conflict = new Prisma.PrismaClientKnownRequestError("write conflict", {
+      code: "P2034",
+      clientVersion: "7.9.1",
+    });
     const transaction = vi
       .fn()
       .mockRejectedValueOnce(conflict)
@@ -48,8 +52,20 @@ describe("IdentityUnitOfWork", () => {
     expect(transaction).toHaveBeenCalledTimes(2);
   });
 
-  it("does not retry a second P2034 or any other error", async () => {
-    const conflict = Object.assign(new Error("write conflict"), { code: "P2034" });
+  it("does not retry a plain error that merely exposes code P2034", async () => {
+    const fakeConflict = Object.assign(new Error("not emitted by Prisma"), { code: "P2034" });
+    const transaction = vi.fn().mockRejectedValueOnce(fakeConflict).mockResolvedValue("wrong");
+    const unitOfWork = new IdentityUnitOfWork({ $transaction: transaction } as never);
+
+    await expect(unitOfWork.transaction(async () => "committed")).rejects.toBe(fakeConflict);
+    expect(transaction).toHaveBeenCalledOnce();
+  });
+
+  it("does not retry a second real Prisma P2034 or any other error", async () => {
+    const conflict = new Prisma.PrismaClientKnownRequestError("write conflict", {
+      code: "P2034",
+      clientVersion: "7.9.1",
+    });
     const repeatedConflict = vi.fn().mockRejectedValue(conflict);
     const conflictingUnitOfWork = new IdentityUnitOfWork({
       $transaction: repeatedConflict,

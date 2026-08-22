@@ -87,9 +87,9 @@ export class UserRepository {
     return mapUserMutation(() => this.client.user.update({ where: { id }, data: { email } }));
   }
 
-  async updatePasswordHash(id: string, passwordHash: string): Promise<void> {
-    await mapUserMutation(() =>
-      this.client.user.update({ where: { id }, data: { passwordHash }, select: { id: true } }),
+  updatePasswordHash(id: string, passwordHash: string): Promise<UserRecord> {
+    return mapUserMutation(() =>
+      this.client.user.update({ where: { id }, data: { passwordHash } }),
     );
   }
 

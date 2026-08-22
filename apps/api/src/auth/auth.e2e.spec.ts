@@ -1,15 +1,21 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import type { PublicUser } from "@yt-monitor/auth";
+import { nextThrottleState, type PublicUser, type ThrottleState } from "@yt-monitor/auth";
 import type { ApiEnv } from "@yt-monitor/config";
-import type { WorkerHeartbeatRecord } from "@yt-monitor/db";
+import type {
+  AppendAuditLogInput,
+  IdentityRepositories,
+  WorkerHeartbeatRecord,
+} from "@yt-monitor/db";
 import request from "supertest";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppModule } from "../app.module.js";
 import type { DatabaseHealthReader, WorkerHeartbeatReader } from "../health/health.service.js";
 import { AuthApplicationError } from "./auth-application.error.js";
 import type { AuthApplicationPort } from "./auth-application.port.js";
+import { AuthService, DUMMY_PASSWORD_HASH } from "./auth.service.js";
+import { LoginThrottleService } from "./login-throttle.service.js";
 import type {
   AuthenticatedPrincipal,
   SessionAuthenticationPort,
@@ -109,18 +115,82 @@ const VALID_CSRF_HEADERS = {
   "X-CSRF-Protection": "1",
 };
 
-async function createApp(auth?: StatefulAuth): Promise<INestApplication> {
+async function createApp(
+  auth?: StatefulAuth,
+  authApplication?: AuthApplicationPort,
+): Promise<INestApplication> {
+  const application = authApplication ?? auth;
   const dynamicModule = AppModule.forTesting({
     env: ENV,
     databaseHealthReader: new AvailableDatabase(),
     workerHeartbeatReader: new AvailableWorker(),
-    ...(auth ? { authApplication: auth, sessionAuthenticator: auth } : {}),
+    ...(application ? { authApplication: application } : {}),
+    ...(auth ? { sessionAuthenticator: auth } : {}),
   });
   const module = await Test.createTestingModule({ imports: [dynamicModule] }).compile();
   const app = module.createNestApplication({ logger: false });
   app.setGlobalPrefix("api/v1");
   await app.init();
   return app;
+}
+
+function createUnsafeIdentifierService() {
+  const audits: AppendAuditLogInput[] = [];
+  const throttleRows = new Map<string, ThrottleState>();
+  const findByCanonicalEmail = vi.fn(async () => {
+    throw new Error("database lookup must not receive an unsafe identifier");
+  });
+  const passwords = {
+    verify: vi.fn(async () => ({ valid: false, needsRehash: false })),
+    hash: vi.fn(async () => "unused"),
+    rehash: vi.fn(async () => "unused"),
+  };
+  const repositories = {
+    throttles: {
+      async getLocked(_scope: "IDENTIFIER", keyHash: Uint8Array) {
+        return throttleRows.get(Buffer.from(keyHash).toString("base64url")) ?? null;
+      },
+      async registerFailure(
+        _scope: "IDENTIFIER",
+        keyHash: Uint8Array,
+        now: Date,
+        policy: { maxAttempts: number; windowMinutes: number; lockMinutes: number },
+      ) {
+        const key = Buffer.from(keyHash).toString("base64url");
+        const next = nextThrottleState(throttleRows.get(key) ?? null, now, policy);
+        throttleRows.set(key, next);
+        return next;
+      },
+      async clear() {},
+    },
+    audit: {
+      async append(input: AppendAuditLogInput) {
+        audits.push(structuredClone(input));
+        return { id: "audit-id", ...input, createdAt: new Date("2026-08-22T01:00:00.000Z") };
+      },
+    },
+  } as unknown as IdentityRepositories;
+  const throttle = new LoginThrottleService({
+    sessionSecret: "s".repeat(32),
+    maxAttempts: 5,
+    lockMinutes: 15,
+  });
+  const service = new AuthService({
+    users: {
+      findByCanonicalEmail,
+      findById: vi.fn(async () => null),
+    },
+    unitOfWork: { transaction: async (work) => work(repositories) },
+    throttle,
+    clock: { now: () => new Date("2026-08-22T01:00:00.000Z") },
+    entropy: { bytes: (length) => new Uint8Array(length) },
+    passwords,
+    sessionSecret: "s".repeat(32),
+    sessionIdleMinutes: 120,
+    sessionAbsoluteHours: 24,
+  });
+
+  return { service, audits, throttleRows, findByCanonicalEmail, passwords };
 }
 
 function expectExactError(
@@ -252,6 +322,33 @@ describe("auth HTTP contract", () => {
       .set(VALID_CSRF_HEADERS)
       .send({ currentPassword: "", newPassword: "short" });
     expectExactError(passwordPolicy, 400, "VALIDATION_ERROR", "Invalid request");
+  });
+
+  it("routes a JSON NUL identifier through dummy verification to exact 401 without a DB lookup", async () => {
+    const harness = createUnsafeIdentifierService();
+    const app = await createApp(undefined, harness.service);
+    apps.push(app);
+
+    const response = await request(app.getHttpServer())
+      .post("/api/v1/auth/login")
+      .set(VALID_CSRF_HEADERS)
+      .send({
+        email: "http-db-unsafe\u0000sentinel@example.com",
+        password: "http-planted-password",
+      });
+
+    expectExactError(response, 401, "AUTH_INVALID_CREDENTIALS", "Invalid email or password");
+    expect(harness.findByCanonicalEmail).not.toHaveBeenCalled();
+    expect(harness.passwords.verify).toHaveBeenCalledExactlyOnceWith(
+      DUMMY_PASSWORD_HASH,
+      "http-planted-password",
+    );
+    expect(harness.audits).toHaveLength(1);
+    expect(harness.audits[0]?.metadata).toEqual({ reason: "UNKNOWN_IDENTIFIER" });
+    expect(harness.throttleRows.size).toBe(1);
+    expect(JSON.stringify({ audits: harness.audits, throttle: harness.throttleRows })).not.toMatch(
+      /http-db-unsafe|http-planted-password/u,
+    );
   });
 
   it("preserves session-before-CSRF precedence while Public login still reaches CSRF first", async () => {

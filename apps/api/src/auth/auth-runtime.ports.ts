@@ -1,6 +1,11 @@
 import { randomBytes } from "node:crypto";
 
-import { hashPassword, verifyPassword, type PasswordVerification } from "@yt-monitor/auth";
+import {
+  hashPassword,
+  rehashVerifiedPassword,
+  verifyPassword,
+  type PasswordVerification,
+} from "@yt-monitor/auth";
 
 export interface Clock {
   now(): Date;
@@ -13,6 +18,7 @@ export interface EntropySource {
 export interface PasswordPort {
   verify(hash: string, password: string): Promise<PasswordVerification>;
   hash(password: string): Promise<string>;
+  rehash(password: string): Promise<string>;
 }
 
 export const systemClock: Clock = {
@@ -26,4 +32,5 @@ export const systemEntropy: EntropySource = {
 export const systemPasswords: PasswordPort = {
   verify: verifyPassword,
   hash: hashPassword,
+  rehash: rehashVerifiedPassword,
 };
