@@ -13,6 +13,7 @@ const workerEnvSchema = baseEnvSchema
     CHANNEL_SCAN_HOURS: z.coerce.number().int().positive().default(6),
     CHANNEL_HEALTH_HOURS: z.coerce.number().int().positive().default(6),
     PLAYWRIGHT_CONCURRENCY: z.coerce.number().int().positive().default(1),
+    PLAYWRIGHT_EXECUTABLE_PATH: z.string().min(1).optional(),
     YTDLP_CONCURRENCY: z.coerce.number().int().positive().default(2),
   })
   .superRefine((value, context) => {

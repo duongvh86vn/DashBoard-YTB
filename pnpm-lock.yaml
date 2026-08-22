@@ -184,6 +184,9 @@ importers:
       '@nestjs/core':
         specifier: 11.2.1
         version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/platform-express@11.2.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@yt-monitor/collector-youtube-public':
+        specifier: workspace:*
+        version: link:../../packages/collectors/youtube-public
       '@yt-monitor/collector-youtube-rss':
         specifier: workspace:*
         version: link:../../packages/collectors/youtube-rss
@@ -249,6 +252,9 @@ importers:
       '@yt-monitor/shared':
         specifier: workspace:*
         version: link:../../shared
+      playwright-core:
+        specifier: 1.62.1
+        version: 1.62.1
     devDependencies:
       '@types/node':
         specifier: 24.13.3

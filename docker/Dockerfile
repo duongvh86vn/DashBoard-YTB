@@ -48,14 +48,6 @@ USER node
 
 CMD ["node", "apps/api/dist/main.js"]
 
-FROM build AS worker
-
-ENV NODE_ENV=production
-
-USER node
-
-CMD ["node", "apps/worker/dist/main.js"]
-
 FROM build AS web
 
 ENV NODE_ENV=production
@@ -69,6 +61,26 @@ RUN mkdir -p /app/apps/web/.next/standalone/apps/web/.next \
 USER node
 
 CMD ["node", "apps/web/start-standalone.mjs"]
+
+FROM mcr.microsoft.com/playwright:v1.62.1-noble AS worker
+
+USER root
+
+COPY --from=base /usr/local/bin/node /usr/local/bin/node
+COPY --from=base /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends yt-dlp \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=build --chown=pwuser:pwuser /app /app
+
+ENV NODE_ENV=production
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+USER pwuser
+
+CMD ["node", "apps/worker/dist/main.js"]
 
 FROM build AS db-migrate
 

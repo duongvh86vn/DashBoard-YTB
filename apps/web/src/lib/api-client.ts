@@ -1,10 +1,13 @@
 import {
   ApiErrorEnvelopeSchema,
   ChannelResponseSchema,
+  ChannelHealthCheckQueuedSchema,
+  ChannelHealthHistorySchema,
   ChannelsPageSchema,
   CSRF_HEADER_NAME,
   type AuthErrorCode,
   type ChannelsPage,
+  type ChannelHealthHistory,
   type PublicUser,
   UserResponseSchema,
   type UsersPage,
@@ -266,4 +269,31 @@ export async function archiveChannel(id: string): Promise<void> {
     method: "DELETE",
     body: {},
   });
+}
+
+export async function requestChannelHealthCheck(
+  id: string,
+): Promise<{ syncRunId: string; status: "QUEUED" }> {
+  return requestApi(`/api/v1/channels/${encodeURIComponent(id)}/health-check`, {
+    method: "POST",
+    body: {},
+    schema: ChannelHealthCheckQueuedSchema,
+  });
+}
+
+export async function getChannelHealthHistory(input: {
+  id: string;
+  page: number;
+  pageSize: number;
+  signal?: AbortSignal;
+}): Promise<ChannelHealthHistory> {
+  const query = new URLSearchParams({ page: String(input.page), pageSize: String(input.pageSize) });
+  return requestApi(
+    `/api/v1/channels/${encodeURIComponent(input.id)}/health-history?${query.toString()}`,
+    {
+      method: "GET",
+      schema: ChannelHealthHistorySchema,
+      ...(input.signal ? { signal: input.signal } : {}),
+    },
+  );
 }

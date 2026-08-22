@@ -1,4 +1,4 @@
-import type { ChannelUnitOfWork, ChannelRecord } from "@yt-monitor/db";
+import type { ChannelUnitOfWork, ChannelRecord, ChannelHealthCheckRecord } from "@yt-monitor/db";
 import { ChannelConflictError, ChannelNotFoundError } from "@yt-monitor/db";
 import { ChannelInputError, YtdlpError } from "@yt-monitor/collector-ytdlp";
 
@@ -7,6 +7,7 @@ import type {
   ChannelsApplicationPort,
   ChannelProviderPort,
   PublicChannel,
+  PublicChannelHealthCheck,
 } from "./channels-application.port.js";
 
 interface ChannelsServiceDependencies {
@@ -48,6 +49,23 @@ function mapChannelError(error: unknown): never {
     throw ChannelApplicationError.resolveFailed();
   }
   throw error;
+}
+
+function toPublicHealthCheck(check: ChannelHealthCheckRecord): PublicChannelHealthCheck {
+  return {
+    id: check.id,
+    channelId: check.channelId,
+    checkedAt: check.checkedAt.toISOString(),
+    publicPageStatus: check.publicPageStatus,
+    ytdlpStatus: check.ytdlpStatus,
+    rssStatus: check.rssStatus,
+    normalizedAvailability: check.normalizedAvailability,
+    evidenceCode: check.evidenceCode,
+    evidenceTextSafe: check.evidenceTextSafe,
+    httpStatus: check.httpStatus,
+    durationMs: check.durationMs,
+    createdAt: check.createdAt.toISOString(),
+  };
 }
 
 export class ChannelsService implements ChannelsApplicationPort {
@@ -107,5 +125,39 @@ export class ChannelsService implements ChannelsApplicationPort {
     } catch (error) {
       return mapChannelError(error);
     }
+  }
+
+  async requestHealthCheck(input: {
+    id: string;
+  }): Promise<{ syncRunId: string; status: "QUEUED" }> {
+    const syncRun = await this.dependencies.unitOfWork.transaction(async (repositories) => {
+      const channel = await repositories.channels.findById(input.id);
+      if (channel === null) throw ChannelApplicationError.notFound();
+      return repositories.syncRuns.create({
+        channelId: input.id,
+        jobType: "CHANNEL_HEALTH",
+        status: "QUEUED",
+      });
+    });
+    return { syncRunId: syncRun.id, status: "QUEUED" };
+  }
+
+  async healthHistory(input: { id: string; page: number; pageSize: number }): Promise<{
+    items: PublicChannelHealthCheck[];
+    page: number;
+    pageSize: number;
+    total: number;
+  }> {
+    const result = await this.dependencies.unitOfWork.transaction(async (repositories) => {
+      const channel = await repositories.channels.findById(input.id);
+      if (channel === null) throw ChannelApplicationError.notFound();
+      return repositories.healthChecks.list(input.id, input.page, input.pageSize);
+    });
+    return {
+      items: result.items.map(toPublicHealthCheck),
+      page: input.page,
+      pageSize: input.pageSize,
+      total: result.total,
+    };
   }
 }

@@ -43,6 +43,22 @@ export interface CreateChannelSnapshotInput {
   sourceDetails: PrismaTypes.InputJsonValue | null;
 }
 
+export interface UpdateChannelHealthInput {
+  checkedAt: Date;
+  normalizedAvailability:
+    | "ACTIVE"
+    | "DELETED_OR_TERMINATED"
+    | "NOT_FOUND"
+    | "TEMPORARILY_UNAVAILABLE"
+    | "CHECK_FAILED"
+    | "UNKNOWN"
+    | "ARCHIVED";
+  activityStatus: "ACTIVE_RECENT" | "DORMANT" | "NO_UPLOAD_HISTORY" | "UNKNOWN";
+  consecutiveHealthFailures: number;
+  firstUnavailableAt: Date | null;
+  lastSeenAliveAt: Date | null;
+}
+
 function mapChannelMutation<T>(mutation: () => Promise<T>): Promise<T> {
   return mutation().catch((error: unknown) => {
     if (hasPrismaChannelErrorCode(error, "P2002")) throw new ChannelConflictError();
@@ -135,6 +151,22 @@ export class ChannelRepository {
           activityStatus: input.activityStatus,
           lastChannelScanAt: input.capturedAt,
           lastSeenAliveAt: input.capturedAt,
+        },
+      }),
+    );
+  }
+
+  updateHealth(id: string, input: UpdateChannelHealthInput): Promise<ChannelRecord> {
+    return mapChannelMutation(() =>
+      this.client.channel.update({
+        where: { id },
+        data: {
+          availabilityStatus: input.normalizedAvailability,
+          activityStatus: input.activityStatus,
+          lastHealthCheckAt: input.checkedAt,
+          lastSeenAliveAt: input.lastSeenAliveAt,
+          consecutiveHealthFailures: input.consecutiveHealthFailures,
+          firstUnavailableAt: input.firstUnavailableAt,
         },
       }),
     );

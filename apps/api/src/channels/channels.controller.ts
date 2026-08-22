@@ -19,6 +19,7 @@ import {
 import {
   parseChannelId,
   parseCreateChannelBody,
+  parseListHealthHistoryQuery,
   parseListChannelsQuery,
 } from "./channels.schemas.js";
 
@@ -32,6 +33,23 @@ export class ChannelsController {
   @Header("Cache-Control", "no-store")
   list(@Query() query: unknown) {
     return this.channels.list(parseListChannelsQuery(query));
+  }
+
+  @Get(":id/health-history")
+  @Header("Cache-Control", "no-store")
+  healthHistory(@Param("id") id: string, @Query() query: unknown) {
+    return this.channels.healthHistory({
+      id: parseChannelId(id),
+      ...parseListHealthHistoryQuery(query),
+    });
+  }
+
+  @Post(":id/health-check")
+  @Roles("ADMIN")
+  @HttpCode(202)
+  @Header("Cache-Control", "no-store")
+  requestHealthCheck(@Param("id") id: string) {
+    return this.channels.requestHealthCheck({ id: parseChannelId(id) });
   }
 
   @Get(":id")

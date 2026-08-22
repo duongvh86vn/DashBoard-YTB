@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@yt-monitor/shared": "workspace:*"
+    "@yt-monitor/shared": "workspace:*",
+    "playwright-core": "1.62.1"
   },
   "devDependencies": {
     "@types/node": "24.13.3",

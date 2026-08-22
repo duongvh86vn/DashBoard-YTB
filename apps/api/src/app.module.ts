@@ -136,6 +136,12 @@ const denyAllChannelsApplication: ChannelsApplicationPort = {
   async archive(): Promise<never> {
     throw ChannelApplicationError.notFound();
   },
+  async requestHealthCheck(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
+  async healthHistory(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
 };
 
 @Injectable()

@@ -38,3 +38,29 @@ export {
   type ChannelMetricDeltas,
   type NullableChannelMetrics,
 } from "./channel-history.js";
+export {
+  ChannelHealthEvidenceCodeSchema,
+  ChannelHealthSignalStatusSchema,
+  HEALTH_RETRY_DELAY_MS,
+  hasTransientFailure,
+  isPositiveSignal,
+  isStrongFailureSignal,
+  isTransientFailureSignal,
+  strongFailureCount,
+  type ChannelHealthEvidenceCode,
+  type ChannelHealthSignalStatus,
+  type ChannelHealthSignals,
+  type SanitizedHealthEvidence,
+} from "./channel-health/signals.js";
+export {
+  transitionChannelHealth,
+  type ChannelHealthState,
+  type HealthTransitionInput,
+  type HealthTransitionResult,
+} from "./channel-health/state-machine.js";
+export {
+  DEFAULT_CIRCUIT_BREAKER_OPTIONS,
+  evaluateHealthCircuit,
+  type CircuitBreakerOptions,
+  type CircuitBreakerState,
+} from "./channel-health/circuit-breaker.js";

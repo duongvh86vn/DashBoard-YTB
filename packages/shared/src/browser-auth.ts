@@ -101,6 +101,42 @@ export const ChannelsPageSchema = z
   .strict();
 export type ChannelsPage = z.infer<typeof ChannelsPageSchema>;
 
+const channelHealthCheckSchema = z
+  .object({
+    id: z.uuid(),
+    channelId: z.uuid(),
+    checkedAt: timestampSchema,
+    publicPageStatus: z.string().min(1),
+    ytdlpStatus: z.string().min(1),
+    rssStatus: z.string().min(1),
+    normalizedAvailability: z.string().min(1),
+    evidenceCode: z.string().min(1),
+    evidenceTextSafe: z.string().max(256).nullable(),
+    httpStatus: z.number().int().min(100).max(599).nullable(),
+    durationMs: z.number().int().nonnegative(),
+    createdAt: timestampSchema,
+  })
+  .strict();
+export const ChannelHealthCheckSchema = channelHealthCheckSchema;
+export type ChannelHealthCheck = z.infer<typeof channelHealthCheckSchema>;
+
+export const ChannelHealthHistorySchema = z
+  .object({
+    items: z.array(channelHealthCheckSchema),
+    page: z.number().int().positive(),
+    pageSize: z.number().int().min(1).max(100),
+    total: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ChannelHealthHistory = z.infer<typeof ChannelHealthHistorySchema>;
+
+export const ChannelHealthCheckQueuedSchema = z
+  .object({
+    syncRunId: z.uuid(),
+    status: z.literal("QUEUED"),
+  })
+  .strict();
+
 export const ApiErrorEnvelopeSchema = z
   .object({
     error: z

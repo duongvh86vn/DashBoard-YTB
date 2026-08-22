@@ -814,10 +814,10 @@ Phase 0 is complete only after Step 4 evidence exists. A scaffold that has not p
 
 **Interfaces:** anonymous fresh Chromium context, locale `en-US`; separate availability/activity enums; evidence contains only sanitized title/message/http state; pending metadata never equals deletion.
 
-- [ ] Write every §102 scenario and §96 mass-failure case before state machine implementation.
-- [ ] Implement block/CAPTCHA/network/timeout/layout failures as non-deletion outcomes.
-- [ ] Implement 30-minute retry, temporal confirmation, recovery reset and provider-incident circuit breaker.
-- [ ] Run global gates plus false-delete suite; assert no full HTML storage and no bypass behavior.
+- [x] Write every §102 scenario and §96 mass-failure case before state machine implementation.
+- [x] Implement block/CAPTCHA/network/timeout/layout failures as non-deletion outcomes.
+- [x] Implement 30-minute retry, temporal confirmation, recovery reset and provider-incident circuit breaker.
+- [x] Run global gates plus false-delete suite; assert no full HTML storage and no bypass behavior.
 
 **Exit:** Availability works without false deletes; activity remains separate.
 

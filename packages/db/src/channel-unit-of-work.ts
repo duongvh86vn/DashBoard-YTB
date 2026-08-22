@@ -4,11 +4,13 @@ import { Prisma } from "./generated/prisma/client.js";
 import { ChannelRepository } from "./channel.repository.js";
 import { ChannelDailyStatRepository } from "./channel-daily-stat.repository.js";
 import { SyncRunRepository } from "./sync-run.repository.js";
+import { ChannelHealthRepository } from "./channel-health.repository.js";
 
 export interface ChannelRepositories {
   channels: ChannelRepository;
   dailyStats: ChannelDailyStatRepository;
   syncRuns: SyncRunRepository;
+  healthChecks: ChannelHealthRepository;
 }
 
 export class ChannelUnitOfWork {
@@ -23,6 +25,7 @@ export class ChannelUnitOfWork {
               channels: new ChannelRepository(transaction),
               dailyStats: new ChannelDailyStatRepository(transaction),
               syncRuns: new SyncRunRepository(transaction),
+              healthChecks: new ChannelHealthRepository(transaction),
             }),
           { isolationLevel: "Serializable" },
         );

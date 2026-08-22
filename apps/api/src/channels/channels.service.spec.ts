@@ -97,4 +97,47 @@ describe("ChannelsService", () => {
       ChannelApplicationError,
     );
   });
+
+  it("queues an admin health check and exposes safe history", async () => {
+    const serviceUnderTest = new ChannelsService({
+      provider: { resolveChannel: async () => null } as never,
+      unitOfWork: {
+        transaction: async (work) =>
+          work({
+            channels: { findById: async () => channel },
+            syncRuns: {
+              create: async () => ({ id: "00000000-0000-4000-8000-000000000004" }),
+            },
+            healthChecks: {
+              list: async () => ({
+                total: 1,
+                items: [
+                  {
+                    id: "00000000-0000-4000-8000-000000000005",
+                    channelId: channel.id,
+                    checkedAt: new Date("2026-08-22T00:00:00.000Z"),
+                    publicPageStatus: "PUBLIC_PAGE_BLOCKED",
+                    ytdlpStatus: "YTDLP_ERROR",
+                    rssStatus: "NETWORK_ERROR",
+                    normalizedAvailability: "UNKNOWN",
+                    evidenceCode: "BLOCKED_PUBLIC_PAGE",
+                    evidenceTextSafe: "blocked",
+                    httpStatus: 429,
+                    durationMs: 100,
+                    createdAt: new Date("2026-08-22T00:00:00.000Z"),
+                  },
+                ],
+              }),
+            },
+          } as never),
+      },
+    });
+    await expect(serviceUnderTest.requestHealthCheck({ id: channel.id })).resolves.toEqual({
+      syncRunId: "00000000-0000-4000-8000-000000000004",
+      status: "QUEUED",
+    });
+    await expect(
+      serviceUnderTest.healthHistory({ id: channel.id, page: 1, pageSize: 20 }),
+    ).resolves.toMatchObject({ total: 1, items: [{ evidenceCode: "BLOCKED_PUBLIC_PAGE" }] });
+  });
 });

@@ -136,16 +136,21 @@ export function ChannelsScreen() {
                 <dd className="mt-1 font-semibold text-slate-900">{channel.activityStatus}</dd>
               </div>
             </dl>
-            {auth.state.status === "authenticated" && auth.state.user.role === "ADMIN" ? (
-              <button
-                className="button-danger mt-5"
-                type="button"
-                disabled={pending}
-                onClick={() => void archive(channel.id)}
-              >
-                Lưu trữ kênh
-              </button>
-            ) : null}
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Link className="button-secondary" href={`/channels/${channel.id}/health`}>
+                Lịch sử health
+              </Link>
+              {auth.state.status === "authenticated" && auth.state.user.role === "ADMIN" ? (
+                <button
+                  className="button-danger"
+                  type="button"
+                  disabled={pending}
+                  onClick={() => void archive(channel.id)}
+                >
+                  Lưu trữ kênh
+                </button>
+              ) : null}
+            </div>
           </article>
         ))}
       </section>

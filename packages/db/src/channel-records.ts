@@ -3,6 +3,7 @@ import type {
   ChannelActivityStatus,
   ChannelAvailabilityStatus,
   ChannelDailyStat,
+  ChannelHealthCheck,
   ChannelSnapshot,
   ChannelSnapshotSource,
   CoverageStatus,
@@ -14,6 +15,7 @@ import type {
 export type ChannelRecord = Channel;
 export type ChannelSnapshotRecord = ChannelSnapshot;
 export type ChannelDailyStatRecord = ChannelDailyStat;
+export type ChannelHealthCheckRecord = ChannelHealthCheck;
 export type SyncRunRecord = SyncRun;
 export type ChannelAvailabilityStatusValue = ChannelAvailabilityStatus;
 export type ChannelActivityStatusValue = ChannelActivityStatus;

@@ -25,6 +25,20 @@ export class SyncRunRepository {
     });
   }
 
+  findQueuedHealth(channelId: string): Promise<SyncRunRecord | null> {
+    return this.client.syncRun.findFirst({
+      where: { channelId, jobType: "CHANNEL_HEALTH", status: "QUEUED" },
+      orderBy: [{ startedAt: "asc" }, { id: "asc" }],
+    });
+  }
+
+  markRunning(id: string, startedAt: Date): Promise<SyncRunRecord> {
+    return this.client.syncRun.update({
+      where: { id },
+      data: { status: "RUNNING", startedAt },
+    });
+  }
+
   complete(
     id: string,
     input: {

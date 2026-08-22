@@ -195,3 +195,53 @@
   API and Worker are not host-published. Missing metrics remain `NULL`, daily
   negative deltas are preserved, and no false-delete state machine or full
   Playwright health parser is claimed before Phase 3.
+
+## 2026-08-22 — Phase 3 Public health + deletion safety acceptance
+
+### Scope delivered
+
+- Added an anonymous fresh Chromium context with `en-US` locale, bounded
+  public-page render, visible-text/title-only detectors, compact metric parsing
+  and sanitized evidence. Full HTML, cookies, storage state and raw upstream
+  response bodies are not persisted.
+- Added separate availability/activity handling, 30-minute retry scheduling,
+  temporal/independent strong-failure confirmation, recovery reset and a
+  provider-incident circuit breaker. Block/CAPTCHA, timeout, network, layout and
+  collector failures remain non-deletion outcomes.
+- Added `ChannelHealthCheck` persistence and indexes, worker health
+  job/scheduler, safe SyncRun lifecycle, ADMIN health-check queue endpoint,
+  authenticated health history endpoint and Vietnamese UI history surface.
+  Manual checks are queued for the worker; the API does not bypass the worker's
+  evidence boundary.
+- Worker production image now uses the pinned Playwright runtime and retains
+  metadata-only `yt-dlp` execution. `PLAYWRIGHT_EXECUTABLE_PATH` remains
+  optional; the image's bundled browser is the default.
+
+### Acceptance evidence — 2026-08-22
+
+- `corepack pnpm db:validate`, `corepack pnpm db:generate`,
+  `corepack pnpm typecheck`, `corepack pnpm lint`,
+  `corepack pnpm format:check`, `corepack pnpm test:unit` and
+  `corepack pnpm build` — PASS; unit suite: 64 files / 402 tests.
+- Phase 3 targeted suite — PASS: 16 files / 62 tests covering false-delete,
+  retry/confirmation/recovery, circuit breaker, sanitized evidence, render
+  lifecycle, worker job/scheduler and API health queue/history.
+- `corepack pnpm test:auth:integration` — PASS: clean/replay of all 4 migrations,
+  40 files / 146 tests, including channel health history persistence and safe
+  evidence fields.
+- `corepack pnpm test:integration` — PASS: isolated Compose migration replay,
+  Worker/API/Web health, Playwright E2E, exact topology and cleanup. The Worker
+  image started healthy with the Playwright browser runtime.
+
+### Boundaries and residual assumptions
+
+- `DELETED_OR_TERMINATED` is only produced by the shared state machine after the
+  configured strong confirmations; circuit-open provider incidents preserve the
+  prior channel state. Activity remains separate and is derived from channel
+  upload metadata by the existing 30-day helper.
+- A queued manual health check is consumed on the worker schedule; a dedicated
+  queue broker is intentionally not introduced. Live third-party YouTube health
+  smoke remains network-dependent and is not used as the deterministic
+  integration gate.
+- No full HTML, raw cookies, auth bypass, OAuth/API key, vidIQ backend or AI
+  input was introduced. These invariants remain unchanged.

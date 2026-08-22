@@ -1,6 +1,11 @@
 export { createPrismaClient, type DatabaseClient } from "./client.js";
 export { ChannelConflictError, ChannelNotFoundError } from "./channel-errors.js";
 export {
+  ChannelHealthRepository,
+  type ChannelHealthPage,
+  type CreateChannelHealthCheckInput,
+} from "./channel-health.repository.js";
+export {
   ChannelDailyStatRepository,
   type UpsertDailyStatInput,
 } from "./channel-daily-stat.repository.js";
@@ -15,6 +20,7 @@ export type {
   ChannelActivityStatusValue,
   ChannelAvailabilityStatusValue,
   ChannelDailyStatRecord,
+  ChannelHealthCheckRecord,
   ChannelRecord,
   ChannelSnapshotRecord,
   ChannelSnapshotSourceValue,

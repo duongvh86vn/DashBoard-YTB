@@ -192,6 +192,7 @@ model Channel {
   updatedAt                DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
   archivedAt               DateTime?                 @map("archived_at") @db.Timestamptz(3)
   snapshots                ChannelSnapshot[]
+  healthChecks             ChannelHealthCheck[]
   dailyStats               ChannelDailyStat[]
   syncRuns                 SyncRun[]
 
@@ -216,6 +217,26 @@ model ChannelSnapshot {
 
   @@index([channelId, capturedAt(sort: Desc)], map: "channel_snapshots_channel_captured_idx")
   @@map("channel_snapshots")
+}
+
+model ChannelHealthCheck {
+  id                    String                    @id @default(uuid()) @db.Uuid
+  channelId             String                    @map("channel_id") @db.Uuid
+  checkedAt             DateTime                  @map("checked_at") @db.Timestamptz(3)
+  publicPageStatus      String                    @map("public_page_status") @db.VarChar(64)
+  ytdlpStatus           String                    @map("ytdlp_status") @db.VarChar(64)
+  rssStatus             String                    @map("rss_status") @db.VarChar(64)
+  normalizedAvailability ChannelAvailabilityStatus @map("normalized_availability")
+  evidenceCode          String                    @map("evidence_code") @db.VarChar(64)
+  evidenceTextSafe      String?                   @map("evidence_text_safe") @db.VarChar(256)
+  httpStatus            Int?                      @map("http_status")
+  durationMs            Int                       @map("duration_ms")
+  createdAt             DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  channel               Channel                   @relation(fields: [channelId], references: [id], onDelete: Restrict)
+
+  @@index([channelId, checkedAt(sort: Desc)], map: "channel_health_checks_channel_checked_idx")
+  @@index([normalizedAvailability, checkedAt(sort: Desc)], map: "channel_health_checks_availability_checked_idx")
+  @@map("channel_health_checks")
 }
 
 model ChannelDailyStat {

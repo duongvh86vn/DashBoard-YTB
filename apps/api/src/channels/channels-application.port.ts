@@ -37,6 +37,28 @@ export interface ChannelsApplicationPort {
   get(id: string): Promise<PublicChannel>;
   create(input: { originalInput: string }): Promise<PublicChannel>;
   archive(input: { id: string }): Promise<void>;
+  requestHealthCheck(input: { id: string }): Promise<{ syncRunId: string; status: "QUEUED" }>;
+  healthHistory(input: { id: string; page: number; pageSize: number }): Promise<{
+    items: PublicChannelHealthCheck[];
+    page: number;
+    pageSize: number;
+    total: number;
+  }>;
+}
+
+export interface PublicChannelHealthCheck {
+  id: string;
+  channelId: string;
+  checkedAt: string;
+  publicPageStatus: string;
+  ytdlpStatus: string;
+  rssStatus: string;
+  normalizedAvailability: string;
+  evidenceCode: string;
+  evidenceTextSafe: string | null;
+  httpStatus: number | null;
+  durationMs: number;
+  createdAt: string;
 }
 
 export type ChannelProviderPort = PublicChannelProvider;
