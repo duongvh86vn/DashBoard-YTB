@@ -279,3 +279,44 @@
 - RSS remains the frequent discovery source; yt-dlp is metadata reconciliation
   and stats collection only. No media download, OAuth/API key or backfill was
   introduced. Snapshot retention deletion is deferred until rollups exist.
+
+## 2026-08-23 — Phase 5 Deterministic rankings
+
+### Scope delivered
+
+- Added the standalone `@yt-monitor/analytics` package with pure nullable
+  snapshot functions for signed weekly gain, 1h/3h/6h VPH, 70/30 smoothed VPH,
+  same-channel breakout benchmarks, deterministic median/p75/p90 percentiles,
+  coverage and stable tie-broken rankings.
+- Added ranking query repositories with a bounded candidate read, deterministic
+  ordering, channel metadata and snapshot history; no schema migration was
+  needed because Phase 4 already owns the required ranking indexes.
+- Added authenticated `GET /videos`, `/videos/:id`, `/videos/:id/snapshots`,
+  `/videos/recent`, `/videos/rankings/weekly`, `/videos/rankings/hot` and
+  `/videos/rankings/breakout` endpoints with strict UUID/query validation and
+  server pagination.
+- Added the Vietnamese `/videos` dashboard route with independent Weekly,
+  Hot Now and Breakout panels, explicit `WARMING_UP`/unknown states and no
+  lifetime-view substitution.
+
+### Acceptance evidence — 2026-08-23
+
+- `corepack pnpm db:validate`, `corepack pnpm db:generate`, `corepack pnpm typecheck`,
+  `corepack pnpm lint`, `corepack pnpm format:check`, `corepack pnpm build` — PASS.
+- `corepack pnpm test:unit -- --maxWorkers=1` — PASS: 75 files / 435 tests.
+- Ranking-targeted tests — PASS: 8 files / 19 tests, including exact §97–§99
+  fixtures, negative corrections, NULL/warm-up, pagination and 404 behavior.
+- `corepack pnpm test:auth:integration` — PASS: clean/replay of all 5 migrations,
+  40 files / 146 tests.
+- `corepack pnpm test:integration` — PASS: isolated Compose, API/Web/Worker
+  health, topology, migration replay and Playwright acceptance.
+
+### Boundaries preserved
+
+- Weekly gain is never replaced by current lifetime views; missing or stale
+  baselines remain `WARMING_UP`, and signed negative corrections remain signed.
+- Hot Now and Breakout are separate deterministic rankings; breakout samples are
+  restricted to comparable videos from the same channel and NULL/zero baselines
+  do not produce fabricated multiples.
+- AI, YouTube API/OAuth, media downloads, fake historical backfill and raw
+  provider payload persistence remain out of scope.

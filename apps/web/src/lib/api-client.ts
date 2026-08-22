@@ -16,6 +16,8 @@ import {
   VideoSnapshotsPageSchema,
   type PublicVideo,
   VideosPageSchema,
+  type VideoRankingPage,
+  VideoRankingPageSchema,
 } from "@yt-monitor/shared/browser-auth";
 
 type ApiMethod = "GET" | "POST" | "PATCH" | "DELETE";
@@ -335,4 +337,38 @@ export async function getVideoSnapshots(input: {
       ...(input.signal ? { signal: input.signal } : {}),
     },
   );
+}
+
+async function listVideoRanking(
+  path: string,
+  input: {
+    page: number;
+    pageSize: number;
+    channelId?: string;
+    signal?: AbortSignal;
+  },
+): Promise<VideoRankingPage> {
+  const query = new URLSearchParams({ page: String(input.page), pageSize: String(input.pageSize) });
+  if (input.channelId) query.set("channelId", input.channelId);
+  return requestApi(`/api/v1/videos/${path}?${query.toString()}`, {
+    method: "GET",
+    schema: VideoRankingPageSchema,
+    ...(input.signal ? { signal: input.signal } : {}),
+  });
+}
+
+export function listRecentVideos(input: Parameters<typeof listVideoRanking>[1]) {
+  return listVideoRanking("recent", input);
+}
+
+export function listWeeklyVideoRanking(input: Parameters<typeof listVideoRanking>[1]) {
+  return listVideoRanking("rankings/weekly", input);
+}
+
+export function listHotVideoRanking(input: Parameters<typeof listVideoRanking>[1]) {
+  return listVideoRanking("rankings/hot", input);
+}
+
+export function listBreakoutVideoRanking(input: Parameters<typeof listVideoRanking>[1]) {
+  return listVideoRanking("rankings/breakout", input);
 }

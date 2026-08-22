@@ -36,9 +36,11 @@ export { ChannelUnitOfWork, type ChannelRepositories } from "./channel-unit-of-w
 export { SyncRunRepository, type CreateSyncRunInput } from "./sync-run.repository.js";
 export {
   VideoRepository,
+  type ListRankingVideosInput,
   type ListVideosInput,
   type UpsertVideoInput,
   type VideoPage,
+  type VideoRankingRecord,
 } from "./video.repository.js";
 export {
   VideoSnapshotRepository,

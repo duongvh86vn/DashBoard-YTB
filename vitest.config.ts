@@ -10,6 +10,9 @@ export default defineConfig({
       "@yt-monitor/shared/browser-auth": fileURLToPath(
         new URL("./packages/shared/src/browser-auth.ts", import.meta.url),
       ),
+      "@yt-monitor/analytics": fileURLToPath(
+        new URL("./packages/analytics/src/index.ts", import.meta.url),
+      ),
       "@yt-monitor/auth": fileURLToPath(new URL("./packages/auth/src/index.ts", import.meta.url)),
       "@yt-monitor/config": fileURLToPath(
         new URL("./packages/config/src/index.ts", import.meta.url),

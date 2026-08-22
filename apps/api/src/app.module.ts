@@ -65,6 +65,12 @@ import {
 } from "./videos/videos-application.port.js";
 import { VideosController } from "./videos/videos.controller.js";
 import { VideosService } from "./videos/videos.service.js";
+import {
+  VIDEO_RANKINGS_APPLICATION_PORT,
+  type VideoRankingsApplicationPort,
+} from "./videos/rankings/rankings-application.port.js";
+import { VideoRankingsController } from "./videos/rankings/rankings.controller.js";
+import { VideoRankingsService } from "./videos/rankings/rankings.service.js";
 
 export { API_ENV } from "./auth/api-environment.port.js";
 export const DATABASE_CLIENT = Symbol("DATABASE_CLIENT");
@@ -86,6 +92,7 @@ export interface TestingAppModuleOptions {
   usersApplication?: UsersApplicationPort;
   channelsApplication?: ChannelsApplicationPort;
   videosApplication?: VideosApplicationPort;
+  videoRankingsApplication?: VideoRankingsApplicationPort;
 }
 
 const denyAllSessionAuthenticator: SessionAuthenticationPort = {
@@ -160,6 +167,27 @@ const denyAllVideosApplication: VideosApplicationPort = {
   },
 };
 
+const denyAllVideoRankingsApplication: VideoRankingsApplicationPort = {
+  async get(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
+  async recent(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
+  async weekly(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
+  async hot(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
+  async breakout(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
+  async snapshots(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
+};
+
 @Injectable()
 class DatabaseLifecycle implements OnApplicationShutdown {
   constructor(@Inject(DATABASE_CLIENT) private readonly client: DatabaseClient) {}
@@ -178,6 +206,7 @@ function applicationProviders(
   usersApplication: UsersApplicationPort,
   channelsApplication: ChannelsApplicationPort,
   videosApplication: VideosApplicationPort,
+  videoRankingsApplication: VideoRankingsApplicationPort,
   channelProvider: ChannelProviderPort,
 ): Provider[] {
   return [
@@ -189,6 +218,7 @@ function applicationProviders(
     { provide: USERS_APPLICATION_PORT, useValue: usersApplication },
     { provide: CHANNELS_APPLICATION_PORT, useValue: channelsApplication },
     { provide: VIDEOS_APPLICATION_PORT, useValue: videosApplication },
+    { provide: VIDEO_RANKINGS_APPLICATION_PORT, useValue: videoRankingsApplication },
     { provide: CHANNEL_PROVIDER, useValue: channelProvider },
     {
       provide: SessionCookieService,
@@ -243,6 +273,7 @@ export class AppModule {
       provider: channelProvider,
     });
     const videosApplication = new VideosService({ unitOfWork: channelUnitOfWork });
+    const videoRankingsApplication = new VideoRankingsService({ unitOfWork: channelUnitOfWork });
 
     return {
       module: AppModule,
@@ -257,6 +288,7 @@ export class AppModule {
         UsersController,
         ChannelsController,
         VideosController,
+        VideoRankingsController,
       ],
       providers: [
         ...applicationProviders(
@@ -268,6 +300,7 @@ export class AppModule {
           usersApplication,
           channelsApplication,
           videosApplication,
+          videoRankingsApplication,
           channelProvider,
         ),
         { provide: DATABASE_CLIENT, useValue: options.databaseClient },
@@ -285,6 +318,7 @@ export class AppModule {
         UsersController,
         ChannelsController,
         VideosController,
+        VideoRankingsController,
       ],
       providers: applicationProviders(
         options.env,
@@ -295,6 +329,7 @@ export class AppModule {
         options.usersApplication ?? denyAllUsersApplication,
         options.channelsApplication ?? denyAllChannelsApplication,
         options.videosApplication ?? denyAllVideosApplication,
+        options.videoRankingsApplication ?? denyAllVideoRankingsApplication,
         new CompositePublicChannelProvider(),
       ),
     };

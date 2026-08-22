@@ -15,7 +15,11 @@ describe("Phase 1 dashboard", () => {
 
     expect(screen.getByRole("heading", { name: "Tổng quan" })).toBeInTheDocument();
     expect(screen.getByText(/đăng nhập và quản trị người dùng đã sẵn sàng/i)).toBeInTheDocument();
-    expect(screen.getByText(/thu thập kênh và video.*giai đoạn tiếp theo/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Dữ liệu giám sát thực" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /mở video rankings/i })).toHaveAttribute(
+      "href",
+      "/videos",
+    );
     expect(container.querySelector('a[href*="health"]')).toBeNull();
     expect(screen.queryByText(/lượt xem hôm nay|kênh đang theo dõi|video đang nóng/i)).toBeNull();
   });

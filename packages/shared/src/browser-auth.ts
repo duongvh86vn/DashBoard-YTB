@@ -155,6 +155,47 @@ export const VideoSnapshotsPageSchema = z
   .strict();
 export type VideoSnapshotsPage = z.infer<typeof VideoSnapshotsPageSchema>;
 
+const publicRankedVideoSchema = z
+  .object({
+    rank: z.number().int().positive(),
+    id: z.uuid(),
+    youtubeVideoId: z.string().min(1),
+    channelId: z.uuid(),
+    channelTitle: z.string().min(1),
+    title: z.string().nullable(),
+    thumbnail: z.string().nullable(),
+    publishedAt: timestampSchema.nullable(),
+    currentViews: z.string().regex(/^\d+$/u).nullable(),
+    currentLikes: z.string().regex(/^\d+$/u).nullable(),
+    currentComments: z.string().regex(/^\d+$/u).nullable(),
+    status: z.enum(["READY", "WARMING_UP"]),
+    weeklyGain: z
+      .string()
+      .regex(/^-?\d+$/u)
+      .nullable(),
+    baselineAt: timestampSchema.nullable(),
+    vph1h: z.number().nullable(),
+    vph3h: z.number().nullable(),
+    vph6h: z.number().nullable(),
+    smoothedVph: z.number().nullable(),
+    breakout24h: z.number().nullable(),
+    breakout48h: z.number().nullable(),
+    breakout7d: z.number().nullable(),
+  })
+  .strict();
+export const PublicRankedVideoSchema = publicRankedVideoSchema;
+export type PublicRankedVideo = z.infer<typeof publicRankedVideoSchema>;
+export const VideoRankingPageSchema = z
+  .object({
+    items: z.array(publicRankedVideoSchema),
+    page: z.number().int().positive(),
+    pageSize: z.number().int().min(1).max(100),
+    total: z.number().int().nonnegative(),
+    warmingUpCount: z.number().int().nonnegative(),
+  })
+  .strict();
+export type VideoRankingPage = z.infer<typeof VideoRankingPageSchema>;
+
 const channelHealthCheckSchema = z
   .object({
     id: z.uuid(),

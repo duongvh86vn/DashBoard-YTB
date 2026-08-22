@@ -851,9 +851,9 @@ Phase 0 is complete only after Step 4 evidence exists. A scaffold that has not p
 
 **Interfaces:** pure functions accept timestamped nullable snapshots; signed outputs remain signed; `WeeklyGainResult = {status:"READY",gain:bigint,baselineAt:Date}|{status:"WARMING_UP"}`; rankings remain three separate endpoints.
 
-- [ ] Write weekly ranking, VPH, breakout, warm-up, NULL and negative-correction tests first.
-- [ ] Implement baseline window, same-channel sample, median/p75/p90 and server pagination.
-- [ ] Run global gates, E2E weekly ranking and query-plan/index checks.
+- [x] Write weekly ranking, VPH, breakout, warm-up, NULL and negative-correction tests first.
+- [x] Implement baseline window, same-channel sample, median/p75/p90 and server pagination.
+- [x] Run global gates, ranking service/API tests and full Compose/Playwright integration acceptance.
 
 **Exit:** Top 10 Week, Hot Now and Breakout work independently with deterministic evidence.
 

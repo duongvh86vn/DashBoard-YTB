@@ -72,6 +72,12 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
           >
             Kênh theo dõi
           </Link>
+          <Link
+            className={pathname.startsWith("/videos") ? "nav-link nav-link-active" : "nav-link"}
+            href="/videos"
+          >
+            Video rankings
+          </Link>
         </nav>
 
         <div className="mt-8 border-t border-slate-800 pt-5 lg:mt-auto">

@@ -25,6 +25,27 @@ export interface ListVideosInput {
   pageSize: number;
 }
 
+export interface ListRankingVideosInput {
+  channelId?: string;
+  take?: number;
+}
+
+export interface VideoRankingRecord extends VideoRecord {
+  snapshots: Array<{
+    id: string;
+    videoId: string;
+    channelId: string;
+    capturedAt: Date;
+    snapshotBucket: Date;
+    views: bigint | null;
+    likes: bigint | null;
+    comments: bigint | null;
+    source: "YOUTUBE_PUBLIC_PAGE" | "YTDLP" | "YOUTUBE_RSS" | "OPTIONAL_PROVIDER" | "DERIVED";
+    createdAt: Date;
+  }>;
+  channel: { id: string; title: string; thumbnail: string | null };
+}
+
 export class VideoRepository {
   constructor(private readonly client: VideoClient) {}
 
@@ -76,6 +97,25 @@ export class VideoRepository {
       this.client.video.count({ where }),
     ]);
     return { items, total };
+  }
+
+  listForRanking(input: ListRankingVideosInput = {}): Promise<VideoRankingRecord[]> {
+    const where = {
+      isAvailable: true,
+      ...(input.channelId ? { channelId: input.channelId } : {}),
+    };
+    return this.client.video.findMany({
+      where,
+      orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
+      take: input.take ?? 5_000,
+      include: {
+        snapshots: {
+          orderBy: [{ capturedAt: "desc" }, { id: "desc" }],
+          take: 300,
+        },
+        channel: { select: { id: true, title: true, thumbnail: true } },
+      },
+    }) as unknown as Promise<VideoRankingRecord[]>;
   }
 
   listCandidates(tiers: VideoMonitorTierValue[], limit = 500): Promise<VideoRecord[]> {

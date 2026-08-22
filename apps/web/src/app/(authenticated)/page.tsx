@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function DashboardPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-8">
@@ -21,18 +23,22 @@ export default function DashboardPage() {
           </p>
         </article>
         <article className="surface-card border-l-4 border-l-sky-500">
-          <p className="text-sm font-semibold text-sky-700">Sắp triển khai</p>
+          <p className="text-sm font-semibold text-sky-700">Đã có dữ liệu</p>
           <h2 className="mt-2 text-xl font-bold text-slate-950">Dữ liệu giám sát thực</h2>
           <p className="mt-3 leading-7 text-slate-600">
-            Thu thập kênh và video, snapshot lịch sử cùng các số liệu giám sát sẽ được triển khai
-            trong các giai đoạn tiếp theo.
+            Thu thập kênh và video cùng snapshot lịch sử đã sẵn sàng. Các bảng xếp hạng dùng dữ liệu
+            thật, không dùng lifetime views thay cho weekly gain.
           </p>
+          <Link className="button-secondary mt-4 inline-flex" href="/videos">
+            Mở video rankings
+          </Link>
         </article>
       </section>
 
       <aside className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-900">
-        Bảng này chưa hiển thị số liệu kênh hoặc video vì collector công khai chưa thuộc phạm vi
-        Phase 1. Hệ thống sẽ chỉ hiển thị metric sau khi có snapshot thật từ máy chủ.
+        Trang tổng quan chưa hiển thị số liệu kênh hoặc video; mở Video rankings để xem các bảng xếp
+        hạng. Metric thiếu baseline sẽ hiển thị WARMING_UP hoặc dấu “—”; hệ thống không backfill
+        lịch sử giả.
       </aside>
     </div>
   );
