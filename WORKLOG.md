@@ -227,7 +227,7 @@
   retry/confirmation/recovery, circuit breaker, sanitized evidence, render
   lifecycle, worker job/scheduler and API health queue/history.
 - `corepack pnpm test:auth:integration` — PASS: clean/replay of all 4 migrations,
-  40 files / 146 tests, including channel health history persistence and safe
+  8 canonical files / 37 tests, including channel health history persistence and safe
   evidence fields.
 - `corepack pnpm test:integration` — PASS: isolated Compose migration replay,
   Worker/API/Web health, Playwright E2E, exact topology and cleanup. The Worker
@@ -268,7 +268,7 @@
   67 files / 416 tests.
 - `corepack pnpm build` — PASS; Next route `/channels/[id]/videos` included.
 - `corepack pnpm test:auth:integration` — PASS; clean/replay of all 5
-  migrations and 40 files / 146 tests.
+  migrations and 8 canonical files / 37 tests.
 - `corepack pnpm test:integration` — PASS; isolated Compose, API/Web/Worker
   health and Playwright acceptance with Phase 4 migration applied.
 
@@ -307,7 +307,7 @@
 - Ranking-targeted tests — PASS: 8 files / 19 tests, including exact §97–§99
   fixtures, negative corrections, NULL/warm-up, pagination and 404 behavior.
 - `corepack pnpm test:auth:integration` — PASS: clean/replay of all 5 migrations,
-  40 files / 146 tests.
+  8 canonical files / 37 tests.
 - `corepack pnpm test:integration` — PASS: isolated Compose, API/Web/Worker
   health, topology, migration replay and Playwright acceptance.
 
@@ -347,7 +347,7 @@
 - Global gates — PASS: `corepack pnpm typecheck`, `corepack pnpm lint`,
   `corepack pnpm format:check`, 78 files / 446 unit tests and workspace build.
 - Clean migration replay applied all 6 migrations. Auth integration — PASS:
-  40 files / 146 tests. Full Compose/API/Worker/Web/Playwright acceptance — PASS
+  8 canonical files / 37 tests. Full Compose/API/Worker/Web/Playwright acceptance — PASS
   with AI unconfigured, proving core monitoring remains available without AI.
 
 ### Boundaries preserved
@@ -413,7 +413,7 @@
 - Workspace typecheck, lint, format and production build — PASS; routes include
   `/channels/[id]`, `/sync` and `/settings/collectors`.
 - Full Compose/API/Worker/Web/Playwright acceptance — PASS: six migrations,
-  40 files / 146 database and auth integration tests, browser flow and cleanup.
+  8 canonical files / 37 database and auth integration tests, browser flow and cleanup.
 
 ## 2026-08-23 — Phase 9/10 completion (repository-owned scope)
 
@@ -441,3 +441,30 @@
   `TRUST_PROXY=true`, then run the mobile-network HTTPS smoke.
 - Run one real backup → checksum → restore → row-count verification and one
   Docker host reboot/startup check against the intended persistent volume.
+
+## 2026-08-23 — Final audit remediation
+
+### Defects fixed
+
+- Bootstrap now performs its expensive Argon2 hash outside the transaction-wide
+  advisory-lock window, then reacquires the same lock and re-checks the complete
+  identity state before the only possible ADMIN insert. Existing matching ADMINs
+  still return `UNCHANGED` without password hashing, verification or reset.
+- Integration discovery is limited to canonical `apps/**` and `packages/**`
+  sources and explicitly excludes dependency/build trees. Workspace symlinks no
+  longer execute the same database test file multiple times.
+- Added a narrow workspace override from Prisma's transitive `deepmerge-ts@7.1.5`
+  to patched `8.0.2`. Prisma's runtime call uses the preserved `deepmerge`
+  entrypoint; no application/provider contract changes.
+
+### Acceptance evidence
+
+- Isolated PostgreSQL concurrent-bootstrap regression — PASS: 1 file / 2 tests.
+- Frozen install and Prisma validate/generate — PASS; production dependency audit
+  reports no known vulnerabilities with `deepmerge-ts@8.0.2`.
+- Global validate/generate/typecheck/lint/format/unit/build gate — PASS: 80 files /
+  456 unit tests.
+- Clean six-migration Compose/API/Worker/Web/Playwright acceptance — PASS: 8
+  canonical database/auth integration files / 37 tests, browser flow, recovery
+  checks and complete cleanup.
+- Default/hosting security assertions and Compose restart-policy assertions — PASS.

@@ -896,7 +896,7 @@ Phase 0 is complete only after Step 4 evidence exists. A scaffold that has not p
 - Phase-specific evidence: 4 files / 17 tests plus Prisma validate/generate and
   full workspace typecheck PASS. Final global gates are green: lint, format check,
   78 files / 446 unit tests and workspace build. Clean Compose replay applied all
-  6 migrations; auth integration passed 40 files / 146 tests and the full Docker,
+  6 migrations; auth integration passed 8 canonical files / 37 tests and the full Docker,
   API, Worker, Web and Playwright acceptance passed with AI unconfigured.
 
 **Exit:** Structured Gemini reports work; invalid output never enters canonical analysis storage.
@@ -969,7 +969,7 @@ Phase 0 is complete only after Step 4 evidence exists. A scaffold that has not p
 
 Acceptance evidence: workspace typecheck, lint, format check and production
 build passed; unit suite passed (80 files / 456 tests); six-migration Compose,
-API/Worker/Web and Playwright acceptance passed (40 files / 146 database and
+API/Worker/Web and Playwright acceptance passed (8 canonical files / 37 database and
 auth integration tests plus browser flow).
 
 **Exit:** All specified dashboard routes/user workflows work against real authenticated APIs.
@@ -1026,6 +1026,15 @@ auth integration tests plus browser flow).
   until a durable weekly rollup policy is approved.
 - Repository gates pass; a real restore/row-count run and reboot/public smoke
   must be performed by the owner against the intended host and data volume.
+- Final audit remediation moved Argon2 outside the bootstrap advisory-lock window,
+  re-checks identity under the same lock before insert, and limits integration
+  discovery to 8 canonical source files. The concurrency regression and full
+  Docker/API/Worker/Web/Playwright acceptance pass without changing bootstrap
+  `CREATED`/`UNCHANGED` semantics.
+- The transitive `deepmerge-ts` advisory is remediated with a workspace-wide
+  override to patched `8.0.2`; Prisma uses only the preserved `deepmerge` entrypoint.
+  Frozen install, Prisma validate/generate, audit and all repository gates must
+  remain green with this override.
 
 Final gate:
 

@@ -29,8 +29,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["**/*.integration.spec.ts"],
-    exclude: ["tests/e2e/**"],
+    include: ["apps/**/*.integration.spec.ts", "packages/**/*.integration.spec.ts"],
+    exclude: ["**/node_modules/**", "**/.next/**", "**/dist/**", "tests/e2e/**"],
     fileParallelism: false,
     maxWorkers: 1,
     hookTimeout: 30_000,

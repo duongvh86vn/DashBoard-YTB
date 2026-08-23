@@ -13,34 +13,45 @@ interface StoredUser {
 
 function createDependencies(initialUsers: StoredUser[] = []) {
   const users = [...initialUsers];
-  const hashPassword = vi.fn(async () => "argon2-hash");
+  let transactionDepth = 0;
+  const hashPassword = vi.fn(async () => {
+    if (transactionDepth !== 0) {
+      throw new Error("password hashing must not run while a database transaction holds the lock");
+    }
+    return "argon2-hash";
+  });
   const lock = vi.fn(async () => 1);
-  const transaction = vi.fn(async (work: (transactionClient: unknown) => Promise<unknown>) =>
-    work({
-      $executeRaw: lock,
-      user: {
-        count: vi.fn(async (input?: { where?: { role?: "ADMIN" } }) =>
-          input?.where?.role === "ADMIN"
-            ? users.filter((user) => user.role === "ADMIN").length
-            : users.length,
-        ),
-        findMany: vi.fn(async (input?: { where?: { role?: "ADMIN" } }) =>
-          input?.where?.role === "ADMIN"
-            ? users.filter((user) => user.role === "ADMIN")
-            : [...users],
-        ),
-        create: vi.fn(async ({ data }: { data: Omit<StoredUser, "id" | "disabledAt"> }) => {
-          const user = {
-            id: `00000000-0000-4000-8000-${String(users.length + 1).padStart(12, "0")}`,
-            disabledAt: null,
-            ...data,
-          };
-          users.push(user);
-          return user;
-        }),
-      },
-    }),
-  );
+  const transaction = vi.fn(async (work: (transactionClient: unknown) => Promise<unknown>) => {
+    transactionDepth += 1;
+    try {
+      return await work({
+        $executeRaw: lock,
+        user: {
+          count: vi.fn(async (input?: { where?: { role?: "ADMIN" } }) =>
+            input?.where?.role === "ADMIN"
+              ? users.filter((user) => user.role === "ADMIN").length
+              : users.length,
+          ),
+          findMany: vi.fn(async (input?: { where?: { role?: "ADMIN" } }) =>
+            input?.where?.role === "ADMIN"
+              ? users.filter((user) => user.role === "ADMIN")
+              : [...users],
+          ),
+          create: vi.fn(async ({ data }: { data: Omit<StoredUser, "id" | "disabledAt"> }) => {
+            const user = {
+              id: `00000000-0000-4000-8000-${String(users.length + 1).padStart(12, "0")}`,
+              disabledAt: null,
+              ...data,
+            };
+            users.push(user);
+            return user;
+          }),
+        },
+      });
+    } finally {
+      transactionDepth -= 1;
+    }
+  });
   const dependencies = {
     client: { $transaction: transaction } as never,
     hashPassword,
@@ -70,7 +81,8 @@ describe("seedInitialAdmin", () => {
         disabledAt: null,
       }),
     ]);
-    expect(fake.lock).toHaveBeenCalledOnce();
+    expect(fake.lock).toHaveBeenCalledTimes(2);
+    expect(fake.transaction).toHaveBeenCalledTimes(2);
   });
 
   it.each(["tên@example.com", "admin@例子.com", "a@b.c", "double..dot@example.com"])(
