@@ -392,3 +392,52 @@
   hard-coded. Fallback never changes canonical metrics, rankings or health state.
 - AI keys remain encrypted at rest and are never returned in full. Provider or
   router outage leaves deterministic collection/dashboard paths available.
+
+## 2026-08-23 — Phase 8 dashboard completion
+
+### Scope delivered
+
+- Replaced the Phase 1 placeholder home page with a real Vietnamese monitoring
+  dashboard: channel coverage, active channels, known videos, weekly ranking,
+  recent uploads, freshness labels, empty states and ADMIN service health cards.
+- Added channel detail and ADMIN analyze-channel action, server-paginated sync-run
+  history, collector settings boundary, AI daily/weekly availability cards and
+  navigation for `/sync` and `/settings/collectors`.
+- Added typed browser contracts and pagination controls for channels, videos and
+  health history. Raw metrics and AI status remain separate; no metric is
+  fabricated when snapshots or baselines are missing.
+
+### Acceptance evidence — 2026-08-23
+
+- Web dashboard/component targeted suite — PASS: 3 files / 7 tests.
+- Workspace typecheck, lint, format and production build — PASS; routes include
+  `/channels/[id]`, `/sync` and `/settings/collectors`.
+- Full Compose/API/Worker/Web/Playwright acceptance — PASS: six migrations,
+  40 files / 146 database and auth integration tests, browser flow and cleanup.
+
+## 2026-08-23 — Phase 9/10 completion (repository-owned scope)
+
+### Scope delivered
+
+- Added loopback-safe Web binding and an optional Caddy hosting profile. Caddy
+  routes `/api/*` to the internal API, sends baseline security headers and keeps
+  persistent config/data volumes; API, Worker and PostgreSQL remain unpublished.
+- Added hosting security and restart-policy assertions, LAN/public deployment
+  documentation, checksum-reporting database backup and guarded restore scripts,
+  backup contract tests and retention-safety guidance.
+- Kept Cloudflare credentials, DNS, mobile-network HTTPS and target-host reboot
+  actions explicitly outside the repository change boundary.
+
+### Acceptance evidence — 2026-08-23
+
+- `assert-hosting-security.ps1` — PASS for default and `hosting` profiles.
+- `verify-restart-policy.ps1` — PASS.
+- Workspace typecheck/lint/format/build/unit and full Compose/browser integration
+  — PASS.
+
+### Remaining owner-run acceptance
+
+- Supply the real public domain/tunnel token, set `DEPLOYMENT_MODE=PUBLIC` and
+  `TRUST_PROXY=true`, then run the mobile-network HTTPS smoke.
+- Run one real backup → checksum → restore → row-count verification and one
+  Docker host reboot/startup check against the intended persistent volume.

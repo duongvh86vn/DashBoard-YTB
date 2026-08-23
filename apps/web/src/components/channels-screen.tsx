@@ -13,8 +13,11 @@ import {
 import { useAuth } from "../lib/auth-context";
 
 export function ChannelsScreen() {
+  const PAGE_SIZE = 20;
   const auth = useAuth();
   const [items, setItems] = useState<Awaited<ReturnType<typeof listChannels>>["items"]>([]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,9 +25,14 @@ export function ChannelsScreen() {
 
   async function refresh(signal?: AbortSignal) {
     try {
-      const page = await listChannels({ page: 1, pageSize: 100, ...(signal ? { signal } : {}) });
+      const result = await listChannels({
+        page,
+        pageSize: PAGE_SIZE,
+        ...(signal ? { signal } : {}),
+      });
       if (mounted.current) {
-        setItems(page.items);
+        setItems(result.items);
+        setTotal(result.total);
         setError(null);
       }
     } catch (reason) {
@@ -44,7 +52,7 @@ export function ChannelsScreen() {
       mounted.current = false;
       controller.abort();
     };
-  }, []);
+  }, [page]);
 
   async function archive(id: string) {
     setPending(true);
@@ -137,6 +145,9 @@ export function ChannelsScreen() {
               </div>
             </dl>
             <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Link className="button-secondary" href={`/channels/${channel.id}`}>
+                Chi tiết
+              </Link>
               <Link className="button-secondary" href={`/channels/${channel.id}/health`}>
                 Lịch sử health
               </Link>
@@ -157,6 +168,29 @@ export function ChannelsScreen() {
           </article>
         ))}
       </section>
+      {!loading && total > PAGE_SIZE ? (
+        <nav className="flex items-center justify-between gap-4" aria-label="Phân trang kênh">
+          <button
+            className="button-secondary"
+            type="button"
+            onClick={() => setPage((value) => value - 1)}
+            disabled={page === 1 || pending}
+          >
+            Trang trước
+          </button>
+          <span className="text-sm text-slate-500">
+            Trang {page} · {total} kênh
+          </span>
+          <button
+            className="button-secondary"
+            type="button"
+            onClick={() => setPage((value) => value + 1)}
+            disabled={page * PAGE_SIZE >= total || pending}
+          >
+            Trang sau
+          </button>
+        </nav>
+      ) : null}
       <p className="text-sm text-slate-500">
         Số liệu chỉ hiển thị sau snapshot công khai thành công; không có backfill giả.
       </p>

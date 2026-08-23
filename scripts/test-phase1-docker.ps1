@@ -614,14 +614,12 @@ function Assert-ContainerEnvironmentBoundaries {
     'SESSION_ABSOLUTE_HOURS=24',
     'LOGIN_MAX_ATTEMPTS=5',
     'LOGIN_LOCK_MINUTES=15',
+    'TRUST_PROXY=false',
     'WORKER_HEARTBEAT_STALE_SECONDS=6'
   )) {
     if ($apiEnvironment -notcontains $required) {
       throw 'API container is missing an exact required Phase 1 environment value'
     }
-  }
-  if ($apiEnvironmentText -match '(?m)^TRUST_PROXY=') {
-    throw 'TRUST_PROXY must remain absent until the Phase 9 trusted-proxy boundary'
   }
 }
 

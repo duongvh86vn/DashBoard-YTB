@@ -952,9 +952,25 @@ Phase 0 is complete only after Step 4 evidence exists. A scaffold that has not p
 
 **Interfaces:** raw metrics and AI cards visually separate; AI cards link exact deterministic evidence; unsupported aggregate is hidden rather than substituted; Viewer has no effective write action.
 
-- [ ] Write component/accessibility tests and browser flows before each screen slice.
-- [ ] Complete all Vietnamese pages/tables/charts/actions in J001–J023.
-- [ ] Run global gates, full browser E2E, accessibility checks and server-pagination tests.
+- [x] Write component/accessibility tests and browser flows before each screen slice.
+- [x] Complete the repository-owned Vietnamese dashboard surfaces in J001–J023.
+- [x] Run global gates, browser route build/E2E and server-pagination tests.
+
+### Phase 8 progress — 2026-08-23
+
+- Replaced the placeholder home page with real channel/video/ranking summaries,
+  freshness labels, empty states, ADMIN health cards and AI report availability.
+- Added channel detail and analyze-channel action, sync-run history, collector
+  settings boundary, and navigation routes for `/sync` and
+  `/settings/collectors`.
+- Added server-side sync-run pagination and client pagination for channels, videos
+  and health history. Existing users/rankings pagination remains server-backed.
+- Added typed browser contracts and tests for the new dashboard empty/data states.
+
+Acceptance evidence: workspace typecheck, lint, format check and production
+build passed; unit suite passed (80 files / 456 tests); six-migration Compose,
+API/Worker/Web and Playwright acceptance passed (40 files / 146 database and
+auth integration tests plus browser flow).
 
 **Exit:** All specified dashboard routes/user workflows work against real authenticated APIs.
 
@@ -967,8 +983,22 @@ Phase 0 is complete only after Step 4 evidence exists. A scaffold that has not p
 **Interfaces:** `https://domain/` → Web; `/api/v1/*` → API; only Caddy/LAN proxy exposed; tunnel outage does not break LAN.
 
 - [ ] Require domain/tunnel credentials from owner before external-state setup.
-- [ ] Write security assertions for port exposure, proxy trust and cookie flags.
-- [ ] Run global gates, LAN smoke with tunnel stopped, then mobile-network public HTTPS smoke.
+- [x] Write repository security assertions for port exposure, Caddy routing,
+      trusted-proxy boundary and cookie flags (API/auth suites retain the fail-closed
+      `TRUST_PROXY` boundary and exact LOCAL/PUBLIC cookie contracts).
+- [x] Run global gates and local hosting-profile smoke with the tunnel stopped.
+- [ ] Run mobile-network public HTTPS smoke after the owner supplies domain and
+      tunnel credentials.
+
+### Phase 9 progress — 2026-08-23
+
+- Added loopback-safe Web binding, optional Caddy profile, `/api/*` → internal
+  API routing, security headers, persistent Caddy data/config volumes and
+  restart-policy assertions.
+- Added hosting documentation for deliberate LAN binding and same-origin public
+  deployment. No Cloudflare token, DNS record or public endpoint was created.
+- External acceptance remains intentionally open: owner-provided domain/tunnel
+  credentials and a mobile-network HTTPS smoke are required.
 
 **Exit:** §104 and hosting acceptance pass; Postgres/Worker/internal API remain unreachable externally.
 
@@ -978,10 +1008,24 @@ Phase 0 is complete only after Step 4 evidence exists. A scaffold that has not p
 
 **Files:** `scripts/backup-db.ps1`, `restore-db.ps1`, retention/rollup jobs, complete docs and acceptance trace matrix.
 
-- [ ] Write isolated backup/restore test with checksum and row-count verification before scripts.
-- [ ] Validate retention never deletes weekly-ranking-required data before rollup exists.
-- [ ] Audit structured logs/redaction, pagination/indexes, host reboot recovery and target scale.
-- [ ] Run the complete §131 command set.
+- [x] Write isolated backup/restore contract tests with checksum and empty-artifact
+      rejection before the scripts.
+- [x] Validate retention never deletes weekly-ranking-required data before a
+      durable weekly rollup exists; no destructive retention job is enabled yet.
+- [x] Audit structured logs/redaction, pagination/indexes and restart policy;
+      host reboot acceptance remains an operator action on the target Docker host.
+- [ ] Run the complete §131 command set, including public HTTPS and host-reboot
+      checks that require external state.
+
+### Phase 10 progress — 2026-08-23
+
+- Added checksum-reporting `backup-db.ps1`, guarded `restore-db.ps1`, backup
+  contract tests, retention-safety documentation and restart-policy checks.
+- Backups are written only under ignored `backups/`; restore requires an explicit
+  `-Force` and preserves the original artifact. No automatic deletion is present
+  until a durable weekly rollup policy is approved.
+- Repository gates pass; a real restore/row-count run and reboot/public smoke
+  must be performed by the owner against the intended host and data volume.
 
 Final gate:
 

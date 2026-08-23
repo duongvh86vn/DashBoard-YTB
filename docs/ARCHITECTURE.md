@@ -128,8 +128,9 @@ DELETE /api/v1/channels/:id           (ADMIN, archive alias)
 ```
 
 Session là opaque token trong HttpOnly SameSite=Lax cookie; PostgreSQL chỉ lưu
-keyed token hash. LOCAL dùng host-only cookie không `Secure`; PUBLIC cookie
-contract được giữ cho phase HTTPS sau này. `DELETE /users/:id` là disable alias,
+keyed token hash. LOCAL dùng host-only cookie không `Secure`; PUBLIC dùng
+`__Host-yhm_session` với `Secure` và chỉ được bật cùng HTTPS/trusted proxy.
+`DELETE /users/:id` là disable alias,
 không hard-delete. Không có signup/OAuth.
 
 ## Same-origin và cô lập mạng
@@ -144,9 +145,9 @@ Compose dùng ba network tách biệt:
 
 Web và PostgreSQL không chia sẻ network. API là service duy nhất nối cả hai
 frontend/database network; Worker nối database + egress nhưng không nối frontend.
-Chỉ Web publish `127.0.0.1:${WEB_PORT:-3000}:3000`; PostgreSQL, API và Worker
-không publish host port. Vì vậy Phase 1 chỉ truy cập từ máy host, chưa phải
-LAN/public deployment. Docker readiness dùng bounded TCP probe bên trong API/Web;
+Profile mặc định chỉ publish Web trên `127.0.0.1:${WEB_PORT:-3000}:3000`;
+PostgreSQL, API và Worker không publish host port. Profile Caddy chỉ publish
+proxy port đã chọn. Docker readiness dùng bounded TCP probe bên trong API/Web;
 không dùng HTTP liveness công khai.
 
 Compose bắt buộc `POSTGRES_PASSWORD` và `DATABASE_URL`; không có fallback password
@@ -154,8 +155,8 @@ Compose bắt buộc `POSTGRES_PASSWORD` và `DATABASE_URL`; không có fallback
 Logging áp dụng redaction đệ quy cho key/secret/token/password ở mọi độ sâu, scrub
 credential trong URL và chỉ serialize một allowlist metadata an toàn từ `Error`.
 
-Phase 9 mới thêm Caddy, LAN port và Cloudflare Tunnel để giữ cùng origin ngoài
-production:
+Phase 9 bổ sung profile Caddy (LAN bind tùy chọn) để giữ cùng origin ngoài
+production; Cloudflare Tunnel vẫn là external owner-managed state:
 
 ```text
 /api/v1/* -> API

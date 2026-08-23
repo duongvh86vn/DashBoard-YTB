@@ -31,6 +31,11 @@ async function bootstrap(): Promise<void> {
       },
     );
 
+    const httpAdapter = app.getHttpAdapter?.();
+    const httpInstance = httpAdapter?.getInstance?.() as
+      { set(name: string, value: boolean): void } | undefined;
+    httpInstance?.set("trust proxy", env.TRUST_PROXY);
+
     app.useLogger(app.get(Logger));
     app.enableShutdownHooks();
     app.setGlobalPrefix("api/v1");

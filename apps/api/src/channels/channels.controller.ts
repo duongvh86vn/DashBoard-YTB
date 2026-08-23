@@ -21,6 +21,7 @@ import {
   parseCreateChannelBody,
   parseListHealthHistoryQuery,
   parseListChannelsQuery,
+  parseListSyncRunsQuery,
 } from "./channels.schemas.js";
 
 @Controller("channels")
@@ -33,6 +34,12 @@ export class ChannelsController {
   @Header("Cache-Control", "no-store")
   list(@Query() query: unknown) {
     return this.channels.list(parseListChannelsQuery(query));
+  }
+
+  @Get("sync-runs")
+  @Header("Cache-Control", "no-store")
+  syncRuns(@Query() query: unknown) {
+    return this.channels.syncRuns(parseListSyncRunsQuery(query));
   }
 
   @Get(":id/health-history")

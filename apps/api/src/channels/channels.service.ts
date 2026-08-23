@@ -1,4 +1,9 @@
-import type { ChannelUnitOfWork, ChannelRecord, ChannelHealthCheckRecord } from "@yt-monitor/db";
+import type {
+  ChannelUnitOfWork,
+  ChannelRecord,
+  ChannelHealthCheckRecord,
+  SyncRunRecord,
+} from "@yt-monitor/db";
 import { ChannelConflictError, ChannelNotFoundError } from "@yt-monitor/db";
 import { ChannelInputError, YtdlpError } from "@yt-monitor/collector-ytdlp";
 
@@ -8,6 +13,7 @@ import type {
   ChannelProviderPort,
   PublicChannel,
   PublicChannelHealthCheck,
+  SyncRunsPage,
 } from "./channels-application.port.js";
 
 interface ChannelsServiceDependencies {
@@ -65,6 +71,21 @@ function toPublicHealthCheck(check: ChannelHealthCheckRecord): PublicChannelHeal
     httpStatus: check.httpStatus,
     durationMs: check.durationMs,
     createdAt: check.createdAt.toISOString(),
+  };
+}
+
+function toPublicSyncRun(run: SyncRunRecord): SyncRunsPage["items"][number] {
+  return {
+    id: run.id,
+    channelId: run.channelId,
+    jobType: run.jobType,
+    status: run.status,
+    startedAt: run.startedAt?.toISOString() ?? null,
+    completedAt: run.completedAt?.toISOString() ?? null,
+    recordsProcessed: run.recordsProcessed,
+    errorCode: run.errorCode,
+    errorMessageSafe: run.errorMessageSafe,
+    createdAt: run.createdAt.toISOString(),
   };
 }
 
@@ -155,6 +176,18 @@ export class ChannelsService implements ChannelsApplicationPort {
     });
     return {
       items: result.items.map(toPublicHealthCheck),
+      page: input.page,
+      pageSize: input.pageSize,
+      total: result.total,
+    };
+  }
+
+  async syncRuns(input: { page: number; pageSize: number }): Promise<SyncRunsPage> {
+    const result = await this.dependencies.unitOfWork.transaction((repositories) =>
+      repositories.syncRuns.list(input),
+    );
+    return {
+      items: result.items.map(toPublicSyncRun),
       page: input.page,
       pageSize: input.pageSize,
       total: result.total,

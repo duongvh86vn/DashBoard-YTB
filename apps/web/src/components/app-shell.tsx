@@ -79,14 +79,32 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
             Video rankings
           </Link>
           {user.role === "ADMIN" ? (
-            <Link
-              className={
-                pathname.startsWith("/settings/ai") ? "nav-link nav-link-active" : "nav-link"
-              }
-              href="/settings/ai"
-            >
-              Cài đặt AI
-            </Link>
+            <>
+              <Link
+                className={pathname.startsWith("/sync") ? "nav-link nav-link-active" : "nav-link"}
+                href="/sync"
+              >
+                Sync center
+              </Link>
+              <Link
+                className={
+                  pathname.startsWith("/settings/ai") ? "nav-link nav-link-active" : "nav-link"
+                }
+                href="/settings/ai"
+              >
+                Cài đặt AI
+              </Link>
+              <Link
+                className={
+                  pathname.startsWith("/settings/collectors")
+                    ? "nav-link nav-link-active"
+                    : "nav-link"
+                }
+                href="/settings/collectors"
+              >
+                Cài đặt collectors
+              </Link>
+            </>
           ) : null}
         </nav>
 

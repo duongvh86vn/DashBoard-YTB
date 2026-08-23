@@ -590,16 +590,13 @@ test.describe.serial("Phase 1 Auth + Users real-stack acceptance", () => {
 
       const viewerPage = await loginPage(viewerContext, browserViewerEmail, browserViewerPassword);
       await expect(viewerPage.getByRole("link", { name: "Người dùng" })).toHaveCount(0);
-      await expect(viewerPage.getByText("Dữ liệu giám sát thực")).toBeVisible();
-      await expect(viewerPage.getByText(/chưa hiển thị số liệu kênh hoặc video/iu)).toBeVisible();
+      await expect(viewerPage.getByRole("heading", { name: "Tổng quan giám sát" })).toBeVisible();
+      await expect(viewerPage.getByText("Kênh đang theo dõi", { exact: true })).toBeVisible();
+      await expect(viewerPage.getByText("Chưa có video snapshot thật.")).toBeVisible();
+      await expect(viewerPage.getByText("Chưa đủ baseline 7 ngày để xếp hạng.")).toBeVisible();
       await expect(viewerPage.getByRole("link", { name: /đăng ký/iu })).toHaveCount(0);
       await expect(viewerPage.getByRole("link", { name: /health/iu })).toHaveCount(0);
-      for (const fabricatedMetric of [
-        "Kênh đang theo dõi",
-        "Lượt xem hôm nay",
-        "Top 10 tuần",
-        "Video đang tăng tốc",
-      ]) {
+      for (const fabricatedMetric of ["Lượt xem hôm nay", "Video đang tăng tốc"]) {
         await expect(viewerPage.getByText(fabricatedMetric, { exact: true })).toHaveCount(0);
       }
       await viewerPage.getByRole("link", { name: "Kênh theo dõi" }).click();

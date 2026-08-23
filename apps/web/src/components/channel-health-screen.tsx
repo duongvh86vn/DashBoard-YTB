@@ -28,7 +28,9 @@ function statusLabel(value: string): string {
 }
 
 export function ChannelHealthScreen({ channelId }: ChannelHealthScreenProps) {
+  const PAGE_SIZE = 20;
   const auth = useAuth();
+  const [page, setPage] = useState(1);
   const [history, setHistory] = useState<Awaited<
     ReturnType<typeof getChannelHealthHistory>
   > | null>(null);
@@ -40,8 +42,8 @@ export function ChannelHealthScreen({ channelId }: ChannelHealthScreenProps) {
     try {
       const result = await getChannelHealthHistory({
         id: channelId,
-        page: 1,
-        pageSize: 50,
+        page,
+        pageSize: PAGE_SIZE,
         ...(signal ? { signal } : {}),
       });
       if (mounted.current) {
@@ -63,7 +65,7 @@ export function ChannelHealthScreen({ channelId }: ChannelHealthScreenProps) {
       mounted.current = false;
       controller.abort();
     };
-  }, [channelId]);
+  }, [channelId, page]);
 
   async function requestCheck() {
     setPending(true);
@@ -152,6 +154,29 @@ export function ChannelHealthScreen({ channelId }: ChannelHealthScreenProps) {
             </tbody>
           </table>
         </section>
+      ) : null}
+      {history && history.total > PAGE_SIZE ? (
+        <nav className="flex items-center justify-between gap-4" aria-label="Phân trang health">
+          <button
+            className="button-secondary"
+            type="button"
+            onClick={() => setPage((value) => value - 1)}
+            disabled={page === 1 || pending}
+          >
+            Trang trước
+          </button>
+          <span className="text-sm text-slate-500">
+            Trang {page} · {history.total} lần kiểm tra
+          </span>
+          <button
+            className="button-secondary"
+            type="button"
+            onClick={() => setPage((value) => value + 1)}
+            disabled={page * PAGE_SIZE >= history.total || pending}
+          >
+            Trang sau
+          </button>
+        </nav>
       ) : null}
     </div>
   );

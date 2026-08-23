@@ -232,6 +232,31 @@ export const ChannelHealthCheckQueuedSchema = z
   })
   .strict();
 
+export const SyncRunsPageSchema = z
+  .object({
+    items: z.array(
+      z
+        .object({
+          id: z.uuid(),
+          channelId: z.uuid().nullable(),
+          jobType: z.string().min(1),
+          status: z.string().min(1),
+          startedAt: timestampSchema.nullable(),
+          completedAt: timestampSchema.nullable(),
+          recordsProcessed: z.number().int().nonnegative().nullable(),
+          errorCode: z.string().nullable(),
+          errorMessageSafe: z.string().max(512).nullable(),
+          createdAt: timestampSchema,
+        })
+        .strict(),
+    ),
+    page: z.number().int().positive(),
+    pageSize: z.number().int().min(1).max(100),
+    total: z.number().int().nonnegative(),
+  })
+  .strict();
+export type SyncRunsPage = z.infer<typeof SyncRunsPageSchema>;
+
 const aiProviderStatusSchema = z
   .object({
     provider: z.enum(["GEMINI", "NVIDIA"]),
@@ -273,6 +298,16 @@ export const AiProviderTestResponseSchema = z
   })
   .strict();
 export type AiProviderTestResponse = z.infer<typeof AiProviderTestResponseSchema>;
+
+export const AiReportResponseSchema = z
+  .object({
+    kind: z.enum(["DAILY", "WEEKLY"]),
+    reportDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+    available: z.boolean(),
+    report: z.unknown().nullable(),
+  })
+  .strict();
+export type AiReportResponse = z.infer<typeof AiReportResponseSchema>;
 
 export const ApiErrorEnvelopeSchema = z
   .object({

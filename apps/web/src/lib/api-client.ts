@@ -3,6 +3,8 @@ import {
   ChannelResponseSchema,
   ChannelHealthCheckQueuedSchema,
   ChannelHealthHistorySchema,
+  SyncRunsPageSchema,
+  type SyncRunsPage,
   ChannelsPageSchema,
   CSRF_HEADER_NAME,
   type AuthErrorCode,
@@ -24,7 +26,10 @@ import {
   type AiModelsResponse,
   AiProviderTestResponseSchema,
   type AiProviderTestResponse,
+  AiReportResponseSchema,
+  type AiReportResponse,
 } from "@yt-monitor/shared/browser-auth";
+import { HealthResponseSchema, type HealthResponse } from "@yt-monitor/shared";
 
 type ApiMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
@@ -267,6 +272,14 @@ export async function listChannels(input: {
   });
 }
 
+export async function getChannel(id: string) {
+  const response = await requestApi(`/api/v1/channels/${encodeURIComponent(id)}`, {
+    method: "GET",
+    schema: ChannelResponseSchema,
+  });
+  return response.channel;
+}
+
 export async function createChannel(channelUrl: string) {
   const response = await requestApi("/api/v1/channels", {
     method: "POST",
@@ -308,6 +321,19 @@ export async function getChannelHealthHistory(input: {
       ...(input.signal ? { signal: input.signal } : {}),
     },
   );
+}
+
+export async function listSyncRuns(input: {
+  page: number;
+  pageSize: number;
+  signal?: AbortSignal;
+}): Promise<SyncRunsPage> {
+  const query = new URLSearchParams({ page: String(input.page), pageSize: String(input.pageSize) });
+  return requestApi(`/api/v1/channels/sync-runs?${query.toString()}`, {
+    method: "GET",
+    schema: SyncRunsPageSchema,
+    ...(input.signal ? { signal: input.signal } : {}),
+  });
 }
 
 export async function listChannelVideos(input: {
@@ -377,6 +403,24 @@ export function listHotVideoRanking(input: Parameters<typeof listVideoRanking>[1
 
 export function listBreakoutVideoRanking(input: Parameters<typeof listVideoRanking>[1]) {
   return listVideoRanking("rankings/breakout", input);
+}
+
+export function getHealth(): Promise<HealthResponse> {
+  return requestApi("/api/v1/health", { method: "GET", schema: HealthResponseSchema });
+}
+
+export function getAiReport(kind: "daily" | "weekly", date: string): Promise<AiReportResponse> {
+  return requestApi(`/api/v1/ai/reports/${kind}/${encodeURIComponent(date)}`, {
+    method: "GET",
+    schema: AiReportResponseSchema,
+  });
+}
+
+export function classifyChannel(id: string) {
+  return requestApi(`/api/v1/ai/channels/${encodeURIComponent(id)}/classify`, {
+    method: "POST",
+    body: {},
+  });
 }
 
 export function getAiStatus(): Promise<AiStatusResponse> {

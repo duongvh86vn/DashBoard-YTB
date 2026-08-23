@@ -2,12 +2,11 @@
 
 Private dashboard for deterministic monitoring of public YouTube channels.
 
-The project is being built phase by phase from
-[`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md). Phase 2 now provides the
-authenticated Vietnamese shell, ADMIN/VIEWER sessions, canonical public
-YouTube channel resolution, RSS/metadata-only collector contracts, channel
-snapshots/daily history, and the ADMIN add-channel flow. Video monitoring,
-health/deletion safety, and AI providers remain later phases.
+The project is built phase by phase from
+[`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md). Phases 0–10 provide the
+authenticated Vietnamese dashboard, canonical public-channel monitoring, health
+and deletion safety, video snapshots/rankings, structured Gemini/NVIDIA AI with
+fallback, sync history and collector/runtime settings.
 
 ## Runtime baseline
 
@@ -17,13 +16,13 @@ health/deletion safety, and AI providers remain later phases.
 
 Use `corepack pnpm` in terminals where a global `pnpm` shim is unavailable.
 
-## Clone the Phase 2 branch
+## Clone the current implementation branch
 
-GitHub's default branch may still point at the Phase 0 foundation. Clone the
-implementation branch explicitly:
+GitHub's default branch may still point at an earlier foundation. Clone the
+latest implementation branch explicitly:
 
 ```text
-git clone --branch codex/phase-2-channel-resolution --single-branch https://github.com/duongvh86vn/DashBoard-YTB.git
+git clone --branch codex/phase-10-complete --single-branch https://github.com/duongvh86vn/DashBoard-YTB.git
 cd DashBoard-YTB
 ```
 
@@ -63,20 +62,22 @@ database volume only after you have confirmed the project:
 docker compose down --volumes --remove-orphans
 ```
 
-This local Phase 2 setup is loopback-only. LAN access, public HTTPS, Caddy, and
-Cloudflare Tunnel are deferred to Phase 9. After login, open
+This local setup is loopback-only by default. An optional Caddy hosting profile
+is documented in [`docs/HOSTING.md`](./docs/HOSTING.md); it keeps API and
+PostgreSQL private. After login, open
 `http://127.0.0.1:3000/channels` to add a public channel as ADMIN; the first
 snapshot is nullable until a collector succeeds, and no historical values are
 fabricated.
 
-## Install and verify Phase 2
+## Install and verify
 
 ```powershell
 corepack pnpm install --frozen-lockfile
-corepack pnpm verify:phase2
+corepack pnpm verify
+pwsh -NoProfile -File .\scripts\assert-hosting-security.ps1
 ```
 
-The Phase 2 integration gate creates an isolated Compose project, random
+The integration gate creates an isolated Compose project, random
 credentials and an unused loopback Web port. It exercises real PostgreSQL
 migrations, seed idempotency, auth/users/channel authorization, collector
 fixtures, health-state transitions, worker and database recovery, the
@@ -91,6 +92,7 @@ public RSS/metadata-only collectors. Every API health route requires an ADMIN
 session; there is no anonymous Web `/health` route. Container readiness uses
 internal TCP checks.
 
-See [architecture](./docs/ARCHITECTURE.md), [testing](./docs/TESTING.md) and the
+See [architecture](./docs/ARCHITECTURE.md), [testing](./docs/TESTING.md),
+[hosting](./docs/HOSTING.md), [backup/restore](./docs/BACKUP.md) and the
 [implementation plan](./IMPLEMENTATION_PLAN.md) for phase boundaries and
 verification details.

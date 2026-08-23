@@ -34,6 +34,7 @@ const TEST_ENV: ApiEnv = {
   SESSION_ABSOLUTE_HOURS: 24,
   LOGIN_MAX_ATTEMPTS: 5,
   LOGIN_LOCK_MINUTES: 15,
+  TRUST_PROXY: false,
 };
 
 const ADMIN_USER: PublicUser = {

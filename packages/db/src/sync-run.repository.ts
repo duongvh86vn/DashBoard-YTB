@@ -25,6 +25,21 @@ export class SyncRunRepository {
     });
   }
 
+  list(input: { page: number; pageSize: number }): Promise<{
+    items: SyncRunRecord[];
+    total: number;
+  }> {
+    const skip = (input.page - 1) * input.pageSize;
+    return Promise.all([
+      this.client.syncRun.findMany({
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: input.pageSize,
+      }),
+      this.client.syncRun.count(),
+    ]).then(([items, total]) => ({ items, total }));
+  }
+
   findQueuedHealth(channelId: string): Promise<SyncRunRecord | null> {
     return this.client.syncRun.findFirst({
       where: { channelId, jobType: "CHANNEL_HEALTH", status: "QUEUED" },

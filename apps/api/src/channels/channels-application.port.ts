@@ -3,6 +3,26 @@ import type { PublicChannelProvider } from "@yt-monitor/shared";
 export const CHANNELS_APPLICATION_PORT = Symbol("CHANNELS_APPLICATION_PORT");
 export const CHANNEL_PROVIDER = Symbol("CHANNEL_PROVIDER");
 
+export interface PublicSyncRun {
+  id: string;
+  channelId: string | null;
+  jobType: string;
+  status: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  recordsProcessed: number | null;
+  errorCode: string | null;
+  errorMessageSafe: string | null;
+  createdAt: string;
+}
+
+export interface SyncRunsPage {
+  items: PublicSyncRun[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
 export interface PublicChannel {
   id: string;
   youtubeChannelId: string;
@@ -44,6 +64,7 @@ export interface ChannelsApplicationPort {
     pageSize: number;
     total: number;
   }>;
+  syncRuns(input: { page: number; pageSize: number }): Promise<SyncRunsPage>;
 }
 
 export interface PublicChannelHealthCheck {

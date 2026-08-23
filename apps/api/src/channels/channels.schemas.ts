@@ -39,6 +39,7 @@ export function parseListChannelsQuery(value: unknown): { page: number; pageSize
 }
 
 export const parseListHealthHistoryQuery = parseListChannelsQuery;
+export const parseListSyncRunsQuery = parseListChannelsQuery;
 
 export function parseChannelId(value: string): string {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value)) {

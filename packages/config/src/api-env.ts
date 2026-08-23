@@ -90,12 +90,24 @@ const apiEnvSchema = baseEnvSchema
     SESSION_ABSOLUTE_HOURS: z.coerce.number().int().positive().default(24),
     LOGIN_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
     LOGIN_LOCK_MINUTES: z.coerce.number().int().positive().default(15),
+    TRUST_PROXY: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
   })
   .superRefine((value, context) => {
     const publicUrl = new URL(value.APP_PUBLIC_URL);
 
     if (value.DEPLOYMENT_MODE === "PUBLIC" && publicUrl.protocol !== "https:") {
       addIssue(context, "APP_PUBLIC_URL must use HTTPS in PUBLIC mode");
+    }
+
+    if (value.DEPLOYMENT_MODE === "PUBLIC" && !value.TRUST_PROXY) {
+      addIssue(context, "TRUST_PROXY=true is required in PUBLIC mode");
+    }
+
+    if (value.DEPLOYMENT_MODE === "LOCAL" && value.TRUST_PROXY) {
+      addIssue(context, "TRUST_PROXY must be false in LOCAL mode");
     }
 
     if (

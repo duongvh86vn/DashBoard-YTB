@@ -115,7 +115,8 @@ docker compose down --volumes --remove-orphans
 ```
 
 > Lệnh có `--volumes` là destructive và không thể khôi phục database nếu không có
-> backup. Phase 2 không cung cấp LAN/public HTTPS; các kiểm thử đó thuộc Phase 9.
+> backup. LAN/Caddy có smoke contract trong Phase 9; public HTTPS/mobile smoke
+> vẫn cần domain và tunnel credentials của owner.
 
 Live public YouTube smoke không phải điều kiện bắt buộc của isolated Docker
 gate vì upstream có thể rate-limit hoặc không khả dụng; khi chạy được, kiểm tra

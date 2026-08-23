@@ -56,6 +56,7 @@ const LOCAL_ENV: ApiEnv = {
   SESSION_ABSOLUTE_HOURS: 24,
   LOGIN_MAX_ATTEMPTS: 5,
   LOGIN_LOCK_MINUTES: 15,
+  TRUST_PROXY: false,
 };
 
 const PUBLIC_ENV: ApiEnv = {
@@ -63,6 +64,7 @@ const PUBLIC_ENV: ApiEnv = {
   DEPLOYMENT_MODE: "PUBLIC",
   APP_PUBLIC_URL: "https://monitor.example.test",
   APP_ALLOWED_ORIGINS: ["https://monitor.example.test"],
+  TRUST_PROXY: true,
 };
 
 const UNAUTHENTICATED_BODY = {

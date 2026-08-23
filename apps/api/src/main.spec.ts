@@ -22,6 +22,7 @@ vi.mock("@yt-monitor/config", () => ({
     return {
       DATABASE_URL: "postgresql://unused:unused@invalid.test/unused",
       API_PORT: 5000,
+      TRUST_PROXY: false,
     };
   },
 }));
@@ -73,6 +74,9 @@ vi.mock("@nestjs/core", () => ({
 
       return {
         useLogger() {},
+        getHttpAdapter() {
+          return { getInstance: () => ({ set() {} }) };
+        },
         get() {
           return {};
         },

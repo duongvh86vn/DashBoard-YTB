@@ -89,7 +89,32 @@ describe("environment parsing", () => {
     expect(api.APP_VERSION).toBe("0.1.0");
     expect(api.APP_TIMEZONE).toBe("Asia/Bangkok");
     expect(api.API_PORT).toBe(5000);
+    expect(api.TRUST_PROXY).toBe(false);
     expect(web.WEB_PORT).toBe(3000);
+  });
+
+  it("accepts trusted proxy mode only through the explicit boolean env contract", () => {
+    expect(
+      parseApiEnv(
+        validApiEnv({
+          DEPLOYMENT_MODE: "PUBLIC",
+          APP_PUBLIC_URL: "https://monitor.example.test",
+          APP_ALLOWED_ORIGINS: "https://monitor.example.test",
+          TRUST_PROXY: "true",
+        }),
+      ).TRUST_PROXY,
+    ).toBe(true);
+    expect(() => parseApiEnv(validApiEnv({ TRUST_PROXY: "yes" }))).toThrow();
+    expect(() =>
+      parseApiEnv(
+        validApiEnv({
+          DEPLOYMENT_MODE: "PUBLIC",
+          APP_PUBLIC_URL: "https://monitor.example.test",
+          APP_ALLOWED_ORIGINS: "https://monitor.example.test",
+        }),
+      ),
+    ).toThrow();
+    expect(() => parseApiEnv(validApiEnv({ TRUST_PROXY: "true" }))).toThrow();
   });
 
   it("accepts an application version at the database column boundary", () => {

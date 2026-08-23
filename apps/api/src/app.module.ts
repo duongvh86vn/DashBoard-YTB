@@ -170,6 +170,9 @@ const denyAllChannelsApplication: ChannelsApplicationPort = {
   async healthHistory(): Promise<never> {
     throw ChannelApplicationError.notFound();
   },
+  async syncRuns(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
 };
 
 const denyAllVideosApplication: VideosApplicationPort = {

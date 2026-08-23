@@ -7,8 +7,11 @@ import { getVietnameseApiMessage, listChannelVideos } from "../lib/api-client";
 import { useAuth } from "../lib/auth-context";
 
 export function VideosScreen({ channelId }: { channelId: string }) {
+  const PAGE_SIZE = 20;
   const auth = useAuth();
   const [items, setItems] = useState<Awaited<ReturnType<typeof listChannelVideos>>["items"]>([]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
@@ -16,10 +19,11 @@ export function VideosScreen({ channelId }: { channelId: string }) {
   useEffect(() => {
     const controller = new AbortController();
     mounted.current = true;
-    void listChannelVideos({ channelId, page: 1, pageSize: 100, signal: controller.signal })
+    void listChannelVideos({ channelId, page, pageSize: PAGE_SIZE, signal: controller.signal })
       .then((page) => {
         if (mounted.current) {
           setItems(page.items);
+          setTotal(page.total);
           setError(null);
         }
       })
@@ -35,7 +39,7 @@ export function VideosScreen({ channelId }: { channelId: string }) {
       mounted.current = false;
       controller.abort();
     };
-  }, [auth, channelId]);
+  }, [auth, channelId, page]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
@@ -105,6 +109,29 @@ export function VideosScreen({ channelId }: { channelId: string }) {
           </article>
         ))}
       </section>
+      {!loading && total > PAGE_SIZE ? (
+        <nav className="flex items-center justify-between gap-4" aria-label="Phân trang video">
+          <button
+            className="button-secondary"
+            type="button"
+            onClick={() => setPage((value) => value - 1)}
+            disabled={page === 1}
+          >
+            Trang trước
+          </button>
+          <span className="text-sm text-slate-500">
+            Trang {page} · {total} video
+          </span>
+          <button
+            className="button-secondary"
+            type="button"
+            onClick={() => setPage((value) => value + 1)}
+            disabled={page * PAGE_SIZE >= total}
+          >
+            Trang sau
+          </button>
+        </nav>
+      ) : null}
     </div>
   );
 }
