@@ -8,7 +8,14 @@ import {
 } from "@nestjs/common";
 import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 import type { ApiEnv } from "@yt-monitor/config";
-import { GeminiProvider, NoopAIProvider, type AIProvider } from "@yt-monitor/ai";
+import {
+  AIProviderRouter,
+  GeminiProvider,
+  NvidiaProvider,
+  NoopAIProvider,
+  type AIModelRoleConfig,
+  type AIProvider,
+} from "@yt-monitor/ai";
 import {
   HealthRepository,
   HeartbeatRepository,
@@ -208,6 +215,12 @@ const denyAllAiApplication: AiApplicationPort = {
   async getReport(): Promise<never> {
     throw AuthPolicyError.unauthenticated();
   },
+  async discoverModels(): Promise<never> {
+    throw AuthPolicyError.unauthenticated();
+  },
+  async testProvider(): Promise<never> {
+    throw AuthPolicyError.unauthenticated();
+  },
 };
 
 class ConfiguredAiHealthReader implements AiHealthReader {
@@ -329,7 +342,8 @@ export class AppModule {
     });
     const videosApplication = new VideosService({ unitOfWork: channelUnitOfWork });
     const videoRankingsApplication = new VideoRankingsService({ unitOfWork: channelUnitOfWork });
-    const aiProvider: AIProvider =
+    const nvidiaModel = options.env.NVIDIA_ANALYSIS_MODEL ?? options.env.NVIDIA_FAST_MODEL;
+    const geminiProvider: AIProvider =
       options.env.GEMINI_API_KEY && options.env.GEMINI_ANALYSIS_MODEL
         ? new GeminiProvider({
             apiKey: options.env.GEMINI_API_KEY,
@@ -337,10 +351,41 @@ export class AppModule {
             model: options.env.GEMINI_ANALYSIS_MODEL,
           })
         : new NoopAIProvider();
+    const nvidiaProvider = new NvidiaProvider({
+      ...(options.env.NVIDIA_API_KEY ? { apiKey: options.env.NVIDIA_API_KEY } : {}),
+      ...(options.env.NVIDIA_BASE_URL ? { baseUrl: options.env.NVIDIA_BASE_URL } : {}),
+      ...(nvidiaModel ? { model: nvidiaModel } : {}),
+    });
+    const roles: Partial<Record<AIModelRoleConfig["role"], AIModelRoleConfig>> = {};
+    if (options.env.GEMINI_FAST_MODEL) {
+      roles.FAST = { role: "FAST", provider: "GEMINI", modelId: options.env.GEMINI_FAST_MODEL };
+    }
+    if (options.env.GEMINI_ANALYSIS_MODEL) {
+      roles.ANALYSIS = {
+        role: "ANALYSIS",
+        provider: "GEMINI",
+        modelId: options.env.GEMINI_ANALYSIS_MODEL,
+      };
+    }
+    if (options.env.NVIDIA_LONG_CONTEXT_MODEL) {
+      roles.LONG_CONTEXT = {
+        role: "LONG_CONTEXT",
+        provider: "NVIDIA",
+        modelId: options.env.NVIDIA_LONG_CONTEXT_MODEL,
+      };
+    }
+    const fallbackModel = nvidiaModel;
+    if (fallbackModel) {
+      roles.FALLBACK = { role: "FALLBACK", provider: "NVIDIA", modelId: fallbackModel };
+    }
+    const aiProvider: AIProvider = new AIProviderRouter(geminiProvider, nvidiaProvider, {
+      providers: [nvidiaProvider],
+      roles,
+    });
     const aiApplication = new AiService({
       unitOfWork: channelUnitOfWork,
       provider: aiProvider,
-      model: options.env.GEMINI_ANALYSIS_MODEL ?? null,
+      model: null,
       ...(options.env.SECRET_ENCRYPTION_KEY
         ? { encryptionKey: options.env.SECRET_ENCRYPTION_KEY }
         : {}),
@@ -375,7 +420,7 @@ export class AppModule {
           videoRankingsApplication,
           aiApplication,
           new ConfiguredAiHealthReader(
-            Boolean(options.env.GEMINI_API_KEY),
+            Boolean(options.env.GEMINI_API_KEY || options.env.NVIDIA_API_KEY),
             options.env.GEMINI_ANALYSIS_MODEL ?? null,
           ),
           channelProvider,

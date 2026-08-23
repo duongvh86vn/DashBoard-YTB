@@ -358,3 +358,37 @@
   logged, persisted in run logs or sent to the browser.
 - Provider failure, rate limiting, malformed JSON and disabled mode return safe
   AI status while leaving the deterministic dashboard path available.
+
+## 2026-08-23 — Phase 7 NVIDIA provider and fallback router
+
+### Scope delivered
+
+- Added an OpenAI-compatible NVIDIA/NIM provider for configurable `/v1/models`
+  discovery and `/v1/chat/completions`, including bearer authentication,
+  structured JSON validation, one repair retry, health checks and safe error
+  mapping for rate limits, credentials and network failures.
+- Extended the AI router with logical `FAST`, `ANALYSIS`, `LONG_CONTEXT` and
+  `FALLBACK` roles. Gemini remains primary by default; provider failures route to
+  configured NVIDIA fallback models. Both-fail returns a safe AI-unavailable error.
+- Wired API startup to both providers using environment model IDs without
+  hard-coding DeepSeek/Kimi/Z-AI names. Added ADMIN-only provider test/model
+  discovery endpoints and persisted selected role model IDs.
+- Updated the Vietnamese settings page with provider tabs, model discovery,
+  provider test and masked API-key controls.
+
+### Acceptance evidence — 2026-08-23
+
+- Phase-specific AI suite — PASS: 2 files / 13 tests (NVIDIA protocol, discovery,
+  repair/schema validation, 429 handling, role routing, fallback and both-fail).
+- Global gates — PASS: workspace typecheck, ESLint zero warnings, Prettier,
+  production build and 79 files / 453 unit tests.
+- Clean six-migration Compose/API/Worker/Web/Playwright acceptance — PASS with AI
+  unconfigured; core monitoring remains healthy and no renderer process remained
+  after teardown.
+
+### Boundaries preserved
+
+- NVIDIA model IDs are discovered or ADMIN-configured; no vendor model is
+  hard-coded. Fallback never changes canonical metrics, rankings or health state.
+- AI keys remain encrypted at rest and are never returned in full. Provider or
+  router outage leaves deterministic collection/dashboard paths available.

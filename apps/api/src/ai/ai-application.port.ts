@@ -29,4 +29,6 @@ export interface AiApplicationPort {
   }): Promise<AiStatusResponse>;
   classifyChannel(input: { channelId: string }): Promise<unknown>;
   getReport(input: { kind: "DAILY" | "WEEKLY"; reportDate: Date }): Promise<unknown>;
+  discoverModels(input: { provider: "GEMINI" | "NVIDIA" }): Promise<unknown>;
+  testProvider(input: { provider: "GEMINI" | "NVIDIA" }): Promise<unknown>;
 }

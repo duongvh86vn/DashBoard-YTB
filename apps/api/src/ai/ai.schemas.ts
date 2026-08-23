@@ -2,6 +2,10 @@ import { z } from "zod";
 
 const provider = z.enum(["GEMINI", "NVIDIA"]);
 
+export function parseProvider(value: string): "GEMINI" | "NVIDIA" {
+  return provider.parse(value);
+}
+
 export function parseProviderSettingsBody(value: unknown) {
   return z
     .object({

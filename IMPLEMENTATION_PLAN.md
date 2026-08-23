@@ -913,9 +913,31 @@ Phase 0 is complete only after Step 4 evidence exists. A scaffold that has not p
 
 **Interfaces:** configurable `/v1/models` and `/v1/chat/completions`; persisted roles `FAST/ANALYSIS/LONG_CONTEXT/FALLBACK`; no hard-coded DeepSeek/Kimi/Z-AI ID.
 
-- [ ] Write Gemini-429→NVIDIA and both-fail→AI-unavailable tests first.
-- [ ] Implement discovery, ADMIN selection, rate normalization and configurable routing.
-- [ ] Run global gates, §100 fallback test and disabled-provider test.
+- [x] Write Gemini-429→NVIDIA and both-fail→AI-unavailable tests first.
+- [x] Implement discovery, ADMIN selection, rate normalization and configurable routing.
+- [x] Run global gates, §100 fallback test and disabled-provider test.
+
+### Phase 7 progress — 2026-08-23
+
+- Added `NvidiaProvider` for configurable OpenAI-compatible `/v1/models` and
+  `/v1/chat/completions`, bearer-key handling, structured JSON validation, one
+  repair retry, safe 429/401/network errors and health checks. No vendor model
+  ID is hard-coded.
+- Extended `AIProviderRouter` with logical `FAST/ANALYSIS/LONG_CONTEXT/FALLBACK`
+  roles, provider-aware model routing, primary failure fallback, aggregate health,
+  model discovery and last-used provider/model metadata.
+- Wired production API startup to Gemini primary + NVIDIA fallback using the
+  existing environment configuration. Persisted ADMIN-selected model IDs now
+  update `ai_model_roles`; ADMIN endpoints expose provider test and model discovery.
+- Expanded the Vietnamese AI settings UI with Gemini/NVIDIA tabs, masked-key
+  settings, provider test and “Refresh available models”.
+- Phase-specific tests pass: 2 files / 13 tests covering NVIDIA discovery,
+  structured output/errors, Gemini-429→NVIDIA fallback, both-provider failure and
+  no-AI behavior.
+- Exit gates pass: workspace typecheck, lint, format check, production build and
+  79 files / 453 unit tests. Clean six-migration Compose/API/Worker/Web/Playwright
+  acceptance also passed with AI unconfigured; provider-specific protocol and
+  fallback behavior is covered by the targeted suite.
 
 **Exit:** Fallback/deep analysis works while all-AI failure leaves core monitoring healthy.
 

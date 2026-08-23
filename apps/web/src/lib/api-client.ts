@@ -20,6 +20,10 @@ import {
   VideoRankingPageSchema,
   AiStatusResponseSchema,
   type AiStatusResponse,
+  AiModelsResponseSchema,
+  type AiModelsResponse,
+  AiProviderTestResponseSchema,
+  type AiProviderTestResponse,
 } from "@yt-monitor/shared/browser-auth";
 
 type ApiMethod = "GET" | "POST" | "PATCH" | "DELETE";
@@ -391,5 +395,20 @@ export function updateAiSettings(input: {
     method: "PATCH",
     body: input,
     schema: AiStatusResponseSchema,
+  });
+}
+
+export function discoverAiModels(provider: "GEMINI" | "NVIDIA"): Promise<AiModelsResponse> {
+  return requestApi(`/api/v1/ai/providers/${provider}/models`, {
+    method: "GET",
+    schema: AiModelsResponseSchema,
+  });
+}
+
+export function testAiProvider(provider: "GEMINI" | "NVIDIA"): Promise<AiProviderTestResponse> {
+  return requestApi(`/api/v1/ai/providers/${provider}/test`, {
+    method: "POST",
+    body: {},
+    schema: AiProviderTestResponseSchema,
   });
 }

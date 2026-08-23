@@ -253,6 +253,27 @@ export const AiStatusResponseSchema = z
   .strict();
 export type AiStatusResponse = z.infer<typeof AiStatusResponseSchema>;
 
+export const AiModelsResponseSchema = z
+  .object({
+    provider: z.enum(["GEMINI", "NVIDIA"]),
+    models: z.array(
+      z.object({ id: z.string().min(1), ownedBy: z.string().min(1).optional() }).strict(),
+    ),
+  })
+  .strict();
+export type AiModelsResponse = z.infer<typeof AiModelsResponseSchema>;
+
+export const AiProviderTestResponseSchema = z
+  .object({
+    provider: z.enum(["GEMINI", "NVIDIA"]),
+    status: z.enum(["DISABLED", "HEALTHY", "DEGRADED", "UNAVAILABLE"]),
+    model: z.string().optional(),
+    latencyMs: z.number().nonnegative().optional(),
+    code: z.string().optional(),
+  })
+  .strict();
+export type AiProviderTestResponse = z.infer<typeof AiProviderTestResponseSchema>;
+
 export const ApiErrorEnvelopeSchema = z
   .object({
     error: z

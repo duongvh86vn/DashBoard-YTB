@@ -103,6 +103,53 @@ describe("structured AI boundary", () => {
     expect(fallback.structured).toHaveBeenCalled();
   });
 
+  it("routes a configured logical role and falls back when the primary is rate limited", async () => {
+    const gemini = {
+      id: "GEMINI",
+      health: vi.fn().mockResolvedValue({ provider: "GEMINI", status: "HEALTHY" }),
+      structured: vi
+        .fn()
+        .mockRejectedValue(new AIProviderError("AI_RATE_LIMITED", "limited", true)),
+      text: vi.fn(),
+    } as unknown as NoopAIProvider;
+    const nvidia = {
+      id: "NVIDIA",
+      health: vi.fn().mockResolvedValue({ provider: "NVIDIA", status: "HEALTHY" }),
+      structured: vi.fn().mockResolvedValue({ primaryNiche: "nvidia" }),
+      text: vi.fn(),
+    } as unknown as NoopAIProvider;
+    const router = new AIProviderRouter(gemini, nvidia);
+    router.setRoles({
+      FAST: { role: "FAST", provider: "GEMINI", modelId: "gemini-fast" },
+      FALLBACK: { role: "FALLBACK", provider: "NVIDIA", modelId: "nvidia-fallback" },
+    });
+    await expect(
+      router.structured({
+        taskType: "CHANNEL_CLASSIFICATION",
+        prompt: "x",
+        schema: channelClassificationSchema,
+      }),
+    ).resolves.toMatchObject({ primaryNiche: "nvidia" });
+    expect(nvidia.structured).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "nvidia-fallback" }),
+    );
+    expect(router.id).toBe("NVIDIA");
+  });
+
+  it("surfaces unavailable when both configured providers fail", async () => {
+    const failed = (id: "GEMINI" | "NVIDIA") =>
+      ({
+        id,
+        health: vi.fn().mockResolvedValue({ provider: id, status: "UNAVAILABLE" }),
+        structured: vi.fn().mockRejectedValue(new AIProviderError("AI_UNAVAILABLE", "down", true)),
+        text: vi.fn().mockRejectedValue(new AIProviderError("AI_UNAVAILABLE", "down", true)),
+      }) as unknown as NoopAIProvider;
+    const router = new AIProviderRouter(failed("GEMINI"), failed("NVIDIA"));
+    await expect(router.text({ taskType: "report", prompt: "x" })).rejects.toMatchObject({
+      code: "AI_UNAVAILABLE",
+    });
+  });
+
   it("reports no-AI mode explicitly", async () => {
     await expect(new NoopAIProvider().health()).resolves.toMatchObject({
       status: "DISABLED",
@@ -111,5 +158,14 @@ describe("structured AI boundary", () => {
     await expect(new NoopAIProvider().text({ taskType: "x", prompt: "x" })).rejects.toBeInstanceOf(
       AIProviderError,
     );
+  });
+
+  it("keeps router health disabled when both providers are unconfigured", async () => {
+    const router = new AIProviderRouter(new NoopAIProvider(), new NoopAIProvider());
+    await expect(router.health()).resolves.toMatchObject({
+      provider: "GEMINI",
+      status: "DISABLED",
+      code: "AI_DISABLED",
+    });
   });
 });

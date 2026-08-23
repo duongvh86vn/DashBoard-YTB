@@ -4,5 +4,6 @@ export * from "./errors.js";
 export * from "./fingerprint.js";
 export * from "./gemini.js";
 export * from "./noop.js";
+export * from "./nvidia.js";
 export * from "./router.js";
 export * from "./schemas.js";

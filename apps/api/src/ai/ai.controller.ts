@@ -4,6 +4,7 @@ import { Roles } from "../auth/roles.decorator.js";
 import { AI_APPLICATION_PORT, type AiApplicationPort } from "./ai-application.port.js";
 import {
   parseChannelId,
+  parseProvider,
   parseProviderSettingsBody,
   parseReportDate,
   parseReportKind,
@@ -37,5 +38,19 @@ export class AiController {
   @Header("Cache-Control", "no-store")
   report(@Param("kind") kind: string, @Param("date") date: string) {
     return this.ai.getReport({ kind: parseReportKind(kind), reportDate: parseReportDate(date) });
+  }
+
+  @Get("providers/:provider/models")
+  @Roles("ADMIN")
+  @Header("Cache-Control", "no-store")
+  discoverModels(@Param("provider") provider: string) {
+    return this.ai.discoverModels({ provider: parseProvider(provider) });
+  }
+
+  @Post("providers/:provider/test")
+  @Roles("ADMIN")
+  @Header("Cache-Control", "no-store")
+  testProvider(@Param("provider") provider: string) {
+    return this.ai.testProvider({ provider: parseProvider(provider) });
   }
 }

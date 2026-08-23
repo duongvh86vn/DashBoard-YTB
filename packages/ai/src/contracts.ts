@@ -1,7 +1,14 @@
 import type { z } from "zod";
 
 export type AIProviderId = "GEMINI" | "NVIDIA";
+export type AIModelRole = "FAST" | "ANALYSIS" | "LONG_CONTEXT" | "FALLBACK";
 export type AIProviderHealthStatus = "DISABLED" | "HEALTHY" | "DEGRADED" | "UNAVAILABLE";
+
+export interface AIModelRoleConfig {
+  role: AIModelRole;
+  provider: AIProviderId;
+  modelId: string;
+}
 
 export interface AIProviderHealth {
   provider: AIProviderId;
