@@ -7,6 +7,7 @@ import { SyncRunRepository } from "./sync-run.repository.js";
 import { ChannelHealthRepository } from "./channel-health.repository.js";
 import { VideoRepository } from "./video.repository.js";
 import { VideoSnapshotRepository } from "./video-snapshot.repository.js";
+import { AiRepository } from "./ai.repository.js";
 
 export interface ChannelRepositories {
   channels: ChannelRepository;
@@ -15,6 +16,7 @@ export interface ChannelRepositories {
   healthChecks: ChannelHealthRepository;
   videos: VideoRepository;
   videoSnapshots: VideoSnapshotRepository;
+  ai: AiRepository;
 }
 
 export class ChannelUnitOfWork {
@@ -32,6 +34,7 @@ export class ChannelUnitOfWork {
               healthChecks: new ChannelHealthRepository(transaction),
               videos: new VideoRepository(transaction),
               videoSnapshots: new VideoSnapshotRepository(transaction),
+              ai: new AiRepository(transaction),
             }),
           { isolationLevel: "Serializable" },
         );

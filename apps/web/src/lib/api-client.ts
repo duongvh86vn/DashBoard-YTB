@@ -18,6 +18,8 @@ import {
   VideosPageSchema,
   type VideoRankingPage,
   VideoRankingPageSchema,
+  AiStatusResponseSchema,
+  type AiStatusResponse,
 } from "@yt-monitor/shared/browser-auth";
 
 type ApiMethod = "GET" | "POST" | "PATCH" | "DELETE";
@@ -371,4 +373,23 @@ export function listHotVideoRanking(input: Parameters<typeof listVideoRanking>[1
 
 export function listBreakoutVideoRanking(input: Parameters<typeof listVideoRanking>[1]) {
   return listVideoRanking("rankings/breakout", input);
+}
+
+export function getAiStatus(): Promise<AiStatusResponse> {
+  return requestApi("/api/v1/ai/status", { method: "GET", schema: AiStatusResponseSchema });
+}
+
+export function updateAiSettings(input: {
+  provider: "GEMINI" | "NVIDIA";
+  isEnabled?: boolean;
+  priority?: number;
+  baseUrl?: string | null;
+  apiKey?: string;
+  configuredModels?: Record<string, string>;
+}): Promise<AiStatusResponse> {
+  return requestApi("/api/v1/ai/settings", {
+    method: "PATCH",
+    body: input,
+    schema: AiStatusResponseSchema,
+  });
 }

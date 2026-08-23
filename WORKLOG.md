@@ -320,3 +320,41 @@
   do not produce fabricated multiples.
 - AI, YouTube API/OAuth, media downloads, fake historical backfill and raw
   provider payload persistence remain out of scope.
+
+## 2026-08-23 — Phase 6 Gemini structured AI foundation
+
+### Scope delivered
+
+- Added `@yt-monitor/crypto`: authenticated AES-256-GCM envelopes, strict
+  32-byte key validation and masked-secret output. API settings never return a
+  full provider key.
+- Added `@yt-monitor/ai`: provider contract, Gemini structured JSON transport,
+  Zod schemas for classification/video/daily/weekly/health outputs, safe error
+  codes, one repair retry, health state, fallback router, stable fingerprints
+  and TTL cache. AI receives aggregate JSON only.
+- Added Phase 6 Prisma migration/models and repositories for provider settings,
+  model roles, run logs, channel/video analyses and reports. Existing channel and
+  video canonical metrics remain separate from AI results.
+- Added API status/settings/classification endpoints with ADMIN write policy and
+  a Vietnamese ADMIN settings screen. Added a worker report job that explicitly
+  skips when AI is disabled and never blocks core collection/rankings.
+
+### Acceptance evidence — 2026-08-23
+
+- Targeted AI/crypto/worker/health suite — PASS: 4 files / 17 tests.
+- `corepack pnpm db:validate`, `corepack pnpm db:generate` — PASS.
+- `corepack pnpm typecheck` — PASS across all workspace packages.
+- Global gates — PASS: `corepack pnpm typecheck`, `corepack pnpm lint`,
+  `corepack pnpm format:check`, 78 files / 446 unit tests and workspace build.
+- Clean migration replay applied all 6 migrations. Auth integration — PASS:
+  40 files / 146 tests. Full Compose/API/Worker/Web/Playwright acceptance — PASS
+  with AI unconfigured, proving core monitoring remains available without AI.
+
+### Boundaries preserved
+
+- `AI != DATA SOURCE`: AI outputs are validated and stored only in AI tables;
+  raw metrics, rankings, health state and Channel ID are never written by AI.
+- API keys are encrypted at rest with `SECRET_ENCRYPTION_KEY`; no raw key is
+  logged, persisted in run logs or sent to the browser.
+- Provider failure, rate limiting, malformed JSON and disabled mode return safe
+  AI status while leaving the deterministic dashboard path available.

@@ -870,10 +870,34 @@ Phase 0 is complete only after Step 4 evidence exists. A scaffold that has not p
 
 **Interfaces:** exact `AIProvider` contract from §33; Zod schemas from §39/§65; Gemini receives deterministic aggregate JSON only; cache key includes channel/range/sorted IDs/metric hash/prompt version.
 
-- [ ] Write AES-GCM, masking, schema rejection, fingerprint and no-AI tests first.
-- [ ] Implement provider health, strict structured calls, one configured repair retry, caching and run log.
-- [ ] Add existing-channel classification job without modifying Channel ID.
-- [ ] Run global gates and prove Gemini outage leaves collection/ranking/raw dashboard green.
+- [x] Write AES-GCM, masking, schema rejection, fingerprint and no-AI tests first.
+- [x] Implement provider health, strict structured calls, one configured repair retry, caching and run log.
+- [x] Add existing-channel classification job without modifying Channel ID.
+- [x] Run global gates and prove Gemini outage leaves collection/ranking/raw dashboard green.
+
+### Phase 6 progress — 2026-08-23
+
+- Added `@yt-monitor/crypto` with versioned AES-256-GCM envelopes, authenticated
+  decryption, SHA-256 helper and UI-safe masking; the API never returns a full key.
+- Added `@yt-monitor/ai` with the exact provider boundary, Gemini REST structured
+  transport, strict Zod validation, one repair retry, safe error codes, provider
+  health, fallback routing, stable fingerprints and TTL cache. Invalid output is
+  rejected before persistence.
+- Added Prisma enums/tables/migration for provider settings, model roles, AI run
+  logs, channel/video analyses and daily/weekly report results. AI repositories are
+  exposed through the existing serializable channel unit of work.
+- Added authenticated API routes: `GET /api/v1/ai/status`, ADMIN-only
+  `PATCH /api/v1/ai/settings`, and ADMIN-only existing-channel classification.
+  `SECRET_ENCRYPTION_KEY` is required to save a key; settings responses expose
+  only a masked suffix.
+- Added a minimal ADMIN Vietnamese AI settings screen and worker report job. The
+  job consumes a caller-provided deterministic aggregate and is explicitly skipped
+  when AI is disabled or unavailable.
+- Phase-specific evidence: 4 files / 17 tests plus Prisma validate/generate and
+  full workspace typecheck PASS. Final global gates are green: lint, format check,
+  78 files / 446 unit tests and workspace build. Clean Compose replay applied all
+  6 migrations; auth integration passed 40 files / 146 tests and the full Docker,
+  API, Worker, Web and Playwright acceptance passed with AI unconfigured.
 
 **Exit:** Structured Gemini reports work; invalid output never enters canonical analysis storage.
 

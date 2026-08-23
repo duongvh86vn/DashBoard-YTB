@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import { baseEnvSchema, databaseUrlSchema, type EnvironmentInput } from "./base-env.js";
+import {
+  baseEnvSchema,
+  booleanEnvSchema,
+  databaseUrlSchema,
+  type EnvironmentInput,
+} from "./base-env.js";
 
 const workerEnvSchema = baseEnvSchema
   .extend({
@@ -15,6 +20,8 @@ const workerEnvSchema = baseEnvSchema
     PLAYWRIGHT_CONCURRENCY: z.coerce.number().int().positive().default(1),
     PLAYWRIGHT_EXECUTABLE_PATH: z.string().min(1).optional(),
     YTDLP_CONCURRENCY: z.coerce.number().int().positive().default(2),
+    AI_DAILY_REPORT_ENABLED: booleanEnvSchema.default(true),
+    AI_WEEKLY_REPORT_ENABLED: booleanEnvSchema.default(true),
   })
   .superRefine((value, context) => {
     if (value.WORKER_HEARTBEAT_STALE_SECONDS <= value.WORKER_HEARTBEAT_INTERVAL_SECONDS) {

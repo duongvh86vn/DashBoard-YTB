@@ -232,6 +232,27 @@ export const ChannelHealthCheckQueuedSchema = z
   })
   .strict();
 
+const aiProviderStatusSchema = z
+  .object({
+    provider: z.enum(["GEMINI", "NVIDIA"]),
+    status: z.enum(["DISABLED", "HEALTHY", "DEGRADED", "UNAVAILABLE"]),
+    configured: z.boolean(),
+    enabled: z.boolean(),
+    priority: z.number().int().nonnegative(),
+    model: z.string().nullable(),
+    apiKeyMasked: z.string().nullable(),
+    code: z.string().nullable(),
+  })
+  .strict();
+export const AiStatusResponseSchema = z
+  .object({
+    available: z.boolean(),
+    message: z.string().nullable(),
+    providers: z.array(aiProviderStatusSchema),
+  })
+  .strict();
+export type AiStatusResponse = z.infer<typeof AiStatusResponseSchema>;
+
 export const ApiErrorEnvelopeSchema = z
   .object({
     error: z

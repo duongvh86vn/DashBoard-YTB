@@ -9,6 +9,10 @@ export interface WorkerHeartbeatReader {
   getFreshestRunningHeartbeat(maxAgeSeconds: number): Promise<WorkerHeartbeatRecord | null>;
 }
 
+export interface AiHealthReader {
+  getAiHealthCheck(): HealthCheck;
+}
+
 export interface HealthResult {
   httpStatus: 200 | 503;
   body: HealthResponse;
@@ -23,6 +27,7 @@ export class HealthService {
     private readonly version: string,
     private readonly workerStaleSeconds: number,
     private readonly dependencyTimeoutMs = DEFAULT_HEALTH_DEPENDENCY_TIMEOUT_MS,
+    private readonly ai?: AiHealthReader,
   ) {}
 
   async getAggregateHealth(): Promise<HealthResult> {
@@ -32,7 +37,7 @@ export class HealthService {
       database,
       worker,
       collectors: this.disabledCheck("PHASE_NOT_ENABLED"),
-      ai: this.disabledCheck("AI_DISABLED"),
+      ai: this.ai?.getAiHealthCheck() ?? this.disabledCheck("AI_DISABLED"),
     });
   }
 
@@ -51,7 +56,9 @@ export class HealthService {
   }
 
   getAiHealth(): HealthResult {
-    return this.createResult("ai", { ai: this.disabledCheck("AI_DISABLED") });
+    return this.createResult("ai", {
+      ai: this.ai?.getAiHealthCheck() ?? this.disabledCheck("AI_DISABLED"),
+    });
   }
 
   private async getDatabaseCheck(): Promise<HealthCheck> {

@@ -78,6 +78,16 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
           >
             Video rankings
           </Link>
+          {user.role === "ADMIN" ? (
+            <Link
+              className={
+                pathname.startsWith("/settings/ai") ? "nav-link nav-link-active" : "nav-link"
+              }
+              href="/settings/ai"
+            >
+              Cài đặt AI
+            </Link>
+          ) : null}
         </nav>
 
         <div className="mt-8 border-t border-slate-800 pt-5 lg:mt-auto">

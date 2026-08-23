@@ -98,6 +98,38 @@ enum VideoMonitorTier {
   ARCHIVED
 }
 
+enum AiProvider {
+  GEMINI
+  NVIDIA
+}
+
+enum AiModelRole {
+  FAST
+  ANALYSIS
+  LONG_CONTEXT
+  FALLBACK
+}
+
+enum AiRunStatus {
+  SUCCESS
+  FAILED
+  SCHEMA_INVALID
+  UNAVAILABLE
+}
+
+enum AiTaskType {
+  CHANNEL_CLASSIFICATION
+  VIDEO_ANALYSIS
+  DAILY_REPORT
+  WEEKLY_REPORT
+  HEALTH_AMBIGUITY
+}
+
+enum AiReportKind {
+  DAILY
+  WEEKLY
+}
+
 model WorkerHeartbeat {
   workerId   String   @id @map("worker_id") @db.VarChar(128)
   version    String   @db.VarChar(64)
@@ -205,6 +237,7 @@ model Channel {
   videoSnapshots           VideoSnapshot[]
   dailyStats               ChannelDailyStat[]
   syncRuns                 SyncRun[]
+  aiClassification         AiChannelClassification?
 
   @@index([handle], map: "channels_handle_idx")
   @@index([availabilityStatus], map: "channels_availability_status_idx")
@@ -276,6 +309,7 @@ model Video {
   updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
   channel           Channel           @relation(fields: [channelId], references: [id], onDelete: Restrict)
   snapshots         VideoSnapshot[]
+  aiAnalysis        AiVideoAnalysis?
 
   @@index([channelId, publishedAt(sort: Desc)], map: "videos_channel_published_idx")
   @@index([monitorTier, lastSeenAt(sort: Desc)], map: "videos_tier_seen_idx")
@@ -341,4 +375,105 @@ model SyncRun {
   @@index([channelId, createdAt(sort: Desc)], map: "sync_runs_channel_created_idx")
   @@index([jobType, status, createdAt(sort: Desc)], map: "sync_runs_job_status_created_idx")
   @@map("sync_runs")
+}
+
+model AiProviderSetting {
+  id                String     @id @default(uuid()) @db.Uuid
+  provider          AiProvider @unique
+  isEnabled         Boolean    @default(false) @map("is_enabled")
+  priority          Int        @default(0)
+  baseUrl           String?    @map("base_url") @db.Text
+  apiKeyEncrypted   String?    @map("api_key_encrypted") @db.Text
+  configuredModels  Json?      @map("configured_models")
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([isEnabled, priority], map: "ai_provider_settings_enabled_priority_idx")
+  @@map("ai_provider_settings")
+}
+
+model AiModelRoleConfig {
+  role             AiModelRole @id
+  provider         AiProvider
+  modelId          String      @map("model_id") @db.VarChar(256)
+  temperature      Decimal?    @db.Decimal(4, 3)
+  maxOutputTokens  Int?        @map("max_output_tokens")
+  isEnabled        Boolean     @default(true) @map("is_enabled")
+  updatedAt        DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([provider, isEnabled], map: "ai_model_roles_provider_enabled_idx")
+  @@map("ai_model_roles")
+}
+
+model AiRun {
+  id                   String      @id @default(uuid()) @db.Uuid
+  provider             AiProvider
+  modelId              String      @map("model_id") @db.VarChar(256)
+  taskType             AiTaskType  @map("task_type")
+  fingerprint          String      @db.VarChar(128)
+  inputTokenEstimate   Int?        @map("input_token_estimate")
+  outputTokenEstimate  Int?        @map("output_token_estimate")
+  status               AiRunStatus
+  durationMs           Int?        @map("duration_ms")
+  errorCode            String?     @map("error_code") @db.VarChar(64)
+  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([fingerprint], map: "ai_runs_fingerprint_idx")
+  @@index([createdAt(sort: Desc)], map: "ai_runs_created_at_idx")
+  @@map("ai_runs")
+}
+
+model AiChannelClassification {
+  id            String   @id @default(uuid()) @db.Uuid
+  channelId     String   @unique @map("channel_id") @db.Uuid
+  primaryNiche  String   @map("primary_niche") @db.VarChar(256)
+  subNiches     Json     @map("sub_niches")
+  language      String   @db.VarChar(32)
+  contentFormat String   @map("content_format") @db.VarChar(256)
+  confidence    Decimal  @db.Decimal(4, 3)
+  provider      AiProvider
+  modelId       String   @map("model_id") @db.VarChar(256)
+  fingerprint   String   @db.VarChar(128)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  channel       Channel  @relation(fields: [channelId], references: [id], onDelete: Restrict)
+
+  @@index([fingerprint], map: "ai_channel_classifications_fingerprint_idx")
+  @@map("ai_channel_classifications")
+}
+
+model AiVideoAnalysis {
+  id              String   @id @default(uuid()) @db.Uuid
+  videoId         String   @unique @map("video_id") @db.Uuid
+  summary         String   @db.Text
+  topic           String   @db.VarChar(256)
+  titlePattern    Json     @map("title_pattern")
+  strengths       Json
+  possibleFactors Json     @map("possible_factors")
+  anomalies       Json
+  confidence      Decimal  @db.Decimal(4, 3)
+  provider        AiProvider
+  modelId         String   @map("model_id") @db.VarChar(256)
+  fingerprint     String   @db.VarChar(128)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  video           Video    @relation(fields: [videoId], references: [id], onDelete: Restrict)
+
+  @@index([fingerprint], map: "ai_video_analyses_fingerprint_idx")
+  @@map("ai_video_analyses")
+}
+
+model AiReport {
+  id          String       @id @default(uuid()) @db.Uuid
+  kind        AiReportKind
+  reportDate  DateTime     @map("report_date") @db.Date
+  fingerprint String       @db.VarChar(128)
+  provider    AiProvider
+  modelId     String       @map("model_id") @db.VarChar(256)
+  result      Json
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([kind, reportDate], map: "ai_reports_kind_date_key")
+  @@index([fingerprint], map: "ai_reports_fingerprint_idx")
+  @@map("ai_reports")
 }

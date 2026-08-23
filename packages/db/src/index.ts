@@ -33,6 +33,19 @@ export type {
   VideoSnapshotRecord,
 } from "./channel-records.js";
 export { ChannelUnitOfWork, type ChannelRepositories } from "./channel-unit-of-work.js";
+export { AiRepository, type UpsertAiModelRoleInput } from "./ai.repository.js";
+export type {
+  AiChannelClassificationRecord,
+  AiModelRoleValue,
+  AiProviderSettingRecord,
+  AiProviderValue,
+  AiReportKindValue,
+  AiReportRecord,
+  AiRunRecord,
+  AiRunStatusValue,
+  AiTaskTypeValue,
+  AiVideoAnalysisRecord,
+} from "./ai-records.js";
 export { SyncRunRepository, type CreateSyncRunInput } from "./sync-run.repository.js";
 export {
   VideoRepository,

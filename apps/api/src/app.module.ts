@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 import type { ApiEnv } from "@yt-monitor/config";
+import { GeminiProvider, NoopAIProvider, type AIProvider } from "@yt-monitor/ai";
 import {
   HealthRepository,
   HeartbeatRepository,
@@ -71,11 +72,16 @@ import {
 } from "./videos/rankings/rankings-application.port.js";
 import { VideoRankingsController } from "./videos/rankings/rankings.controller.js";
 import { VideoRankingsService } from "./videos/rankings/rankings.service.js";
+import { AI_APPLICATION_PORT, type AiApplicationPort } from "./ai/ai-application.port.js";
+import { AiController } from "./ai/ai.controller.js";
+import { AiService } from "./ai/ai.service.js";
+import type { AiHealthReader } from "./health/health.service.js";
 
 export { API_ENV } from "./auth/api-environment.port.js";
 export const DATABASE_CLIENT = Symbol("DATABASE_CLIENT");
 const DATABASE_HEALTH_READER = Symbol("DATABASE_HEALTH_READER");
 const WORKER_HEARTBEAT_READER = Symbol("WORKER_HEARTBEAT_READER");
+const AI_HEALTH_READER = Symbol("AI_HEALTH_READER");
 
 export interface ProductionAppModuleOptions {
   env: ApiEnv;
@@ -93,6 +99,7 @@ export interface TestingAppModuleOptions {
   channelsApplication?: ChannelsApplicationPort;
   videosApplication?: VideosApplicationPort;
   videoRankingsApplication?: VideoRankingsApplicationPort;
+  aiApplication?: AiApplicationPort;
 }
 
 const denyAllSessionAuthenticator: SessionAuthenticationPort = {
@@ -188,6 +195,39 @@ const denyAllVideoRankingsApplication: VideoRankingsApplicationPort = {
   },
 };
 
+const denyAllAiApplication: AiApplicationPort = {
+  async status() {
+    return { available: false, message: "AI analysis unavailable", providers: [] };
+  },
+  async updateSettings(): Promise<never> {
+    throw AuthPolicyError.unauthenticated();
+  },
+  async classifyChannel(): Promise<never> {
+    throw AuthPolicyError.unauthenticated();
+  },
+  async getReport(): Promise<never> {
+    throw AuthPolicyError.unauthenticated();
+  },
+};
+
+class ConfiguredAiHealthReader implements AiHealthReader {
+  constructor(
+    private readonly configured: boolean,
+    private readonly model: string | null,
+  ) {}
+
+  getAiHealthCheck() {
+    return this.configured
+      ? {
+          status: "degraded" as const,
+          required: false,
+          code: "AI_CONFIGURED_HEALTH_UNVERIFIED",
+          details: { model: this.model ?? "configured" },
+        }
+      : { status: "disabled" as const, required: false, code: "AI_DISABLED" };
+  }
+}
+
 @Injectable()
 class DatabaseLifecycle implements OnApplicationShutdown {
   constructor(@Inject(DATABASE_CLIENT) private readonly client: DatabaseClient) {}
@@ -207,6 +247,8 @@ function applicationProviders(
   channelsApplication: ChannelsApplicationPort,
   videosApplication: VideosApplicationPort,
   videoRankingsApplication: VideoRankingsApplicationPort,
+  aiApplication: AiApplicationPort,
+  aiHealthReader: AiHealthReader,
   channelProvider: ChannelProviderPort,
 ): Provider[] {
   return [
@@ -219,6 +261,8 @@ function applicationProviders(
     { provide: CHANNELS_APPLICATION_PORT, useValue: channelsApplication },
     { provide: VIDEOS_APPLICATION_PORT, useValue: videosApplication },
     { provide: VIDEO_RANKINGS_APPLICATION_PORT, useValue: videoRankingsApplication },
+    { provide: AI_APPLICATION_PORT, useValue: aiApplication },
+    { provide: AI_HEALTH_READER, useValue: aiHealthReader },
     { provide: CHANNEL_PROVIDER, useValue: channelProvider },
     {
       provide: SessionCookieService,
@@ -226,9 +270,20 @@ function applicationProviders(
     },
     {
       provide: HealthService,
-      inject: [DATABASE_HEALTH_READER, WORKER_HEARTBEAT_READER],
-      useFactory: (database: DatabaseHealthReader, worker: WorkerHeartbeatReader) =>
-        new HealthService(database, worker, env.APP_VERSION, env.WORKER_HEARTBEAT_STALE_SECONDS),
+      inject: [DATABASE_HEALTH_READER, WORKER_HEARTBEAT_READER, AI_HEALTH_READER],
+      useFactory: (
+        database: DatabaseHealthReader,
+        worker: WorkerHeartbeatReader,
+        ai: AiHealthReader,
+      ) =>
+        new HealthService(
+          database,
+          worker,
+          env.APP_VERSION,
+          env.WORKER_HEARTBEAT_STALE_SECONDS,
+          2_000,
+          ai,
+        ),
     },
     { provide: APP_GUARD, useClass: SessionGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
@@ -274,6 +329,22 @@ export class AppModule {
     });
     const videosApplication = new VideosService({ unitOfWork: channelUnitOfWork });
     const videoRankingsApplication = new VideoRankingsService({ unitOfWork: channelUnitOfWork });
+    const aiProvider: AIProvider =
+      options.env.GEMINI_API_KEY && options.env.GEMINI_ANALYSIS_MODEL
+        ? new GeminiProvider({
+            apiKey: options.env.GEMINI_API_KEY,
+            ...(options.env.GEMINI_BASE_URL ? { baseUrl: options.env.GEMINI_BASE_URL } : {}),
+            model: options.env.GEMINI_ANALYSIS_MODEL,
+          })
+        : new NoopAIProvider();
+    const aiApplication = new AiService({
+      unitOfWork: channelUnitOfWork,
+      provider: aiProvider,
+      model: options.env.GEMINI_ANALYSIS_MODEL ?? null,
+      ...(options.env.SECRET_ENCRYPTION_KEY
+        ? { encryptionKey: options.env.SECRET_ENCRYPTION_KEY }
+        : {}),
+    });
 
     return {
       module: AppModule,
@@ -289,6 +360,7 @@ export class AppModule {
         ChannelsController,
         VideosController,
         VideoRankingsController,
+        AiController,
       ],
       providers: [
         ...applicationProviders(
@@ -301,6 +373,11 @@ export class AppModule {
           channelsApplication,
           videosApplication,
           videoRankingsApplication,
+          aiApplication,
+          new ConfiguredAiHealthReader(
+            Boolean(options.env.GEMINI_API_KEY),
+            options.env.GEMINI_ANALYSIS_MODEL ?? null,
+          ),
           channelProvider,
         ),
         { provide: DATABASE_CLIENT, useValue: options.databaseClient },
@@ -319,6 +396,7 @@ export class AppModule {
         ChannelsController,
         VideosController,
         VideoRankingsController,
+        AiController,
       ],
       providers: applicationProviders(
         options.env,
@@ -330,6 +408,8 @@ export class AppModule {
         options.channelsApplication ?? denyAllChannelsApplication,
         options.videosApplication ?? denyAllVideosApplication,
         options.videoRankingsApplication ?? denyAllVideoRankingsApplication,
+        options.aiApplication ?? denyAllAiApplication,
+        new ConfiguredAiHealthReader(false, null),
         new CompositePublicChannelProvider(),
       ),
     };

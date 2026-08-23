@@ -13,9 +13,13 @@ export default defineConfig({
       "@yt-monitor/analytics": fileURLToPath(
         new URL("./packages/analytics/src/index.ts", import.meta.url),
       ),
+      "@yt-monitor/ai": fileURLToPath(new URL("./packages/ai/src/index.ts", import.meta.url)),
       "@yt-monitor/auth": fileURLToPath(new URL("./packages/auth/src/index.ts", import.meta.url)),
       "@yt-monitor/config": fileURLToPath(
         new URL("./packages/config/src/index.ts", import.meta.url),
+      ),
+      "@yt-monitor/crypto": fileURLToPath(
+        new URL("./packages/crypto/src/index.ts", import.meta.url),
       ),
       "@yt-monitor/db": fileURLToPath(new URL("./packages/db/src/index.ts", import.meta.url)),
       "@yt-monitor/collector-ytdlp": fileURLToPath(
