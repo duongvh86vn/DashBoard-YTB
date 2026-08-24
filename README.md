@@ -32,6 +32,9 @@ The supported clone startup is Docker-only. Host Node.js, pnpm, Corepack,
 `Copy-Item`, and a permanently relaxed PowerShell policy are not required.
 Docker Desktop must be running Linux containers.
 
+Windows (cách nhanh nhất): nhấp đúp vào `start.bat` ở thư mục gốc dự án.
+Tệp này giữ cửa sổ mở nếu khởi động thất bại để có thể đọc hoặc chụp lại lỗi.
+
 PowerShell:
 
 ```powershell
