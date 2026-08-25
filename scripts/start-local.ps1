@@ -62,6 +62,46 @@ function Invoke-NativeCapture {
   }
 }
 
+function Get-UnicodeCodePointCount {
+  param([AllowEmptyString()][string]$Text)
+
+  $count = 0
+  for ($index = 0; $index -lt $Text.Length; $index += 1) {
+    if (
+      [char]::IsHighSurrogate($Text[$index]) -and
+      $index + 1 -lt $Text.Length -and
+      [char]::IsLowSurrogate($Text[$index + 1])
+    ) {
+      $index += 1
+    }
+    $count += 1
+  }
+  return $count
+}
+
+function Test-LocalAdminEmail {
+  param([AllowEmptyString()][string]$Email)
+
+  if ($Email.Length -eq 0 -or $Email.Length -gt 320) { return $false }
+  for ($index = 0; $index -lt $Email.Length; $index += 1) {
+    $character = $Email[$index]
+    if ([char]::IsControl($character)) { return $false }
+    if ([char]::IsHighSurrogate($character)) {
+      if (
+        $index + 1 -ge $Email.Length -or
+        -not [char]::IsLowSurrogate($Email[$index + 1])
+      ) {
+        return $false
+      }
+      $index += 1
+    }
+    elseif ([char]::IsLowSurrogate($character)) {
+      return $false
+    }
+  }
+  return $Email -match '^[^\s@]+@[^\s@]+\.[^\s@]+$'
+}
+
 function Read-ValidatedLocalEnvironment {
   param([string]$Path)
 
@@ -556,19 +596,26 @@ WORKER_HEARTBEAT_STALE_SECONDS=45
   $identity = Get-IdentityAggregate
   if ([int]$identity.totalUsers -eq 0) {
     Invoke-LocalBuild db-seed
-    $bootstrapEmail = (Read-Host 'Email ADMIN khởi tạo').Trim()
-    if ([string]::IsNullOrWhiteSpace($bootstrapEmail)) {
-      throw 'Email ADMIN không được để trống.'
+    while ($true) {
+      $bootstrapEmail = (Read-Host 'Email ADMIN khởi tạo').Trim().ToLowerInvariant()
+      if (Test-LocalAdminEmail $bootstrapEmail) { break }
+      Write-Warning 'Email ADMIN không hợp lệ. Ví dụ hợp lệ: admin@example.com'
     }
-    $securePassword = Read-Host 'Mật khẩu ADMIN (ẩn)' -AsSecureString
-    $bootstrapPasswordPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR(
-      $securePassword
-    )
-    $bootstrapPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR(
-      $bootstrapPasswordPointer
-    )
-    if ([string]::IsNullOrEmpty($bootstrapPassword)) {
-      throw 'Mật khẩu ADMIN không được để trống.'
+    while ($true) {
+      $securePassword = Read-Host 'Mật khẩu ADMIN (12-128 ký tự, ẩn)' -AsSecureString
+      $bootstrapPasswordPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR(
+        $securePassword
+      )
+      $bootstrapPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR(
+        $bootstrapPasswordPointer
+      )
+      $passwordCodePointCount = Get-UnicodeCodePointCount $bootstrapPassword
+      if ($passwordCodePointCount -ge 12 -and $passwordCodePointCount -le 128) { break }
+
+      $bootstrapPassword = $null
+      [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bootstrapPasswordPointer)
+      $bootstrapPasswordPointer = [IntPtr]::Zero
+      Write-Warning 'Mật khẩu ADMIN phải có từ 12 đến 128 ký tự. Vui lòng nhập lại.'
     }
 
     $env:SEED_ADMIN_EMAIL = $bootstrapEmail
