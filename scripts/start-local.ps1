@@ -33,6 +33,35 @@ function Restore-ProcessEnvironment {
   }
 }
 
+function Invoke-NativeCapture {
+  param([scriptblock]$Command)
+
+  $previousNativeErrorActionPreference = $ErrorActionPreference
+  $nativeOutput = @()
+  $nativeExitCode = $null
+  try {
+    # Windows PowerShell 5.1 represents native stderr as ErrorRecord objects.
+    # Docker writes normal status/progress to stderr, so capture it without
+    # weakening the script-wide terminating-error policy outside this call.
+    $ErrorActionPreference = 'Continue'
+    $nativeOutput = @(
+      & $Command 2>&1 |
+        ForEach-Object { [string]$_ }
+    )
+    $nativeExitCode = $LASTEXITCODE
+  }
+  finally {
+    $ErrorActionPreference = $previousNativeErrorActionPreference
+  }
+  if ($null -eq $nativeExitCode) {
+    throw 'Lệnh native không trả về mã kết thúc hợp lệ.'
+  }
+  return [pscustomobject]@{
+    ExitCode = [int]$nativeExitCode
+    Output = [string[]]$nativeOutput
+  }
+}
+
 function Read-ValidatedLocalEnvironment {
   param([string]$Path)
 
@@ -152,8 +181,9 @@ function Test-CompletedLocalImage {
   )
 
   $imageName = "$localProjectName-$Service`:latest"
-  $inspectionOutput = @(& docker image inspect $imageName 2>$null)
-  if ($LASTEXITCODE -ne 0) { return $false }
+  $inspection = Invoke-NativeCapture { & docker image inspect $imageName }
+  if ($inspection.ExitCode -ne 0) { return $false }
+  $inspectionOutput = @($inspection.Output)
   $images = @((($inspectionOutput -join "`n") | ConvertFrom-Json))
   if ($images.Count -ne 1) { return $false }
   $image = $images[0]
@@ -302,22 +332,12 @@ function Invoke-LocalBuild {
     Assert-NoLocalSecretMarkers $buildOutput "log build $Service"
     if (-not $verifiedAfterForcedExit -and $process.ExitCode -ne 0) {
       Write-Output 'Docker build nền không tương thích trên máy này; đang thử lại ở chế độ trực tiếp...'
-      $previousDirectBuildErrorActionPreference = $ErrorActionPreference
-      try {
-        # Windows PowerShell 5.1 wraps native stderr as non-terminating ErrorRecord objects.
-        # Docker Compose writes normal build progress to stderr, so collect it without
-        # letting the script-wide Stop preference turn status lines into false failures.
-        $ErrorActionPreference = 'Continue'
-        $directBuildLines = @(
-          & docker compose --progress plain -p $localProjectName `
-            --profile seed build --provenance=false $Service 2>&1 |
-            ForEach-Object { [string]$_ }
-        )
-        $directBuildExitCode = $LASTEXITCODE
+      $directBuild = Invoke-NativeCapture {
+        & docker compose --progress plain -p $localProjectName `
+          --profile seed build --provenance=false $Service
       }
-      finally {
-        $ErrorActionPreference = $previousDirectBuildErrorActionPreference
-      }
+      $directBuildLines = @($directBuild.Output)
+      $directBuildExitCode = $directBuild.ExitCode
       $buildOutput = $directBuildLines -join "`n"
       Assert-NoLocalSecretMarkers $buildOutput "log build trực tiếp $Service"
       if ($directBuildExitCode -ne 0) {
@@ -377,14 +397,15 @@ SELECT json_build_object(
   'enabledAdmins', COUNT(*) FILTER (WHERE role = 'ADMIN' AND is_enabled)
 ) FROM users;
 '@
-  $output = @(
+  $identityQuery = Invoke-NativeCapture {
     $sql |
       & docker compose -p $localProjectName exec -T postgres sh -c `
-        'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA' 2>&1
-  )
-  if ($LASTEXITCODE -ne 0) {
+        'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA'
+  }
+  if ($identityQuery.ExitCode -ne 0) {
     throw 'Không thể kiểm tra trạng thái tài khoản. Dữ liệu lỗi đã được ẩn để bảo vệ bí mật.'
   }
+  $output = @($identityQuery.Output)
   $text = ($output -join "`n").Trim()
   try {
     $aggregate = $text | ConvertFrom-Json
@@ -426,12 +447,12 @@ try {
   $env:COMPOSE_PROGRESS = 'plain'
   Remove-Item Env:COMPOSE_PROJECT_NAME -ErrorAction SilentlyContinue
 
-  & docker version *> $null
-  if ($LASTEXITCODE -ne 0) {
+  $dockerVersion = Invoke-NativeCapture { & docker version }
+  if ($dockerVersion.ExitCode -ne 0) {
     throw 'Docker Desktop chưa chạy hoặc lệnh docker chưa có trong PATH.'
   }
-  & docker compose version *> $null
-  if ($LASTEXITCODE -ne 0) {
+  $composeVersion = Invoke-NativeCapture { & docker compose version }
+  if ($composeVersion.ExitCode -ne 0) {
     throw 'Docker Compose v2 chưa sẵn sàng.'
   }
 
@@ -489,18 +510,21 @@ WORKER_HEARTBEAT_STALE_SECONDS=45
     [string]$localEnvironment.SESSION_SECRET
   )
 
-  $configOutput = @(& docker compose config --quiet 2>&1)
-  if ($LASTEXITCODE -ne 0) {
+  $configCheck = Invoke-NativeCapture { & docker compose config --quiet }
+  if ($configCheck.ExitCode -ne 0) {
     if ($createdEnvironment) {
       throw 'Cấu hình .env vừa tạo không hợp lệ; không khởi động dịch vụ.'
     }
     throw 'Tệp .env hiện có không hợp lệ. Script từ chối ghi đè hoặc xoay bí mật tự động.'
   }
-  $configOutput = $null
-  $projectConfigOutput = @(& docker compose config --format json --no-interpolate 2>&1)
-  if ($LASTEXITCODE -ne 0) {
+  $configCheck = $null
+  $projectConfigRead = Invoke-NativeCapture {
+    & docker compose config --format json --no-interpolate
+  }
+  if ($projectConfigRead.ExitCode -ne 0) {
     throw 'Không thể xác định project Docker cục bộ; dữ liệu cấu hình được giữ kín.'
   }
+  $projectConfigOutput = @($projectConfigRead.Output)
   try {
     $projectConfig = ($projectConfigOutput -join "`n") | ConvertFrom-Json
     $localProjectName = [string]$projectConfig.name
@@ -550,10 +574,13 @@ WORKER_HEARTBEAT_STALE_SECONDS=45
     $env:SEED_ADMIN_EMAIL = $bootstrapEmail
     $env:SEED_ADMIN_PASSWORD = $bootstrapPassword
     try {
-      $seedOutput = @(& docker compose -p $localProjectName --profile seed run --rm db-seed 2>&1)
-      if ($LASTEXITCODE -ne 0) {
+      $seedRun = Invoke-NativeCapture {
+        & docker compose -p $localProjectName --profile seed run --rm db-seed
+      }
+      if ($seedRun.ExitCode -ne 0) {
         throw 'Khởi tạo ADMIN thất bại; nội dung lỗi đã được ẩn để bảo vệ mật khẩu.'
       }
+      $seedOutput = @($seedRun.Output)
       $statusLines = @($seedOutput | Where-Object { ([string]$_).Trim() -eq 'CREATED' })
       if ($statusLines.Count -ne 1) {
         throw 'Khởi tạo ADMIN không trả về trạng thái CREATED duy nhất.'
