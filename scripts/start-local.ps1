@@ -602,7 +602,7 @@ WORKER_HEARTBEAT_STALE_SECONDS=45
       Write-Warning 'Email ADMIN không hợp lệ. Ví dụ hợp lệ: admin@example.com'
     }
     while ($true) {
-      $securePassword = Read-Host 'Mật khẩu ADMIN (12-128 ký tự, ẩn)' -AsSecureString
+      $securePassword = Read-Host 'Mật khẩu ADMIN (6-128 ký tự, ẩn)' -AsSecureString
       $bootstrapPasswordPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR(
         $securePassword
       )
@@ -610,12 +610,12 @@ WORKER_HEARTBEAT_STALE_SECONDS=45
         $bootstrapPasswordPointer
       )
       $passwordCodePointCount = Get-UnicodeCodePointCount $bootstrapPassword
-      if ($passwordCodePointCount -ge 12 -and $passwordCodePointCount -le 128) { break }
+      if ($passwordCodePointCount -ge 6 -and $passwordCodePointCount -le 128) { break }
 
       $bootstrapPassword = $null
       [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bootstrapPasswordPointer)
       $bootstrapPasswordPointer = [IntPtr]::Zero
-      Write-Warning 'Mật khẩu ADMIN phải có từ 12 đến 128 ký tự. Vui lòng nhập lại.'
+      Write-Warning 'Mật khẩu ADMIN phải có từ 6 đến 128 ký tự. Vui lòng nhập lại.'
     }
 
     $env:SEED_ADMIN_EMAIL = $bootstrapEmail

@@ -222,7 +222,7 @@ describe("seedInitialAdmin", () => {
     const fake = createDependencies();
 
     await expect(
-      seedInitialAdmin({ email: "admin@example.com", password: "too-short" }, fake.dependencies),
+      seedInitialAdmin({ email: "admin@example.com", password: "short" }, fake.dependencies),
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     expect(fake.transaction).not.toHaveBeenCalled();
   });

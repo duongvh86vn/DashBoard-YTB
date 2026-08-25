@@ -48,7 +48,7 @@ describe("users request schemas", () => {
     },
   );
 
-  it("preserves password bytes while enforcing the 12-128 Unicode-code-point policy", () => {
+  it("preserves password bytes while enforcing the 6-128 Unicode-code-point policy", () => {
     const password = "  untrimmed🙂🙂";
     expect(Array.from(password)).toHaveLength(13);
     expect(parseCreateUserBody({ email: "viewer@example.com", password })).toEqual({
@@ -57,7 +57,7 @@ describe("users request schemas", () => {
     });
 
     expectValidationFailure(() =>
-      parseCreateUserBody({ email: "viewer@example.com", password: "🙂".repeat(11) }),
+      parseCreateUserBody({ email: "viewer@example.com", password: "🙂".repeat(5) }),
     );
     expectValidationFailure(() =>
       parseCreateUserBody({ email: "viewer@example.com", password: "🙂".repeat(129) }),
@@ -104,7 +104,7 @@ describe("users request schemas", () => {
       {},
       [],
       null,
-      { password: "too short" },
+      { password: "short" },
       { password: "replacement password", role: "VIEWER" },
     ]) {
       expectValidationFailure(() => parseResetPasswordBody(body));

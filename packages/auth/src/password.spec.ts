@@ -42,14 +42,14 @@ describe("password primitives", () => {
     expect(isValidCanonicalEmail(email)).toBe(false);
   });
 
-  it("rejects passwords shorter than 12 Unicode code points", () => {
-    expect(() => assertPasswordPolicy("12345678901")).toThrowError(
+  it("rejects passwords shorter than 6 Unicode code points", () => {
+    expect(() => assertPasswordPolicy("12345")).toThrowError(
       expect.objectContaining({ code: "VALIDATION_ERROR" }),
     );
   });
 
-  it("accepts exactly 12 Unicode code points even when they use surrogate pairs", () => {
-    expect(() => assertPasswordPolicy("😀".repeat(12))).not.toThrow();
+  it("accepts exactly 6 Unicode code points even when they use surrogate pairs", () => {
+    expect(() => assertPasswordPolicy("😀".repeat(6))).not.toThrow();
   });
 
   it("rejects passwords longer than 128 Unicode code points", () => {

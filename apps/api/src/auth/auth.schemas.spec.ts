@@ -28,12 +28,12 @@ describe("auth request schemas", () => {
     expect(
       parseChangePasswordBody({
         currentPassword: "",
-        newPassword: "🔐".repeat(12),
+        newPassword: "🔐".repeat(6),
       }),
-    ).toEqual({ currentPassword: "", newPassword: "🔐".repeat(12) });
+    ).toEqual({ currentPassword: "", newPassword: "🔐".repeat(6) });
 
     for (const body of [
-      { currentPassword: "current", newPassword: "too-short" },
+      { currentPassword: "current", newPassword: "short" },
       { currentPassword: "current", newPassword: "x".repeat(129) },
       { currentPassword: 1, newPassword: "valid password" },
       { currentPassword: "current", newPassword: "valid password", extra: true },

@@ -1,6 +1,6 @@
 import argon2 from "argon2";
 
-const MIN_PASSWORD_CODE_POINTS = 12;
+const MIN_PASSWORD_CODE_POINTS = 6;
 const MAX_PASSWORD_CODE_POINTS = 128;
 
 const ARGON2_OPTIONS = {
@@ -39,7 +39,7 @@ export function assertPasswordPolicy(password: string): void {
   const codePointLength = Array.from(password).length;
 
   if (codePointLength < MIN_PASSWORD_CODE_POINTS || codePointLength > MAX_PASSWORD_CODE_POINTS) {
-    throw new AuthInputError("Password must contain between 12 and 128 Unicode characters");
+    throw new AuthInputError("Password must contain between 6 and 128 Unicode characters");
   }
 }
 
