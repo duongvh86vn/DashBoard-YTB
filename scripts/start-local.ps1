@@ -301,7 +301,27 @@ function Invoke-LocalBuild {
     $buildOutput = "$(Get-SharedLocalFileText $stdoutPath)`n$(Get-SharedLocalFileText $stderrPath)"
     Assert-NoLocalSecretMarkers $buildOutput "log build $Service"
     if (-not $verifiedAfterForcedExit -and $process.ExitCode -ne 0) {
-      throw "Build image $Service thất bại; log đã được giữ lại để bảo vệ bí mật."
+      Write-Output 'Docker build nền không tương thích trên máy này; đang thử lại ở chế độ trực tiếp...'
+      $directBuildLines = @(
+        & docker compose --progress plain -p $localProjectName `
+          --profile seed build --provenance=false $Service 2>&1 |
+          ForEach-Object { [string]$_ }
+      )
+      $directBuildExitCode = $LASTEXITCODE
+      $buildOutput = $directBuildLines -join "`n"
+      Assert-NoLocalSecretMarkers $buildOutput "log build trực tiếp $Service"
+      if ($directBuildExitCode -ne 0) {
+        $safeFailureTail = @(
+          $directBuildLines |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            Select-Object -Last 30
+        )
+        if ($safeFailureTail.Count -ne 0) {
+          Write-Output 'Chi tiết Docker build an toàn (30 dòng cuối):'
+          Write-Output ($safeFailureTail -join "`n")
+        }
+        throw "Build image $Service thất bại ở cả chế độ nền và trực tiếp."
+      }
     }
     if (-not (Test-CompletedLocalImage $Service $buildOutput)) {
       throw "Image $Service không khớp project Docker cục bộ đã xác minh."
