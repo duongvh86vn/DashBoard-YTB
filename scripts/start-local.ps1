@@ -19,6 +19,32 @@ function New-RandomBase64Url {
   }
 }
 
+function Add-MissingLocalEncryptionKey {
+  param([string]$Path)
+
+  $lines = [IO.File]::ReadAllLines($Path)
+  if (@($lines | Where-Object { $_ -match '^SECRET_ENCRYPTION_KEY=' }).Count -ne 0) {
+    return
+  }
+
+  $encryptionKey = New-RandomBase64Url 32
+  $temporaryPath = "$Path.ai-key-$([Guid]::NewGuid().ToString('N')).tmp"
+  $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+  try {
+    $content = (($lines -join "`r`n").TrimEnd("`r", "`n") +
+      "`r`nSECRET_ENCRYPTION_KEY=$encryptionKey`r`n")
+    [IO.File]::WriteAllText($temporaryPath, $content, $utf8WithoutBom)
+    Move-Item -LiteralPath $temporaryPath -Destination $Path -Force
+  }
+  finally {
+    if (Test-Path -LiteralPath $temporaryPath) {
+      Remove-Item -LiteralPath $temporaryPath -Force
+    }
+    $content = $null
+    $encryptionKey = $null
+  }
+}
+
 function Restore-ProcessEnvironment {
   param(
     [string]$Name,
@@ -103,7 +129,10 @@ function Test-LocalAdminEmail {
 }
 
 function Read-ValidatedLocalEnvironment {
-  param([string]$Path)
+  param(
+    [string]$Path,
+    [switch]$AllowMissingEncryptionKey
+  )
 
   $values = @{}
   foreach ($line in [IO.File]::ReadAllLines($Path)) {
@@ -132,6 +161,7 @@ function Read-ValidatedLocalEnvironment {
     'POSTGRES_DB',
     'DATABASE_URL',
     'SESSION_SECRET',
+    'SECRET_ENCRYPTION_KEY',
     'SESSION_IDLE_MINUTES',
     'SESSION_ABSOLUTE_HOURS',
     'LOGIN_MAX_ATTEMPTS',
@@ -140,7 +170,11 @@ function Read-ValidatedLocalEnvironment {
     'WORKER_HEARTBEAT_INTERVAL_SECONDS',
     'WORKER_HEARTBEAT_STALE_SECONDS'
   )
-  if (@($requiredNames | Where-Object { -not $values.ContainsKey($_) }).Count -ne 0) {
+  $missingNames = @($requiredNames | Where-Object { -not $values.ContainsKey($_) })
+  if ($AllowMissingEncryptionKey) {
+    $missingNames = @($missingNames | Where-Object { $_ -ne 'SECRET_ENCRYPTION_KEY' })
+  }
+  if ($missingNames.Count -ne 0) {
     throw 'Tệp .env thiếu cấu hình thuộc hợp đồng LOCAL; script từ chối ghi đè.'
   }
   if ($values.ContainsKey('TRUST_PROXY')) {
@@ -173,9 +207,11 @@ function Read-ValidatedLocalEnvironment {
   }
   $postgresPassword = [string]$values.POSTGRES_PASSWORD
   $sessionSecret = [string]$values.SESSION_SECRET
+  $encryptionKey = [string]$values.SECRET_ENCRYPTION_KEY
   if (
     $postgresPassword -notmatch '^[A-Za-z0-9_-]{24,128}$' -or
-    $sessionSecret -notmatch '^[A-Za-z0-9_-]{43}$'
+    $sessionSecret -notmatch '^[A-Za-z0-9_-]{43}$' -or
+    ($values.ContainsKey('SECRET_ENCRYPTION_KEY') -and $encryptionKey -notmatch '^[A-Za-z0-9_-]{43}$')
   ) {
     throw 'Tệp .env có định dạng bí mật không an toàn; script từ chối hiển thị hoặc thay thế.'
   }
@@ -505,6 +541,7 @@ try {
   if ($writeEnvironment) {
     $postgresPassword = "yhm_$(New-RandomBase64Url 24)"
     $sessionSecret = New-RandomBase64Url 32
+    $encryptionKey = New-RandomBase64Url 32
     $content = @"
 NODE_ENV=production
 DEPLOYMENT_MODE=LOCAL
@@ -519,6 +556,7 @@ POSTGRES_PASSWORD=$postgresPassword
 POSTGRES_DB=youtube_monitor
 DATABASE_URL=postgresql://youtube_monitor:$postgresPassword@postgres:5432/youtube_monitor
 SESSION_SECRET=$sessionSecret
+SECRET_ENCRYPTION_KEY=$encryptionKey
 SESSION_IDLE_MINUTES=120
 SESSION_ABSOLUTE_HOURS=24
 LOGIN_MAX_ATTEMPTS=5
@@ -533,7 +571,17 @@ WORKER_HEARTBEAT_STALE_SECONDS=45
     $content = $null
     $postgresPassword = $null
     $sessionSecret = $null
+    $encryptionKey = $null
     Write-Output 'Đã tạo cấu hình .env cục bộ an toàn (không hiển thị bí mật).'
+  }
+
+  if (-not $createdEnvironment) {
+    $legacyEnvironment = Read-ValidatedLocalEnvironment $envPath -AllowMissingEncryptionKey
+    if (-not $legacyEnvironment.ContainsKey('SECRET_ENCRYPTION_KEY')) {
+      Add-MissingLocalEncryptionKey $envPath
+      Write-Output 'Đã bổ sung khóa mã hóa AI vào cấu hình LOCAL cũ; các giá trị khác được giữ nguyên.'
+    }
+    $legacyEnvironment = $null
   }
 
   try {
@@ -547,8 +595,11 @@ WORKER_HEARTBEAT_STALE_SECONDS=45
   }
   $localSecretMarkers = @(
     [string]$localEnvironment.POSTGRES_PASSWORD,
-    [string]$localEnvironment.SESSION_SECRET
-  )
+    [string]$localEnvironment.SESSION_SECRET,
+    [string]$localEnvironment.SECRET_ENCRYPTION_KEY,
+    [string]$localEnvironment.GEMINI_API_KEY,
+    [string]$localEnvironment.NVIDIA_API_KEY
+  ) | Where-Object { -not [string]::IsNullOrEmpty($_) }
 
   $configCheck = Invoke-NativeCapture { & docker compose config --quiet }
   if ($configCheck.ExitCode -ne 0) {

@@ -3,6 +3,16 @@ import type { z } from "zod";
 export type AIProviderId = "GEMINI" | "NVIDIA";
 export type AIModelRole = "FAST" | "ANALYSIS" | "LONG_CONTEXT" | "FALLBACK";
 export type AIProviderHealthStatus = "DISABLED" | "HEALTHY" | "DEGRADED" | "UNAVAILABLE";
+export type AIModelSource = "BUNDLED" | "DISCOVERED";
+
+export interface AIModelInfo {
+  id: string;
+  label?: string;
+  description?: string;
+  ownedBy?: string;
+  source?: AIModelSource;
+  recommended?: boolean;
+}
 
 export interface AIModelRoleConfig {
   role: AIModelRole;

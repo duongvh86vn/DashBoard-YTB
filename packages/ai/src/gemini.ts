@@ -1,4 +1,5 @@
 import type {
+  AIModelInfo,
   AIProvider,
   AIProviderHealth,
   StructuredAIRequest,
@@ -9,7 +10,7 @@ import { AIProviderError } from "./errors.js";
 export interface GeminiProviderOptions {
   apiKey?: string;
   baseUrl?: string;
-  model: string;
+  model?: string;
   fetch?: typeof globalThis.fetch;
   repairOnSchemaError?: boolean;
 }
@@ -18,9 +19,20 @@ interface GeminiResponse {
   candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
 }
 
-function endpoint(baseUrl: string, model: string, apiKey: string): string {
+interface GeminiModelMetadata {
+  name?: string;
+  displayName?: string;
+  description?: string;
+  supportedGenerationMethods?: string[];
+}
+
+interface GeminiModelsResponse {
+  models?: GeminiModelMetadata[];
+}
+
+function endpoint(baseUrl: string, model: string): string {
   const root = baseUrl.replace(/\/$/, "");
-  return `${root}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  return `${root}/models/${encodeURIComponent(model)}:generateContent`;
 }
 
 function extractText(body: GeminiResponse): string {
@@ -72,14 +84,14 @@ export class GeminiProvider implements AIProvider {
         provider: this.id,
         status: "DISABLED",
         code: "AI_DISABLED",
-        model: this.options.model,
+        ...(this.options.model ? { model: this.options.model } : {}),
       };
     }
     const started = Date.now();
     try {
       const response = await this.requestFetch(
-        `${this.baseUrl.replace(/\/$/, "")}/models/${encodeURIComponent(this.options.model)}?key=${encodeURIComponent(this.options.apiKey)}`,
-        { method: "GET" },
+        `${this.baseUrl.replace(/\/$/, "")}/models/${encodeURIComponent(this.options.model)}`,
+        { method: "GET", headers: this.headers() },
       );
       if (!response.ok)
         return {
@@ -104,18 +116,72 @@ export class GeminiProvider implements AIProvider {
     }
   }
 
+  async models(): Promise<AIModelInfo[]> {
+    if (!this.options.apiKey) {
+      throw new AIProviderError("AI_DISABLED", "Gemini API key is not configured");
+    }
+    let response: Response;
+    try {
+      response = await this.requestFetch(
+        `${this.baseUrl.replace(/\/$/, "")}/models?pageSize=1000`,
+        {
+          method: "GET",
+          headers: this.headers(),
+        },
+      );
+    } catch {
+      throw new AIProviderError("AI_UNAVAILABLE", "Gemini model discovery failed", true);
+    }
+    this.throwForResponse(response, "Gemini model discovery");
+    let body: GeminiModelsResponse;
+    try {
+      body = (await response.json()) as GeminiModelsResponse;
+    } catch {
+      throw new AIProviderError(
+        "AI_REQUEST_FAILED",
+        "Gemini returned malformed model metadata",
+        true,
+      );
+    }
+    return (body.models ?? [])
+      .filter(
+        (model): model is GeminiModelMetadata & { name: string } =>
+          typeof model.name === "string" &&
+          model.name.length > 0 &&
+          Array.isArray(model.supportedGenerationMethods) &&
+          model.supportedGenerationMethods.includes("generateContent"),
+      )
+      .map((model) => {
+        const id = model.name.startsWith("models/")
+          ? model.name.slice("models/".length)
+          : model.name;
+        const label = model.displayName?.trim() || id;
+        const description = model.description?.trim();
+        return {
+          id,
+          label,
+          ownedBy: "Google",
+          source: "DISCOVERED" as const,
+          ...(description ? { description } : {}),
+        };
+      });
+  }
+
   private async generate(
     prompt: string,
-    model: string,
+    model: string | undefined,
     request: { temperature?: number; maxOutputTokens?: number },
   ): Promise<string> {
+    if (!model) {
+      throw new AIProviderError("AI_CONFIGURATION_INVALID", "Gemini model is not configured");
+    }
     if (!this.options.apiKey)
       throw new AIProviderError("AI_DISABLED", "Gemini API key is not configured");
     let response: Response;
     try {
-      response = await this.requestFetch(endpoint(this.baseUrl, model, this.options.apiKey), {
+      response = await this.requestFetch(endpoint(this.baseUrl, model), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { ...this.headers(), "content-type": "application/json" },
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           generationConfig: {
@@ -154,6 +220,32 @@ export class GeminiProvider implements AIProvider {
       throw new AIProviderError("AI_REQUEST_FAILED", "Gemini returned malformed JSON", true);
     }
     return extractText(body);
+  }
+
+  private headers(): Record<string, string> {
+    return { "x-goog-api-key": this.options.apiKey ?? "" };
+  }
+
+  private throwForResponse(response: Response, operation: string): void {
+    if (response.status === 429) {
+      throw new AIProviderError("AI_RATE_LIMITED", `${operation} rate limit reached`, true, 429);
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new AIProviderError(
+        "AI_CONFIGURATION_INVALID",
+        `${operation} credentials were rejected`,
+        false,
+        response.status,
+      );
+    }
+    if (!response.ok) {
+      throw new AIProviderError(
+        "AI_REQUEST_FAILED",
+        `${operation} failed with HTTP ${response.status}`,
+        true,
+        response.status,
+      );
+    }
   }
 
   private async parseAndValidate<T>(raw: string, request: StructuredAIRequest<T>) {

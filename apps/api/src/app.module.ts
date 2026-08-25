@@ -9,14 +9,6 @@ import {
 import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 import type { ApiEnv } from "@yt-monitor/config";
 import {
-  AIProviderRouter,
-  GeminiProvider,
-  NvidiaProvider,
-  NoopAIProvider,
-  type AIModelRoleConfig,
-  type AIProvider,
-} from "@yt-monitor/ai";
-import {
   HealthRepository,
   HeartbeatRepository,
   IdentityUnitOfWork,
@@ -81,6 +73,7 @@ import { VideoRankingsController } from "./videos/rankings/rankings.controller.j
 import { VideoRankingsService } from "./videos/rankings/rankings.service.js";
 import { AI_APPLICATION_PORT, type AiApplicationPort } from "./ai/ai-application.port.js";
 import { AiController } from "./ai/ai.controller.js";
+import { createAiRuntimeFactory } from "./ai/ai-runtime.js";
 import { AiService } from "./ai/ai.service.js";
 import type { AiHealthReader } from "./health/health.service.js";
 
@@ -345,49 +338,12 @@ export class AppModule {
     });
     const videosApplication = new VideosService({ unitOfWork: channelUnitOfWork });
     const videoRankingsApplication = new VideoRankingsService({ unitOfWork: channelUnitOfWork });
-    const nvidiaModel = options.env.NVIDIA_ANALYSIS_MODEL ?? options.env.NVIDIA_FAST_MODEL;
-    const geminiProvider: AIProvider =
-      options.env.GEMINI_API_KEY && options.env.GEMINI_ANALYSIS_MODEL
-        ? new GeminiProvider({
-            apiKey: options.env.GEMINI_API_KEY,
-            ...(options.env.GEMINI_BASE_URL ? { baseUrl: options.env.GEMINI_BASE_URL } : {}),
-            model: options.env.GEMINI_ANALYSIS_MODEL,
-          })
-        : new NoopAIProvider();
-    const nvidiaProvider = new NvidiaProvider({
-      ...(options.env.NVIDIA_API_KEY ? { apiKey: options.env.NVIDIA_API_KEY } : {}),
-      ...(options.env.NVIDIA_BASE_URL ? { baseUrl: options.env.NVIDIA_BASE_URL } : {}),
-      ...(nvidiaModel ? { model: nvidiaModel } : {}),
-    });
-    const roles: Partial<Record<AIModelRoleConfig["role"], AIModelRoleConfig>> = {};
-    if (options.env.GEMINI_FAST_MODEL) {
-      roles.FAST = { role: "FAST", provider: "GEMINI", modelId: options.env.GEMINI_FAST_MODEL };
-    }
-    if (options.env.GEMINI_ANALYSIS_MODEL) {
-      roles.ANALYSIS = {
-        role: "ANALYSIS",
-        provider: "GEMINI",
-        modelId: options.env.GEMINI_ANALYSIS_MODEL,
-      };
-    }
-    if (options.env.NVIDIA_LONG_CONTEXT_MODEL) {
-      roles.LONG_CONTEXT = {
-        role: "LONG_CONTEXT",
-        provider: "NVIDIA",
-        modelId: options.env.NVIDIA_LONG_CONTEXT_MODEL,
-      };
-    }
-    const fallbackModel = nvidiaModel;
-    if (fallbackModel) {
-      roles.FALLBACK = { role: "FALLBACK", provider: "NVIDIA", modelId: fallbackModel };
-    }
-    const aiProvider: AIProvider = new AIProviderRouter(geminiProvider, nvidiaProvider, {
-      providers: [nvidiaProvider],
-      roles,
-    });
+    const aiRuntimeFactory = createAiRuntimeFactory(options.env);
+    const initialAiRuntime = aiRuntimeFactory({ settings: [], roles: [] });
     const aiApplication = new AiService({
       unitOfWork: channelUnitOfWork,
-      provider: aiProvider,
+      provider: initialAiRuntime.provider,
+      runtimeFactory: aiRuntimeFactory,
       model: null,
       ...(options.env.SECRET_ENCRYPTION_KEY
         ? { encryptionKey: options.env.SECRET_ENCRYPTION_KEY }

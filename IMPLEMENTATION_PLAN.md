@@ -941,6 +941,21 @@ Phase 0 is complete only after Step 4 evidence exists. A scaffold that has not p
 
 **Exit:** Fallback/deep analysis works while all-AI failure leaves core monitoring healthy.
 
+### Phase 7 remediation — 2026-08-25
+
+- Replaced the environment-only runtime wiring with database-first provider
+  runtime construction. Encrypted ADMIN keys, enabled state, base URL and model
+  roles now take effect immediately; environment values remain bootstrap fallback.
+- Added one backend catalog with friendly labels/recommended defaults and merged
+  live Gemini/NVIDIA discovery. IDs remain configuration and custom ADMIN values
+  are still supported; no model-specific branch was added to router logic.
+- Replaced the exact-ID-first UI with a dropdown that hydrates the saved model or
+  selects the recommended model. Manual ID entry is now an advanced option.
+- Added Gemini discovery and header-based API-key authentication, LOCAL encryption
+  key provisioning, Compose AI environment wiring and ADMIN page gating.
+- Remediation gates pass: workspace typecheck/lint/format/build, 86 files / 474
+  unit tests and local browser QA with non-secret mock provider responses.
+
 ## 14. Phase 8 — Dashboard completion
 
 **Workstreams:** J001–J023 completion plus all §106 pagination surfaces.

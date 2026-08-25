@@ -15,6 +15,7 @@ export class AiController {
   constructor(@Inject(AI_APPLICATION_PORT) private readonly ai: AiApplicationPort) {}
 
   @Get("status")
+  @Roles("ADMIN")
   @Header("Cache-Control", "no-store")
   status() {
     return this.ai.status();

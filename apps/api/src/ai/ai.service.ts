@@ -7,6 +7,7 @@ import {
   type AIProviderHealth,
   type ChannelClassification,
   AIProviderError,
+  getBundledAiModels,
   stableJson,
 } from "@yt-monitor/ai";
 import { decryptSecret, encryptSecret, maskSecret } from "@yt-monitor/crypto";
@@ -17,6 +18,7 @@ import type {
   AiProviderStatus,
   AiStatusResponse,
 } from "./ai-application.port.js";
+import type { AiRuntime, AiRuntimeFactory } from "./ai-runtime.js";
 
 const PROMPT_VERSION = "phase6-channel-classification-v1";
 
@@ -25,6 +27,7 @@ interface AiServiceOptions {
   provider: AIProvider;
   model: string | null;
   encryptionKey?: string;
+  runtimeFactory?: AiRuntimeFactory;
   now?: () => Date;
 }
 
@@ -92,14 +95,15 @@ export class AiService implements AiApplicationPort {
   }
 
   async status(): Promise<AiStatusResponse> {
-    const [health, settings] = await Promise.all([
-      this.options.provider.health(),
-      this.options.unitOfWork.transaction((repositories) => repositories.ai.listProviderSettings()),
-    ]);
-    const healthList = await providerHealthList(this.options.provider, health);
+    const { runtime, settings } = await this.loadRuntime();
+    const health = await runtime.provider.health();
+    const healthList = await providerHealthList(runtime.provider, health);
     const providers = healthList.map((providerHealth) => {
       const setting = settings.find((item) => item.provider === providerHealth.provider);
-      const configured = Boolean(setting?.apiKeyEncrypted) || providerHealth.status !== "DISABLED";
+      const configured =
+        runtime.configured[providerHealth.provider] ||
+        Boolean(setting?.apiKeyEncrypted) ||
+        providerHealth.status !== "DISABLED";
       const configuredModels =
         setting?.configuredModels && typeof setting.configuredModels === "object"
           ? (setting.configuredModels as Record<string, unknown>)
@@ -129,6 +133,13 @@ export class AiService implements AiApplicationPort {
   async updateSettings(
     input: Parameters<AiApplicationPort["updateSettings"]>[0],
   ): Promise<AiStatusResponse> {
+    const requestedConfiguredModels = input.configuredModels
+      ? Object.fromEntries(
+          Object.entries(input.configuredModels).filter(
+            (entry): entry is [string, string] => typeof entry[1] === "string",
+          ),
+        )
+      : undefined;
     const existing = await this.options.unitOfWork.transaction(async (repositories) => {
       const settings = await repositories.ai.listProviderSettings();
       return settings.find((item) => item.provider === input.provider) ?? null;
@@ -147,11 +158,12 @@ export class AiService implements AiApplicationPort {
         baseUrl: input.baseUrl === undefined ? (existing?.baseUrl ?? null) : input.baseUrl,
         apiKeyEncrypted,
         configuredModels:
-          input.configuredModels ?? (existing?.configuredModels as Record<string, string> | null),
+          requestedConfiguredModels ??
+          (existing?.configuredModels as Record<string, string> | null),
       });
-      if (input.configuredModels) {
+      if (requestedConfiguredModels) {
         for (const role of ["FAST", "ANALYSIS", "LONG_CONTEXT", "FALLBACK"] as const) {
-          const modelId = input.configuredModels[role];
+          const modelId = requestedConfiguredModels[role];
           if (modelId) {
             await repositories.ai.upsertModelRole({
               role,
@@ -165,7 +177,6 @@ export class AiService implements AiApplicationPort {
         }
       }
     });
-    await this.applyPersistedRoles();
     return this.status();
   }
 
@@ -198,19 +209,19 @@ export class AiService implements AiApplicationPort {
     );
     if (cached) return { classification: cached, cached: true };
     const started = this.now().getTime();
+    const { runtime } = await this.loadRuntime();
     try {
-      await this.applyPersistedRoles();
-      const classification: ChannelClassification = await this.options.provider.structured({
+      const classification: ChannelClassification = await runtime.provider.structured({
         taskType: "CHANNEL_CLASSIFICATION",
         prompt: `Classify this YouTube channel. Return only the requested JSON object.\n${stableJson(source.metricSummary)}`,
         schema: channelClassificationSchema,
         ...(this.options.model ? { model: this.options.model } : {}),
         repairOnSchemaError: true,
       });
-      const modelId = currentModelId(this.options.provider, this.options.model);
+      const modelId = currentModelId(runtime.provider, this.options.model);
       const persisted = await this.options.unitOfWork.transaction(async (repositories) => {
         await repositories.ai.createRun({
-          provider: this.options.provider.id,
+          provider: runtime.provider.id,
           modelId,
           taskType: "CHANNEL_CLASSIFICATION",
           fingerprint,
@@ -221,7 +232,7 @@ export class AiService implements AiApplicationPort {
           ...classification,
           channelId: input.channelId,
           subNiches: classification.subNiches,
-          provider: this.options.provider.id,
+          provider: runtime.provider.id,
           modelId,
           fingerprint,
         });
@@ -229,10 +240,10 @@ export class AiService implements AiApplicationPort {
       return { classification: persisted, cached: false };
     } catch (error) {
       const code = error instanceof AIProviderError ? error.code : "AI_REQUEST_FAILED";
-      const modelId = currentModelId(this.options.provider, this.options.model);
+      const modelId = currentModelId(runtime.provider, this.options.model);
       await this.options.unitOfWork.transaction((repositories) =>
         repositories.ai.createRun({
-          provider: this.options.provider.id,
+          provider: runtime.provider.id,
           modelId,
           taskType: "CHANNEL_CLASSIFICATION",
           fingerprint,
@@ -258,23 +269,64 @@ export class AiService implements AiApplicationPort {
   }
 
   async discoverModels(input: { provider: "GEMINI" | "NVIDIA" }): Promise<unknown> {
-    if (
-      !("models" in this.options.provider) ||
-      typeof this.options.provider.models !== "function"
-    ) {
-      return { provider: input.provider, models: [] };
+    const bundled = getBundledAiModels(input.provider);
+    const byId = new Map(
+      bundled.map((model) => [
+        model.id,
+        {
+          id: model.id,
+          label: model.label ?? model.id,
+          ...(model.description ? { description: model.description } : {}),
+          ...(model.ownedBy ? { ownedBy: model.ownedBy } : {}),
+          recommended: model.recommended ?? false,
+          source: model.source ?? ("BUNDLED" as const),
+        },
+      ]),
+    );
+    const { runtime } = await this.loadRuntime();
+    if ("models" in runtime.provider && typeof runtime.provider.models === "function") {
+      try {
+        const discovered = await (
+          runtime.provider as {
+            models(provider: "GEMINI" | "NVIDIA"): Promise<unknown[]>;
+          }
+        ).models(input.provider);
+        for (const candidate of discovered) {
+          if (!candidate || typeof candidate !== "object") continue;
+          const model = candidate as Record<string, unknown>;
+          if (typeof model.id !== "string" || model.id.trim().length === 0) continue;
+          const existing = byId.get(model.id);
+          byId.set(model.id, {
+            id: model.id,
+            label:
+              existing?.label ??
+              (typeof model.label === "string" && model.label.trim().length > 0
+                ? model.label
+                : model.id),
+            ...(existing?.description
+              ? { description: existing.description }
+              : typeof model.description === "string" && model.description.trim().length > 0
+                ? { description: model.description }
+                : {}),
+            ...(typeof model.ownedBy === "string" && model.ownedBy.trim().length > 0
+              ? { ownedBy: model.ownedBy }
+              : {}),
+            recommended: existing?.recommended ?? false,
+            source: existing?.source ?? "DISCOVERED",
+          });
+        }
+      } catch (error) {
+        if (!(error instanceof AIProviderError)) throw error;
+        // A bundled catalog keeps setup usable before a key is configured or while discovery is
+        // temporarily unavailable. The explicit provider test still reports the real failure.
+      }
     }
-    const models = await (
-      this.options.provider as { models(provider: "GEMINI" | "NVIDIA"): Promise<unknown[]> }
-    ).models(input.provider);
-    return { provider: input.provider, models };
+    return { provider: input.provider, models: [...byId.values()] };
   }
 
   async testProvider(input: { provider: "GEMINI" | "NVIDIA" }): Promise<unknown> {
-    const health = await providerHealthList(
-      this.options.provider,
-      await this.options.provider.health(),
-    );
+    const { runtime } = await this.loadRuntime();
+    const health = await providerHealthList(runtime.provider, await runtime.provider.health());
     return (
       health.find((item) => item.provider === input.provider) ?? {
         provider: input.provider,
@@ -284,12 +336,21 @@ export class AiService implements AiApplicationPort {
     );
   }
 
-  private async applyPersistedRoles(): Promise<void> {
-    const configurator = roleConfigurator(this.options.provider);
-    if (!configurator) return;
-    const persisted = await this.options.unitOfWork.transaction((repositories) =>
-      repositories.ai.listModelRoles(),
+  private async loadRuntime() {
+    const { settings, roles: persisted } = await this.options.unitOfWork.transaction(
+      async (repositories) => ({
+        settings: await repositories.ai.listProviderSettings(),
+        roles: await repositories.ai.listModelRoles(),
+      }),
     );
+    if (this.options.runtimeFactory) {
+      return {
+        settings,
+        runtime: this.options.runtimeFactory({ settings, roles: persisted }),
+      };
+    }
+
+    const configurator = roleConfigurator(this.options.provider);
     const roles: Partial<Record<AIModelRole, AIModelRoleConfig>> = {};
     for (const item of persisted) {
       if (!item.isEnabled) continue;
@@ -299,6 +360,11 @@ export class AiService implements AiApplicationPort {
         modelId: item.modelId,
       };
     }
-    configurator.setRoles(roles);
+    configurator?.setRoles(roles);
+    const runtime: AiRuntime = {
+      provider: this.options.provider,
+      configured: { GEMINI: false, NVIDIA: false },
+    };
+    return { settings, runtime };
   }
 }

@@ -1,15 +1,11 @@
 import type {
+  AIModelInfo,
   AIProvider,
   AIProviderHealth,
   StructuredAIRequest,
   TextAIRequest,
 } from "./contracts.js";
 import { AIProviderError } from "./errors.js";
-
-export interface AIModelInfo {
-  id: string;
-  ownedBy?: string;
-}
 
 export interface NvidiaProviderOptions {
   apiKey?: string;
@@ -150,7 +146,12 @@ export class NvidiaProvider implements AIProvider {
         (model): model is { id: string; owned_by?: string } =>
           typeof model.id === "string" && model.id.length > 0,
       )
-      .map((model) => ({ id: model.id, ...(model.owned_by ? { ownedBy: model.owned_by } : {}) }));
+      .map((model) => ({
+        id: model.id,
+        label: model.id,
+        source: "DISCOVERED" as const,
+        ...(model.owned_by ? { ownedBy: model.owned_by } : {}),
+      }));
   }
 
   private async generate(

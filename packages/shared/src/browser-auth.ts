@@ -282,7 +282,16 @@ export const AiModelsResponseSchema = z
   .object({
     provider: z.enum(["GEMINI", "NVIDIA"]),
     models: z.array(
-      z.object({ id: z.string().min(1), ownedBy: z.string().min(1).optional() }).strict(),
+      z
+        .object({
+          id: z.string().min(1),
+          label: z.string().min(1),
+          description: z.string().min(1).optional(),
+          ownedBy: z.string().min(1).optional(),
+          recommended: z.boolean(),
+          source: z.enum(["BUNDLED", "DISCOVERED"]),
+        })
+        .strict(),
     ),
   })
   .strict();

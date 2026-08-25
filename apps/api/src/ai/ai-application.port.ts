@@ -1,5 +1,9 @@
 export const AI_APPLICATION_PORT = Symbol("AI_APPLICATION_PORT");
 
+export type AiConfiguredModels = Partial<
+  Record<"FAST" | "ANALYSIS" | "LONG_CONTEXT" | "FALLBACK", string | undefined>
+>;
+
 export interface AiProviderStatus {
   provider: "GEMINI" | "NVIDIA";
   status: "DISABLED" | "HEALTHY" | "DEGRADED" | "UNAVAILABLE";
@@ -25,7 +29,7 @@ export interface AiApplicationPort {
     priority?: number | undefined;
     baseUrl?: string | null | undefined;
     apiKey?: string | undefined;
-    configuredModels?: Record<string, string> | undefined;
+    configuredModels?: AiConfiguredModels | undefined;
   }): Promise<AiStatusResponse>;
   classifyChannel(input: { channelId: string }): Promise<unknown>;
   getReport(input: { kind: "DAILY" | "WEEKLY"; reportDate: Date }): Promise<unknown>;

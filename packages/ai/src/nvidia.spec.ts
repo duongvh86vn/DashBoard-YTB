@@ -21,7 +21,12 @@ describe("NVIDIA OpenAI-compatible provider", () => {
       fetch,
     });
     await expect(provider.models()).resolves.toEqual([
-      { id: "provider/custom-model", ownedBy: "nvidia" },
+      {
+        id: "provider/custom-model",
+        label: "provider/custom-model",
+        ownedBy: "nvidia",
+        source: "DISCOVERED",
+      },
     ]);
     expect(fetch).toHaveBeenCalledWith(
       "https://nim.test/v1/models",

@@ -468,3 +468,53 @@
   canonical database/auth integration files / 37 tests, browser flow, recovery
   checks and complete cleanup.
 - Default/hosting security assertions and Compose restart-policy assertions — PASS.
+
+## 2026-08-25 — AI key runtime and model-selection remediation
+
+### Defects fixed
+
+- Audited the model/key workflow in `gemini-novel-translator-studio-restored` at
+  commit `8cf7389` and retained its useful single-catalog/default-model pattern.
+  The reference NVIDIA datalist/exact-ID workflow was intentionally not copied.
+- Fixed the production disconnect where ADMIN-saved encrypted provider keys,
+  enabled state, base URL and selected models were persisted but the running
+  providers continued to use environment-only clients. Runtime clients are now
+  rebuilt from database settings first, with environment values as bootstrap
+  fallback, without returning or logging decrypted keys.
+- Added one backend model catalog with friendly labels and recommended defaults,
+  merged with live Gemini/NVIDIA discovery. Exact IDs remain configurable and
+  are isolated to the configuration layer; router/business logic still has no
+  vendor-specific model branch.
+- Replaced the raw model-ID form with a recommended/saved model dropdown. Custom
+  IDs are available only through the advanced option, and provider changes clear
+  the unsaved key draft. The AI settings page is now ADMIN-gated.
+- Added Gemini model discovery and moved Gemini authentication from query strings
+  to the `x-goog-api-key` header.
+- Docker Compose now passes AI bootstrap configuration to the API. `start.bat`
+  creates a separate 32-byte `SECRET_ENCRYPTION_KEY` for new LOCAL installs and
+  safely adds only that missing key to the validated legacy LOCAL contract.
+
+### Acceptance evidence
+
+- Workspace typecheck — PASS.
+- ESLint with zero warnings and Prettier/diff checks — PASS.
+- Unit suite — PASS: 86 files / 474 tests, including encrypted DB-key runtime,
+  provider disablement/default selection, Gemini header/discovery, catalog,
+  schema and UI provider-switch/custom-model coverage.
+- Production build — PASS; `/settings/ai` included.
+- Browser QA against a local non-secret mock API — PASS: Gemini and NVIDIA
+  recommended models were preselected, friendly labels/ID details rendered,
+  key drafts were cleared on provider switch and custom-model input appeared
+  only after selecting the advanced option.
+- `docker compose config --quiet` — PASS with an isolated validation environment.
+  Docker daemon/provider-key live smoke remains owner-run because Docker Desktop
+  was not running and no real provider secret was used during this remediation.
+
+### Boundaries preserved
+
+- Provider secrets remain AES-256-GCM encrypted at rest and browser responses
+  contain only masked values. No secret was copied from the reference project.
+- Curated model IDs are configuration metadata, not routing/business logic;
+  provider discovery and custom IDs remain available.
+- AI remains optional and cannot modify canonical YouTube data or stop collectors,
+  dashboard, rankings or health collection paths.

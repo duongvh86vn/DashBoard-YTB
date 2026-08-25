@@ -81,7 +81,7 @@ export function AdminGate({ children }: Readonly<{ children: ReactNode }>) {
   if (state.user.role !== "ADMIN") {
     return (
       <section className="rounded-2xl border border-amber-200 bg-amber-50 p-6" role="alert">
-        Bạn không có quyền quản trị người dùng.
+        Bạn không có quyền truy cập khu vực quản trị này.
       </section>
     );
   }

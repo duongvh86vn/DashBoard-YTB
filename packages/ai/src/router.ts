@@ -1,4 +1,5 @@
 import type {
+  AIModelInfo,
   AIModelRole,
   AIModelRoleConfig,
   AIProvider,
@@ -105,10 +106,12 @@ export class AIProviderRouter implements AIProvider {
     return Promise.all(this.allProviders.map((provider) => provider.health()));
   }
 
-  async models(providerId: AIProviderId): Promise<unknown[]> {
+  async models(providerId: AIProviderId) {
     const provider = this.allProviders.find((candidate) => candidate.id === providerId);
-    if (!provider || !("models" in provider) || typeof provider.models !== "function") return [];
-    return provider.models() as Promise<unknown[]>;
+    const modelProvider = provider as
+      (AIProvider & { models?: () => Promise<AIModelInfo[]> }) | undefined;
+    if (!modelProvider?.models) return [];
+    return modelProvider.models();
   }
 
   private selectProvider<T extends StructuredAIRequest<unknown> | TextAIRequest>(

@@ -1,6 +1,15 @@
 import { z } from "zod";
 
 const provider = z.enum(["GEMINI", "NVIDIA"]);
+const modelId = z.string().trim().min(1).max(256);
+const configuredModels = z
+  .object({
+    FAST: modelId.optional(),
+    ANALYSIS: modelId.optional(),
+    LONG_CONTEXT: modelId.optional(),
+    FALLBACK: modelId.optional(),
+  })
+  .strict();
 
 export function parseProvider(value: string): "GEMINI" | "NVIDIA" {
   return provider.parse(value);
@@ -13,8 +22,8 @@ export function parseProviderSettingsBody(value: unknown) {
       isEnabled: z.boolean().optional(),
       priority: z.number().int().min(0).max(100).optional(),
       baseUrl: z.string().url().nullable().optional(),
-      apiKey: z.string().min(1).max(512).optional(),
-      configuredModels: z.record(z.string().min(1), z.string().min(1).max(256)).optional(),
+      apiKey: z.string().trim().min(1).max(512).optional(),
+      configuredModels: configuredModels.optional(),
     })
     .strict()
     .parse(value);

@@ -1,4 +1,5 @@
 export * from "./cache.js";
+export * from "./catalog.js";
 export * from "./contracts.js";
 export * from "./errors.js";
 export * from "./fingerprint.js";
