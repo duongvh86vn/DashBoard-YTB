@@ -76,6 +76,12 @@ import { AiController } from "./ai/ai.controller.js";
 import { createAiRuntimeFactory } from "./ai/ai-runtime.js";
 import { AiService } from "./ai/ai.service.js";
 import type { AiHealthReader } from "./health/health.service.js";
+import {
+  DASHBOARD_APPLICATION_PORT,
+  type DashboardApplicationPort,
+} from "./dashboard/dashboard-application.port.js";
+import { DashboardController } from "./dashboard/dashboard.controller.js";
+import { DashboardService } from "./dashboard/dashboard.service.js";
 
 export { API_ENV } from "./auth/api-environment.port.js";
 export const DATABASE_CLIENT = Symbol("DATABASE_CLIENT");
@@ -100,6 +106,7 @@ export interface TestingAppModuleOptions {
   videosApplication?: VideosApplicationPort;
   videoRankingsApplication?: VideoRankingsApplicationPort;
   aiApplication?: AiApplicationPort;
+  dashboardApplication?: DashboardApplicationPort;
 }
 
 const denyAllSessionAuthenticator: SessionAuthenticationPort = {
@@ -219,6 +226,12 @@ const denyAllAiApplication: AiApplicationPort = {
   },
 };
 
+const denyAllDashboardApplication: DashboardApplicationPort = {
+  async trends(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
+};
+
 class ConfiguredAiHealthReader implements AiHealthReader {
   constructor(
     private readonly configured: boolean,
@@ -257,6 +270,7 @@ function applicationProviders(
   videosApplication: VideosApplicationPort,
   videoRankingsApplication: VideoRankingsApplicationPort,
   aiApplication: AiApplicationPort,
+  dashboardApplication: DashboardApplicationPort,
   aiHealthReader: AiHealthReader,
   channelProvider: ChannelProviderPort,
 ): Provider[] {
@@ -271,6 +285,7 @@ function applicationProviders(
     { provide: VIDEOS_APPLICATION_PORT, useValue: videosApplication },
     { provide: VIDEO_RANKINGS_APPLICATION_PORT, useValue: videoRankingsApplication },
     { provide: AI_APPLICATION_PORT, useValue: aiApplication },
+    { provide: DASHBOARD_APPLICATION_PORT, useValue: dashboardApplication },
     { provide: AI_HEALTH_READER, useValue: aiHealthReader },
     { provide: CHANNEL_PROVIDER, useValue: channelProvider },
     {
@@ -338,6 +353,10 @@ export class AppModule {
     });
     const videosApplication = new VideosService({ unitOfWork: channelUnitOfWork });
     const videoRankingsApplication = new VideoRankingsService({ unitOfWork: channelUnitOfWork });
+    const dashboardApplication = new DashboardService({
+      unitOfWork: channelUnitOfWork,
+      timeZone: options.env.APP_TIMEZONE,
+    });
     const aiRuntimeFactory = createAiRuntimeFactory(options.env);
     const initialAiRuntime = aiRuntimeFactory({ settings: [], roles: [] });
     const aiApplication = new AiService({
@@ -365,6 +384,7 @@ export class AppModule {
         VideosController,
         VideoRankingsController,
         AiController,
+        DashboardController,
       ],
       providers: [
         ...applicationProviders(
@@ -378,6 +398,7 @@ export class AppModule {
           videosApplication,
           videoRankingsApplication,
           aiApplication,
+          dashboardApplication,
           new ConfiguredAiHealthReader(
             Boolean(options.env.GEMINI_API_KEY || options.env.NVIDIA_API_KEY),
             options.env.GEMINI_ANALYSIS_MODEL ?? null,
@@ -401,6 +422,7 @@ export class AppModule {
         VideosController,
         VideoRankingsController,
         AiController,
+        DashboardController,
       ],
       providers: applicationProviders(
         options.env,
@@ -413,6 +435,7 @@ export class AppModule {
         options.videosApplication ?? denyAllVideosApplication,
         options.videoRankingsApplication ?? denyAllVideoRankingsApplication,
         options.aiApplication ?? denyAllAiApplication,
+        options.dashboardApplication ?? denyAllDashboardApplication,
         new ConfiguredAiHealthReader(false, null),
         new CompositePublicChannelProvider(),
       ),

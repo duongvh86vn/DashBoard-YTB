@@ -54,6 +54,7 @@ export {
   type UpsertVideoInput,
   type VideoPage,
   type VideoRankingRecord,
+  type PublishedVideoRecord,
 } from "./video.repository.js";
 export {
   VideoSnapshotRepository,

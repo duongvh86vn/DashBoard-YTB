@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   getAiReport,
+  getDashboardTrends,
   getHealth,
   getVietnameseApiMessage,
   listChannels,
@@ -12,6 +13,7 @@ import {
   listWeeklyVideoRanking,
 } from "../lib/api-client";
 import { useAuth } from "../lib/auth-context";
+import { DashboardTrendPanel } from "./dashboard-trend-panel";
 
 const compactNumberFormatter = new Intl.NumberFormat("vi-VN", {
   notation: "compact",
@@ -201,6 +203,7 @@ export function DashboardScreen() {
   const [weekly, setWeekly] = useState<Awaited<ReturnType<typeof listWeeklyVideoRanking>> | null>(
     null,
   );
+  const [trends, setTrends] = useState<Awaited<ReturnType<typeof getDashboardTrends>> | null>(null);
   const [health, setHealth] = useState<Awaited<ReturnType<typeof getHealth>> | null>(null);
   const [reports, setReports] = useState<Awaited<ReturnType<typeof getAiReport>>[]>([]);
   const [loading, setLoading] = useState(true);
@@ -208,6 +211,7 @@ export function DashboardScreen() {
   const [channelsFailed, setChannelsFailed] = useState(false);
   const [recentFailed, setRecentFailed] = useState(false);
   const [weeklyFailed, setWeeklyFailed] = useState(false);
+  const [trendsFailed, setTrendsFailed] = useState(false);
   const [healthUnavailable, setHealthUnavailable] = useState(false);
   const [reportsUnavailable, setReportsUnavailable] = useState(false);
   const [supplementalLoading, setSupplementalLoading] = useState(true);
@@ -223,6 +227,7 @@ export function DashboardScreen() {
     setChannelsFailed(false);
     setRecentFailed(false);
     setWeeklyFailed(false);
+    setTrendsFailed(false);
     setHealthUnavailable(false);
     setReportsUnavailable(false);
     setSupplementalLoading(true);
@@ -233,26 +238,98 @@ export function DashboardScreen() {
       listChannels({ page: 1, pageSize: 100, signal: controller.signal }),
       listRecentVideos({ page: 1, pageSize: 6, signal: controller.signal }),
       listWeeklyVideoRanking({ page: 1, pageSize: 5, signal: controller.signal }),
+      getDashboardTrends(28, controller.signal),
     ])
-      .then(([channelResult, recentResult, weeklyResult]) => {
+      .then(([channelResult, recentResult, weeklyResult, trendResult]) => {
         if (!mounted.current || controller.signal.aborted) return;
 
-        const failures = [channelResult, recentResult, weeklyResult].flatMap((result) =>
-          result.status === "rejected" ? [result.reason] : [],
+        const failures = [channelResult, recentResult, weeklyResult, trendResult].flatMap(
+          (result) => (result.status === "rejected" ? [result.reason] : []),
         );
         if (failures.some((reason) => auth.handleApiError(reason))) return;
 
         setChannels(channelResult.status === "fulfilled" ? channelResult.value : null);
         setRecent(recentResult.status === "fulfilled" ? recentResult.value : null);
         setWeekly(weeklyResult.status === "fulfilled" ? weeklyResult.value : null);
+        setTrends(trendResult.status === "fulfilled" ? trendResult.value : null);
         setChannelsFailed(channelResult.status === "rejected");
         setRecentFailed(recentResult.status === "rejected");
         setWeeklyFailed(weeklyResult.status === "rejected");
+        setTrendsFailed(trendResult.status === "rejected");
         setError(failures.length > 0 ? getVietnameseApiMessage(failures[0]) : null);
       })
       .finally(() => {
         if (mounted.current && !controller.signal.aborted) setLoading(false);
       });
+
+    const dashboardRefreshTimer = window.setInterval(() => {
+      void Promise.allSettled([
+        listChannels({ page: 1, pageSize: 100, signal: controller.signal }),
+        listRecentVideos({ page: 1, pageSize: 6, signal: controller.signal }),
+        listWeeklyVideoRanking({ page: 1, pageSize: 5, signal: controller.signal }),
+        getDashboardTrends(28, controller.signal),
+      ]).then(([channelResult, recentResult, weeklyResult, trendResult]) => {
+        if (!mounted.current || controller.signal.aborted) return;
+        const failures = [channelResult, recentResult, weeklyResult, trendResult].flatMap(
+          (result) => (result.status === "rejected" ? [result.reason] : []),
+        );
+        if (failures.some((reason) => auth.handleApiError(reason))) return;
+
+        if (channelResult.status === "fulfilled") {
+          setChannels(channelResult.value);
+          setChannelsFailed(false);
+        }
+        if (recentResult.status === "fulfilled") {
+          setRecent(recentResult.value);
+          setRecentFailed(false);
+        }
+        if (weeklyResult.status === "fulfilled") {
+          setWeekly(weeklyResult.value);
+          setWeeklyFailed(false);
+        }
+        if (trendResult.status === "fulfilled") {
+          setTrends(trendResult.value);
+          setTrendsFailed(false);
+        }
+      });
+    }, 60_000);
+
+    // A newly added channel is collected asynchronously by the worker. Poll only
+    // the two snapshot-dependent endpoints more quickly during that bounded
+    // warm-up window, then fall back to the regular one-minute dashboard refresh.
+    let warmupAttempts = 0;
+    const snapshotWarmupTimer = window.setInterval(() => {
+      warmupAttempts += 1;
+      void Promise.allSettled([
+        listChannels({ page: 1, pageSize: 100, signal: controller.signal }),
+        getDashboardTrends(28, controller.signal),
+      ]).then(([channelResult, trendResult]) => {
+        if (!mounted.current || controller.signal.aborted) return;
+        const failures = [channelResult, trendResult].flatMap((result) =>
+          result.status === "rejected" ? [result.reason] : [],
+        );
+        if (failures.some((reason) => auth.handleApiError(reason))) return;
+
+        if (channelResult.status === "fulfilled") {
+          setChannels(channelResult.value);
+          setChannelsFailed(false);
+          const enabled = channelResult.value.items.filter((channel) => channel.isEnabled);
+          if (
+            enabled.length === 0 ||
+            enabled.every((channel) => channel.lastChannelScanAt !== null) ||
+            warmupAttempts >= 12
+          ) {
+            window.clearInterval(snapshotWarmupTimer);
+          }
+        } else if (warmupAttempts >= 12) {
+          window.clearInterval(snapshotWarmupTimer);
+        }
+        if (trendResult.status === "fulfilled") {
+          setTrends(trendResult.value);
+          setTrendsFailed(false);
+        }
+      });
+    }, 10_000);
 
     void Promise.allSettled([
       healthRequest,
@@ -283,6 +360,8 @@ export function DashboardScreen() {
     return () => {
       mounted.current = false;
       controller.abort();
+      window.clearInterval(dashboardRefreshTimer);
+      window.clearInterval(snapshotWarmupTimer);
     };
   }, [auth]);
 
@@ -470,6 +549,8 @@ export function DashboardScreen() {
           </article>
         ))}
       </section>
+
+      <DashboardTrendPanel data={trends} loading={loading} failed={trendsFailed} />
 
       <section aria-labelledby="channel-insights-title">
         <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">

@@ -987,6 +987,35 @@ build passed; unit suite passed (80 files / 456 tests); six-migration Compose,
 API/Worker/Web and Playwright acceptance passed (8 canonical files / 37 database and
 auth integration tests plus browser flow).
 
+### Phase 8 metrics remediation — 2026-08-25
+
+- Wired the previously dormant channel-stats/daily jobs into the Worker lifecycle
+  and implemented a bounded public YouTube About collector for subscriber count,
+  video count and lifetime views. Newly added channels are scanned immediately or
+  within 30 seconds, with a 15-minute safe retry after partial collection.
+- Added the authenticated typed `GET /api/v1/dashboard/trends?days=28` surface.
+  View/subscriber deltas are computed only from canonical snapshots; missing or
+  stale endpoints remain `NULL`. The response exposes requested/complete/partial
+  days and coverage percent, and discovered videos are grouped by local publish date.
+- Added a YouTube-Studio-inspired three-metric trend panel for public view delta,
+  subscriber delta and newly discovered videos. Revenue is omitted. Watch time is
+  explicitly unavailable under the public-only contract and is never estimated or
+  replaced with a different metric.
+- Added honest baseline warm-up, no-channel, loading and failure states; selectable
+  responsive SVG series with null gaps; screen-reader daily data; bounded 10-second
+  warm-up polling followed by a one-minute refresh; and a two-column mobile nav that
+  cannot widen the page.
+- Made daily catch-up restart-idempotent. Before any YouTube request, the Worker
+  checks which channels lack today's canonical row; existing `COMPLETE` or `PARTIAL`
+  rows are preserved and no extra scan is issued.
+
+Acceptance evidence: workspace Prisma validate/generate, typecheck, lint, format,
+production build and 96 files / 515 unit tests passed. Clean six-migration
+Compose/API/Worker/Web acceptance passed with 8 integration files / 37 tests.
+Live isolated Docker/browser QA collected 14,400 subscribers, 638 videos and
+2,408,026 lifetime views for `@miumiutruyenaudio`; desktop and 390×844 mobile
+rendering passed with mobile `scrollWidth === clientWidth`.
+
 **Exit:** All specified dashboard routes/user workflows work against real authenticated APIs.
 
 ## 15. Phase 9 — LAN, Caddy, Cloudflare Tunnel và security

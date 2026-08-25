@@ -39,6 +39,26 @@ afterEach(() => {
 });
 
 describe("AppShell", () => {
+  it("uses a bounded mobile navigation grid so links cannot widen the page", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ user: { ...baseUser, role: "ADMIN" } })),
+    );
+    render(
+      <AuthProvider>
+        <AppShell>
+          <div>Content</div>
+        </AppShell>
+      </AuthProvider>,
+    );
+
+    expect(await screen.findByRole("navigation", { name: "Điều hướng chính" })).toHaveClass(
+      "grid",
+      "grid-cols-2",
+      "min-w-0",
+    );
+  });
+
   it("shows the Users navigation only to ADMIN and exposes no raw health link", async () => {
     vi.stubGlobal(
       "fetch",

@@ -2,6 +2,7 @@ import { hostname } from "node:os";
 
 import { Injectable, Module, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { parseWorkerEnv } from "@yt-monitor/config";
+import { YoutubePublicStatsProvider } from "@yt-monitor/collector-youtube-public";
 import {
   createPrismaClient,
   ChannelRepository,
@@ -15,8 +16,11 @@ import pino from "pino";
 
 import { HeartbeatService } from "./heartbeat/heartbeat.service.js";
 import { ChannelHealthJob } from "./jobs/channel-health.job.js";
+import { ChannelDataScheduler, localCalendarDate } from "./jobs/channel-data.scheduler.js";
 import { createChannelHealthProviders } from "./jobs/channel-health-provider.js";
 import { ChannelHealthScheduler, HealthCircuitWindow } from "./jobs/channel-health.scheduler.js";
+import { ChannelStatsJob } from "./jobs/channel-stats.job.js";
+import { DailyFinalizeJob } from "./jobs/daily-finalize.job.js";
 import { VideoDiscoveryJob } from "./video-monitor/discovery.js";
 import { VideoReconcileJob } from "./video-monitor/reconcile.js";
 import { VideoSnapshotJob } from "./video-monitor/snapshot.js";
@@ -32,6 +36,29 @@ const heartbeatRepository = new HeartbeatRepository(databaseClient);
 const workerLogger = pino(createPinoOptions("worker", workerEnv.LOG_LEVEL));
 const channelUnitOfWork = new ChannelUnitOfWork(databaseClient);
 const channelRepository = new ChannelRepository(databaseClient);
+const channelStatsProvider = new YoutubePublicStatsProvider({
+  ...(workerEnv.PLAYWRIGHT_EXECUTABLE_PATH
+    ? { executablePath: workerEnv.PLAYWRIGHT_EXECUTABLE_PATH }
+    : {}),
+});
+const channelStatsJob = new ChannelStatsJob({
+  unitOfWork: channelUnitOfWork,
+  provider: channelStatsProvider,
+  activeUploadDays: workerEnv.CHANNEL_ACTIVE_UPLOAD_DAYS,
+});
+const dailyFinalizeJob = new DailyFinalizeJob({
+  unitOfWork: channelUnitOfWork,
+  timeZone: workerEnv.APP_TIMEZONE,
+  currentDate: () => localCalendarDate(new Date(), workerEnv.APP_TIMEZONE),
+});
+const channelDataScheduler = new ChannelDataScheduler({
+  channels: channelRepository,
+  stats: channelStatsJob,
+  daily: dailyFinalizeJob,
+  logger: workerLogger,
+  statsIntervalMs: workerEnv.CHANNEL_SCAN_HOURS * 60 * 60 * 1000,
+  timeZone: workerEnv.APP_TIMEZONE,
+});
 const healthProviders = createChannelHealthProviders({
   env: { PLAYWRIGHT_EXECUTABLE_PATH: workerEnv.PLAYWRIGHT_EXECUTABLE_PATH },
 });
@@ -95,6 +122,17 @@ class ChannelHealthSchedulerLifecycle implements OnModuleInit, OnModuleDestroy {
 }
 
 @Injectable()
+class ChannelDataSchedulerLifecycle implements OnModuleInit, OnModuleDestroy {
+  onModuleInit(): void {
+    channelDataScheduler.start();
+  }
+
+  onModuleDestroy(): void {
+    channelDataScheduler.stop();
+  }
+}
+
+@Injectable()
 class VideoMonitorSchedulerLifecycle implements OnModuleInit, OnModuleDestroy {
   onModuleInit(): void {
     videoMonitorScheduler.start();
@@ -112,6 +150,10 @@ class VideoMonitorSchedulerLifecycle implements OnModuleInit, OnModuleDestroy {
     { provide: WORKER_LOGGER, useValue: workerLogger },
     { provide: ChannelUnitOfWork, useValue: channelUnitOfWork },
     { provide: ChannelRepository, useValue: channelRepository },
+    { provide: ChannelStatsJob, useValue: channelStatsJob },
+    { provide: DailyFinalizeJob, useValue: dailyFinalizeJob },
+    { provide: ChannelDataScheduler, useValue: channelDataScheduler },
+    ChannelDataSchedulerLifecycle,
     { provide: ChannelHealthJob, useValue: channelHealthJob },
     { provide: ChannelHealthScheduler, useValue: channelHealthScheduler },
     ChannelHealthSchedulerLifecycle,

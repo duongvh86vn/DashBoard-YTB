@@ -562,3 +562,44 @@
 - AI remains optional and cannot replace or mutate canonical metrics.
 - LOCAL remains loopback-only; public hosting and proxy invariants are unchanged.
 - Scheduling/report boundaries remain on the spec baseline `Asia/Bangkok`.
+
+## 2026-08-25 — Real public metrics and 28-day dashboard panel
+
+### Defects fixed
+
+- Connected `ChannelStatsJob` and `DailyFinalizeJob` to the Worker lifecycle and
+  replaced the null current-stats stub with a bounded public YouTube About collector.
+  No HTML is persisted; unavailable fields remain null and partial collection retries
+  after 15 minutes.
+- Added immediate/30-second collection for unscanned channels, six-hour scheduled
+  collection, local 00:10 daily finalization and restart preflight that skips every
+  existing canonical daily row before making a YouTube request.
+- Added an authenticated no-store 28-day trend API with signed-string BigInt values,
+  exact local calendar dates, daily snapshot coverage and stale-current rejection.
+- Added the dark three-metric dashboard panel requested by the owner: public view
+  delta, subscriber delta and newly discovered videos. Revenue and private watch time
+  are absent; neither is fabricated or substituted.
+- Added explicit baseline warm-up/no-channel/error states, accessible per-day data,
+  non-distorted SVG scaling, bounded fast refresh and a responsive mobile navigation
+  grid.
+
+### Acceptance evidence
+
+- Workspace `pnpm verify` — PASS: Prisma validate/generate, typecheck, ESLint with
+  zero warnings, Prettier, production build and 96 files / 515 unit tests.
+- `pnpm test:integration` — PASS: clean six-migration Compose stack, 8 integration
+  files / 37 tests, API/Worker/Web health, restart recovery, browser flow and cleanup.
+- Isolated production Docker live probe — PASS: `@miumiutruyenaudio` resolved to its
+  canonical channel and displayed 14,400 subscribers, 638 videos and 2,408,026
+  lifetime views from a real saved snapshot.
+- Desktop and 390×844 browser QA — PASS. The mobile document reports
+  `scrollWidth = clientWidth = 375`; all KPI values and the trend warm-up panel remain
+  readable without whole-page horizontal overflow.
+
+### Boundaries preserved
+
+- Public-only monitoring remains unchanged; no OAuth scope was added.
+- Missing history is never backfilled or displayed as zero. A genuine 28-day total
+  warms up from canonical daily snapshots and cannot be shown immediately on a new
+  installation.
+- AI remains optional and cannot write canonical YouTube metrics.

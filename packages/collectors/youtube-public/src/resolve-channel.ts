@@ -34,7 +34,7 @@ export function parsePublicChannelHtml(
   };
 }
 
-async function fetchPublicPage(
+export async function fetchPublicPage(
   url: string,
   options: PublicPageFetchOptions,
 ): Promise<string | null> {
@@ -42,7 +42,10 @@ async function fetchPublicPage(
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 10_000);
   try {
     const response = await (options.fetchImpl ?? fetch)(url, {
-      headers: { Accept: "text/html,application/xhtml+xml" },
+      headers: {
+        Accept: "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
       signal: controller.signal,
     });
     if (!response.ok) return null;

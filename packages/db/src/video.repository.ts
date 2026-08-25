@@ -46,6 +46,8 @@ export interface VideoRankingRecord extends VideoRecord {
   channel: { id: string; title: string; thumbnail: string | null };
 }
 
+export type PublishedVideoRecord = Pick<VideoRecord, "channelId" | "publishedAt">;
+
 export class VideoRepository {
   constructor(private readonly client: VideoClient) {}
 
@@ -97,6 +99,14 @@ export class VideoRepository {
       this.client.video.count({ where }),
     ]);
     return { items, total };
+  }
+
+  listPublishedBetween(start: Date, endExclusive: Date): Promise<PublishedVideoRecord[]> {
+    return this.client.video.findMany({
+      where: { publishedAt: { gte: start, lt: endExclusive } },
+      orderBy: [{ publishedAt: "asc" }, { id: "asc" }],
+      select: { channelId: true, publishedAt: true },
+    });
   }
 
   listForRanking(input: ListRankingVideosInput = {}): Promise<VideoRankingRecord[]> {

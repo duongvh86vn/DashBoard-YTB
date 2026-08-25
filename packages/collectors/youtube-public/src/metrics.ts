@@ -1,6 +1,7 @@
 export interface PublicPageMetrics {
   subscriberCount: bigint | null;
   videoCount: bigint | null;
+  lifetimeViewCount: bigint | null;
 }
 
 function parseCompactNumber(value: string): bigint | null {
@@ -27,5 +28,6 @@ export function parsePublicPageMetrics(visibleText: string): PublicPageMetrics {
   return {
     subscriberCount: extractMetric(visibleText, ["subscribers", "subscriber"]),
     videoCount: extractMetric(visibleText, ["videos", "video"]),
+    lifetimeViewCount: extractMetric(visibleText, ["views", "view"]),
   };
 }

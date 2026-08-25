@@ -26,6 +26,21 @@ export class ChannelDailyStatRepository {
     });
   }
 
+  listByChannelsAndDateRange(
+    channelIds: readonly string[],
+    startDate: Date,
+    endDate: Date,
+  ): Promise<ChannelDailyStatRecord[]> {
+    if (channelIds.length === 0) return Promise.resolve([]);
+    return this.client.channelDailyStat.findMany({
+      where: {
+        channelId: { in: [...channelIds] },
+        date: { gte: startDate, lte: endDate },
+      },
+      orderBy: [{ date: "asc" }, { channelId: "asc" }],
+    });
+  }
+
   upsert(input: UpsertDailyStatInput): Promise<ChannelDailyStatRecord> {
     const data = {
       subscriberCount: input.subscriberCount,

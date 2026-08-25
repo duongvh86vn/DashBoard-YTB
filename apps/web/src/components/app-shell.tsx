@@ -54,7 +54,10 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
           </div>
         </div>
 
-        <nav className="mt-8 flex gap-2 lg:flex-col" aria-label="Điều hướng chính">
+        <nav
+          className="mt-8 grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3 lg:flex lg:flex-col"
+          aria-label="Điều hướng chính"
+        >
           <Link className={pathname === "/" ? "nav-link nav-link-active" : "nav-link"} href="/">
             Tổng quan
           </Link>

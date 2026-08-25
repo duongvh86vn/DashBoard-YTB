@@ -29,7 +29,12 @@ import {
   AiReportResponseSchema,
   type AiReportResponse,
 } from "@yt-monitor/shared/browser-auth";
-import { HealthResponseSchema, type HealthResponse } from "@yt-monitor/shared";
+import {
+  DashboardTrendResponseSchema,
+  HealthResponseSchema,
+  type DashboardTrendResponse,
+  type HealthResponse,
+} from "@yt-monitor/shared";
 
 type ApiMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
@@ -403,6 +408,18 @@ export function listHotVideoRanking(input: Parameters<typeof listVideoRanking>[1
 
 export function listBreakoutVideoRanking(input: Parameters<typeof listVideoRanking>[1]) {
   return listVideoRanking("rankings/breakout", input);
+}
+
+export function getDashboardTrends(
+  days: number,
+  signal?: AbortSignal,
+): Promise<DashboardTrendResponse> {
+  const query = new URLSearchParams({ days: String(days) });
+  return requestApi(`/api/v1/dashboard/trends?${query.toString()}`, {
+    method: "GET",
+    schema: DashboardTrendResponseSchema,
+    ...(signal ? { signal } : {}),
+  });
 }
 
 export function getHealth(): Promise<HealthResponse> {

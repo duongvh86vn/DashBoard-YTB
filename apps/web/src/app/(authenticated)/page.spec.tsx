@@ -15,6 +15,63 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+const emptyDashboardTrend = {
+  period: {
+    startDate: "2026-07-28",
+    endDate: "2026-08-24",
+    days: 28,
+    timeZone: "Asia/Bangkok",
+  },
+  totals: { viewDelta: null, subscriberDelta: null, publishedVideos: 0 },
+  coverage: {
+    totalChannels: 0,
+    channelsWithCurrentSnapshot: 0,
+    channelsWithBaseline: 0,
+    requestedDays: 28,
+    completeDays: 0,
+    partialDays: 0,
+    coveragePercent: 0,
+  },
+  series: [],
+};
+
+const populatedDashboardTrend = {
+  ...emptyDashboardTrend,
+  totals: { viewDelta: "3500", subscriberDelta: "42", publishedVideos: 2 },
+  coverage: {
+    totalChannels: 2,
+    channelsWithCurrentSnapshot: 2,
+    channelsWithBaseline: 2,
+    requestedDays: 28,
+    completeDays: 28,
+    partialDays: 0,
+    coveragePercent: 100,
+  },
+  series: [
+    {
+      date: "2026-08-22",
+      viewDelta: "1000",
+      subscriberDelta: "12",
+      publishedVideos: 1,
+      hasSnapshot: true,
+    },
+    {
+      date: "2026-08-23",
+      viewDelta: null,
+      subscriberDelta: null,
+      publishedVideos: 0,
+      hasSnapshot: false,
+    },
+    {
+      date: "2026-08-24",
+      viewDelta: "2500",
+      subscriberDelta: "30",
+      publishedVideos: 1,
+      hasSnapshot: true,
+    },
+  ],
+};
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -54,6 +111,9 @@ describe("Phase 8 dashboard", () => {
             jsonResponse({ items: [], page: 1, pageSize: 5, total: 0, warmingUpCount: 0 }),
           );
         }
+        if (path === "/api/v1/dashboard/trends?days=28") {
+          return Promise.resolve(jsonResponse(emptyDashboardTrend));
+        }
         if (path.includes("/api/v1/ai/reports/daily/")) {
           return Promise.resolve(
             jsonResponse({
@@ -88,6 +148,7 @@ describe("Phase 8 dashboard", () => {
     expect(screen.getByText("Chưa đủ baseline 7 ngày để xếp hạng.")).toBeInTheDocument();
     expect(container.querySelector('a[href*="health"]')).toBeNull();
     expect(screen.getByText("Kênh đang theo dõi")).toBeInTheDocument();
+    expect(screen.getByText("Chưa có kênh để phân tích")).toBeInTheDocument();
   });
 
   it("turns canonical channel and video snapshots into accessible charts", async () => {
@@ -229,6 +290,9 @@ describe("Phase 8 dashboard", () => {
             }),
           );
         }
+        if (path === "/api/v1/dashboard/trends?days=28") {
+          return Promise.resolve(jsonResponse(populatedDashboardTrend));
+        }
         if (path.includes("/api/v1/ai/reports/daily/")) {
           return Promise.resolve(
             jsonResponse({
@@ -264,6 +328,10 @@ describe("Phase 8 dashboard", () => {
     expect(await screen.findByRole("img", { name: "Kênh Mẫu: 1.250" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Video mới nhất: 2.500" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Video tăng trưởng: +500" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Các kênh tăng 3.500 lượt xem trong 28 ngày qua" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /Lượt xem tăng trong 28 ngày/ })).toBeInTheDocument();
 
     const lifetimeViews = screen.getByText("Tổng lượt xem trọn đời").closest("article");
     expect(lifetimeViews).not.toBeNull();
@@ -339,6 +407,11 @@ describe("Phase 8 dashboard", () => {
             jsonResponse({ items: [], page: 1, pageSize: 5, total: 0, warmingUpCount: 0 }),
           );
         }
+        if (path === "/api/v1/dashboard/trends?days=28") {
+          return Promise.resolve(
+            jsonResponse({ error: { code: "DATABASE_ERROR", message: "internal detail" } }, 503),
+          );
+        }
         if (path === "/api/v1/health" || path.includes("/api/v1/ai/reports/daily/")) {
           return Promise.resolve(
             jsonResponse({ error: { code: "DATABASE_ERROR", message: "internal detail" } }, 503),
@@ -371,5 +444,6 @@ describe("Phase 8 dashboard", () => {
     expect(
       screen.getByText("Không tải được một phần báo cáo AI. Dữ liệu canonical không bị ảnh hưởng."),
     ).toBeInTheDocument();
+    expect(screen.getByText("Dữ liệu xu hướng tạm thời không khả dụng.")).toBeInTheDocument();
   });
 });

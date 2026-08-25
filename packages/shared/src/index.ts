@@ -70,3 +70,9 @@ export {
   type VideoAvailability,
   type VideoMonitorTier,
 } from "./video-contracts.js";
+export {
+  DashboardTrendPointSchema,
+  DashboardTrendResponseSchema,
+  type DashboardTrendPoint,
+  type DashboardTrendResponse,
+} from "./dashboard-contracts.js";
