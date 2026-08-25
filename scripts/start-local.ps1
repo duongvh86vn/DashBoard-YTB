@@ -302,12 +302,22 @@ function Invoke-LocalBuild {
     Assert-NoLocalSecretMarkers $buildOutput "log build $Service"
     if (-not $verifiedAfterForcedExit -and $process.ExitCode -ne 0) {
       Write-Output 'Docker build nền không tương thích trên máy này; đang thử lại ở chế độ trực tiếp...'
-      $directBuildLines = @(
-        & docker compose --progress plain -p $localProjectName `
-          --profile seed build --provenance=false $Service 2>&1 |
-          ForEach-Object { [string]$_ }
-      )
-      $directBuildExitCode = $LASTEXITCODE
+      $previousDirectBuildErrorActionPreference = $ErrorActionPreference
+      try {
+        # Windows PowerShell 5.1 wraps native stderr as non-terminating ErrorRecord objects.
+        # Docker Compose writes normal build progress to stderr, so collect it without
+        # letting the script-wide Stop preference turn status lines into false failures.
+        $ErrorActionPreference = 'Continue'
+        $directBuildLines = @(
+          & docker compose --progress plain -p $localProjectName `
+            --profile seed build --provenance=false $Service 2>&1 |
+            ForEach-Object { [string]$_ }
+        )
+        $directBuildExitCode = $LASTEXITCODE
+      }
+      finally {
+        $ErrorActionPreference = $previousDirectBuildErrorActionPreference
+      }
       $buildOutput = $directBuildLines -join "`n"
       Assert-NoLocalSecretMarkers $buildOutput "log build trực tiếp $Service"
       if ($directBuildExitCode -ne 0) {
