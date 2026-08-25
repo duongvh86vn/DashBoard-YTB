@@ -89,16 +89,18 @@ không tự khởi động server trên host.
 Clone đúng branch rồi chạy Docker-only quick start:
 
 ```text
-git clone --branch codex/phase-2-channel-resolution --single-branch https://github.com/duongvh86vn/DashBoard-YTB.git
+git clone --branch phase/0-foundation --single-branch https://github.com/duongvh86vn/DashBoard-YTB.git
 cd DashBoard-YTB
-scripts\\start-local.cmd
+start.bat
 ```
 
 PowerShell dùng `powershell -NoProfile -ExecutionPolicy Bypass -File
-.\\scripts\\start-local.ps1`; `-NoOpen` dành cho automation. Script tạo `.env`
+.\\scripts\\start-fast.ps1`; `-NoOpen` dành cho automation. Script tạo `.env`
 LOCAL lần đầu, giữ secret/volume ổn định, hỏi ADMIN password ẩn chỉ khi database
-chưa có user, rồi mở `http://127.0.0.1:3000/login`. Nó dừng an toàn nếu `.env`
-hiện hữu không khớp contract LOCAL; không tự rotate secret hay xóa volume.
+chưa có user, tải image dựng sẵn rồi mở `http://127.0.0.1:3000/login`. Nó dừng
+an toàn nếu `.env` hiện hữu không khớp contract LOCAL; không tự rotate secret
+hay xóa volume. `setup.bat` là đường sửa chữa/build đầy đủ, không phải lệnh cần
+chạy ở mỗi lần mở ứng dụng.
 
 ## Dọn dẹp
 

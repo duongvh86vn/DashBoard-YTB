@@ -1,2 +1,3 @@
 .superpowers/sdd/**
+.worktrees/**
 pnpm-lock.yaml

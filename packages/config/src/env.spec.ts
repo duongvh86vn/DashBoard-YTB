@@ -138,6 +138,49 @@ describe("environment parsing", () => {
     expect(worker.NVIDIA_API_KEY).toBeUndefined();
   });
 
+  it("treats blank optional AI settings from Docker Compose as unset", () => {
+    const blankAiSettings = {
+      SECRET_ENCRYPTION_KEY: "",
+      GEMINI_API_KEY: "",
+      GEMINI_BASE_URL: "",
+      GEMINI_FAST_MODEL: "",
+      GEMINI_ANALYSIS_MODEL: "",
+      NVIDIA_API_KEY: "",
+      NVIDIA_BASE_URL: "",
+      NVIDIA_FAST_MODEL: "",
+      NVIDIA_ANALYSIS_MODEL: "",
+      NVIDIA_LONG_CONTEXT_MODEL: "",
+    };
+
+    const api = parseApiEnv(validApiEnv(blankAiSettings));
+    const worker = parseWorkerEnv({ DATABASE_URL, ...blankAiSettings });
+
+    for (const name of Object.keys(blankAiSettings)) {
+      expect(api[name as keyof typeof api]).toBeUndefined();
+      expect(worker[name as keyof typeof worker]).toBeUndefined();
+    }
+  });
+
+  it("preserves valid explicit AI URLs and model identifiers", () => {
+    const api = parseApiEnv(
+      validApiEnv({
+        GEMINI_BASE_URL: "https://generativelanguage.googleapis.com",
+        GEMINI_FAST_MODEL: "gemini-2.5-flash",
+        NVIDIA_BASE_URL: "https://integrate.api.nvidia.com/v1",
+        NVIDIA_ANALYSIS_MODEL: "meta/llama-3.3-70b-instruct",
+      }),
+    );
+
+    expect(api.GEMINI_BASE_URL).toBe("https://generativelanguage.googleapis.com");
+    expect(api.GEMINI_FAST_MODEL).toBe("gemini-2.5-flash");
+    expect(api.NVIDIA_BASE_URL).toBe("https://integrate.api.nvidia.com/v1");
+    expect(api.NVIDIA_ANALYSIS_MODEL).toBe("meta/llama-3.3-70b-instruct");
+  });
+
+  it("still rejects a malformed non-empty AI provider URL", () => {
+    expect(() => parseApiEnv(validApiEnv({ GEMINI_BASE_URL: "not-a-url" }))).toThrow();
+  });
+
   it("accepts a worker identifier at the database column boundary", () => {
     const workerId = "w".repeat(128);
 

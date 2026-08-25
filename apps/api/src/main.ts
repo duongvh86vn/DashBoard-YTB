@@ -4,7 +4,10 @@ import type { INestApplication } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { parseApiEnv } from "@yt-monitor/config";
 import { createPrismaClient, SessionRepository, type DatabaseClient } from "@yt-monitor/db";
+import { createPinoOptions } from "@yt-monitor/shared";
 import { Logger } from "nestjs-pino";
+import pino from "pino";
+import { ZodError } from "zod";
 
 import { AppModule } from "./app.module.js";
 import { systemClock } from "./auth/auth-runtime.ports.js";
@@ -55,6 +58,22 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-void bootstrap().catch(() => {
+void bootstrap().catch((error: unknown) => {
+  const logger = pino(createPinoOptions("api"));
+  const validationIssues =
+    error instanceof ZodError
+      ? error.issues.map((issue) => ({
+          path: issue.path.map(String).join("."),
+          code: issue.code,
+        }))
+      : undefined;
+  logger.fatal(
+    {
+      code: "API_BOOT_FAILED",
+      errorType: error instanceof Error ? error.name : "UnknownError",
+      ...(validationIssues ? { validationIssues } : {}),
+    },
+    "API failed to start",
+  );
   process.exitCode = 1;
 });

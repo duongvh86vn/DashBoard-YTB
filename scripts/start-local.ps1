@@ -1,8 +1,10 @@
 ﻿param(
-  [switch]$NoOpen
+  [switch]$NoOpen,
+  [switch]$UsePrebuilt
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'local-env.ps1')
 
 function New-RandomBase64Url {
   param([ValidateRange(16, 128)][int]$ByteCount)
@@ -126,100 +128,6 @@ function Test-LocalAdminEmail {
     }
   }
   return $Email -match '^[^\s@]+@[^\s@]+\.[^\s@]+$'
-}
-
-function Read-ValidatedLocalEnvironment {
-  param(
-    [string]$Path,
-    [switch]$AllowMissingEncryptionKey
-  )
-
-  $values = @{}
-  foreach ($line in [IO.File]::ReadAllLines($Path)) {
-    if ([string]::IsNullOrWhiteSpace($line) -or $line.TrimStart().StartsWith('#')) { continue }
-    $separator = $line.IndexOf('=')
-    if ($separator -le 0) { throw 'Tệp .env không đúng cấu trúc LOCAL bắt buộc.' }
-    $name = $line.Substring(0, $separator)
-    $value = $line.Substring($separator + 1)
-    if ($name -notmatch '^[A-Z][A-Z0-9_]*$' -or $values.ContainsKey($name)) {
-      throw 'Tệp .env có khóa trùng hoặc không hợp lệ; script từ chối ghi đè.'
-    }
-    $values[$name] = $value
-  }
-
-  $requiredNames = @(
-    'NODE_ENV',
-    'DEPLOYMENT_MODE',
-    'APP_VERSION',
-    'APP_PUBLIC_URL',
-    'APP_ALLOWED_ORIGINS',
-    'WEB_PORT',
-    'API_PORT',
-    'API_INTERNAL_URL',
-    'POSTGRES_USER',
-    'POSTGRES_PASSWORD',
-    'POSTGRES_DB',
-    'DATABASE_URL',
-    'SESSION_SECRET',
-    'SECRET_ENCRYPTION_KEY',
-    'SESSION_IDLE_MINUTES',
-    'SESSION_ABSOLUTE_HOURS',
-    'LOGIN_MAX_ATTEMPTS',
-    'LOGIN_LOCK_MINUTES',
-    'APP_TIMEZONE',
-    'WORKER_HEARTBEAT_INTERVAL_SECONDS',
-    'WORKER_HEARTBEAT_STALE_SECONDS'
-  )
-  $missingNames = @($requiredNames | Where-Object { -not $values.ContainsKey($_) })
-  if ($AllowMissingEncryptionKey) {
-    $missingNames = @($missingNames | Where-Object { $_ -ne 'SECRET_ENCRYPTION_KEY' })
-  }
-  if ($missingNames.Count -ne 0) {
-    throw 'Tệp .env thiếu cấu hình thuộc hợp đồng LOCAL; script từ chối ghi đè.'
-  }
-  if ($values.ContainsKey('TRUST_PROXY')) {
-    throw 'TRUST_PROXY phải vắng mặt cho đến Phase 9; script từ chối cấu hình hiện tại.'
-  }
-
-  $fixedValues = @{
-    NODE_ENV = 'production'
-    DEPLOYMENT_MODE = 'LOCAL'
-    APP_VERSION = '0.1.0'
-    APP_PUBLIC_URL = 'http://127.0.0.1:3000'
-    APP_ALLOWED_ORIGINS = 'http://127.0.0.1:3000'
-    WEB_PORT = '3000'
-    API_PORT = '5000'
-    API_INTERNAL_URL = 'http://api:5000'
-    POSTGRES_USER = 'youtube_monitor'
-    POSTGRES_DB = 'youtube_monitor'
-    SESSION_IDLE_MINUTES = '120'
-    SESSION_ABSOLUTE_HOURS = '24'
-    LOGIN_MAX_ATTEMPTS = '5'
-    LOGIN_LOCK_MINUTES = '15'
-    APP_TIMEZONE = 'Asia/Bangkok'
-    WORKER_HEARTBEAT_INTERVAL_SECONDS = '15'
-    WORKER_HEARTBEAT_STALE_SECONDS = '45'
-  }
-  foreach ($name in $fixedValues.Keys) {
-    if ([string]$values[$name] -cne [string]$fixedValues[$name]) {
-      throw 'Tệp .env không đúng cấu hình LOCAL cố định; script từ chối ghi đè hoặc xoay bí mật.'
-    }
-  }
-  $postgresPassword = [string]$values.POSTGRES_PASSWORD
-  $sessionSecret = [string]$values.SESSION_SECRET
-  $encryptionKey = [string]$values.SECRET_ENCRYPTION_KEY
-  if (
-    $postgresPassword -notmatch '^[A-Za-z0-9_-]{24,128}$' -or
-    $sessionSecret -notmatch '^[A-Za-z0-9_-]{43}$' -or
-    ($values.ContainsKey('SECRET_ENCRYPTION_KEY') -and $encryptionKey -notmatch '^[A-Za-z0-9_-]{43}$')
-  ) {
-    throw 'Tệp .env có định dạng bí mật không an toàn; script từ chối hiển thị hoặc thay thế.'
-  }
-  $expectedDatabaseUrl = "postgresql://youtube_monitor:$postgresPassword@postgres:5432/youtube_monitor"
-  if ([string]$values.DATABASE_URL -cne $expectedDatabaseUrl) {
-    throw 'DATABASE_URL không nhất quán với cấu hình PostgreSQL LOCAL; script từ chối ghi đè.'
-  }
-  return $values
 }
 
 function Assert-NoLocalSecretMarkers {
@@ -351,6 +259,36 @@ function Remove-LocalBuildFile {
 
 function Invoke-LocalBuild {
   param([ValidateSet('db-migrate', 'db-seed', 'worker', 'api', 'web')][string]$Service)
+
+  if ($UsePrebuilt) {
+    Write-Output "Đang tải image dựng sẵn: $Service..."
+    $pull = Invoke-NativeCapture {
+      & docker compose -p $localProjectName --profile seed pull $Service
+    }
+    $pullOutput = @($pull.Output)
+    Assert-NoLocalSecretMarkers ($pullOutput -join "`n") "log pull $Service"
+    if ($pull.ExitCode -eq 0) {
+      Write-Output "Đã tải image dựng sẵn: $Service"
+      return
+    }
+
+    $safeFailureTail = @(
+      $pullOutput |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Select-Object -Last 20
+    )
+    Write-Warning 'Registry chưa sẵn sàng; chuyển sang build cục bộ một lần.'
+    if ($safeFailureTail.Count -ne 0) {
+      Write-Output 'Chi tiết Docker pull an toàn (20 dòng cuối):'
+      Write-Output ($safeFailureTail -join "`n")
+    }
+    $script:UsePrebuilt = $false
+    $env:COMPOSE_FILE = Join-Path $repositoryRoot 'docker-compose.yml'
+    $sourceConfig = Invoke-NativeCapture { & docker compose config --quiet }
+    if ($sourceConfig.ExitCode -ne 0) {
+      throw 'Không thể chuyển sang cấu hình build cục bộ an toàn.'
+    }
+  }
 
   $safeStem = "ytmonitor-local-build-$PID-$localBuildRunId-$Service"
   $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
@@ -512,14 +450,29 @@ $localBuildRunId = [Guid]::NewGuid().ToString('N').Substring(0, 8)
 $previousBuildkitProgress = $env:BUILDKIT_PROGRESS
 $previousBuildxNoDefaultAttestations = $env:BUILDX_NO_DEFAULT_ATTESTATIONS
 $previousComposeBake = $env:COMPOSE_BAKE
+$previousComposeFile = $env:COMPOSE_FILE
 $previousComposeProgress = $env:COMPOSE_PROGRESS
 $previousComposeProjectName = $env:COMPOSE_PROJECT_NAME
+$previousDashboardImageTag = $env:DASHBOARD_IMAGE_TAG
+$previousLocalComposeEnvironment = $null
+$previousComposeControlEnvironment = $null
 
 try {
   Set-Location -LiteralPath $repositoryRoot
+  $previousComposeControlEnvironment = Clear-LocalComposeControlEnvironment
   $env:BUILDKIT_PROGRESS = 'plain'
   $env:BUILDX_NO_DEFAULT_ATTESTATIONS = '1'
   $env:COMPOSE_BAKE = 'true'
+  if ($UsePrebuilt) {
+    $prebuiltComposePath = Join-Path $repositoryRoot 'docker-compose.prebuilt.yml'
+    if (-not (Test-Path -LiteralPath $prebuiltComposePath)) {
+      throw 'Không tìm thấy gói Docker dựng sẵn trong bản clone này.'
+    }
+    $env:COMPOSE_FILE = $prebuiltComposePath
+  }
+  else {
+    $env:COMPOSE_FILE = Join-Path $repositoryRoot 'docker-compose.yml'
+  }
   $env:COMPOSE_PROGRESS = 'plain'
   Remove-Item Env:COMPOSE_PROJECT_NAME -ErrorAction SilentlyContinue
 
@@ -530,6 +483,18 @@ try {
   $composeVersion = Invoke-NativeCapture { & docker compose version }
   if ($composeVersion.ExitCode -ne 0) {
     throw 'Docker Compose v2 chưa sẵn sàng.'
+  }
+
+  if ($UsePrebuilt) {
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+      $imageRevisionRead = Invoke-NativeCapture { & git rev-parse --verify HEAD }
+      if ($imageRevisionRead.ExitCode -eq 0 -and $imageRevisionRead.Output.Count -eq 1) {
+        $imageRevision = ([string]$imageRevisionRead.Output[0]).Trim().ToLowerInvariant()
+        if ($imageRevision -match '^[0-9a-f]{40}$') {
+          $env:DASHBOARD_IMAGE_TAG = "sha-$imageRevision"
+        }
+      }
+    }
   }
 
   $writeEnvironment = -not (Test-Path -LiteralPath $envPath)
@@ -593,6 +558,7 @@ WORKER_HEARTBEAT_STALE_SECONDS=45
     }
     throw
   }
+  $previousLocalComposeEnvironment = Set-ValidatedLocalComposeEnvironment $localEnvironment
   $localSecretMarkers = @(
     [string]$localEnvironment.POSTGRES_PASSWORD,
     [string]$localEnvironment.SESSION_SECRET,
@@ -712,6 +678,20 @@ WORKER_HEARTBEAT_STALE_SECONDS=45
     throw 'Dịch vụ đã khởi động nhưng kiểm tra process health thất bại.'
   }
 
+  if (Get-Command git -ErrorAction SilentlyContinue) {
+    $revisionRead = Invoke-NativeCapture { & git rev-parse --verify HEAD }
+    if ($revisionRead.ExitCode -eq 0 -and $revisionRead.Output.Count -eq 1) {
+      $revision = ([string]$revisionRead.Output[0]).Trim().ToLowerInvariant()
+      if ($revision -match '^[0-9a-f]{40}$') {
+        $runtimeMode = if ($UsePrebuilt) { 'prebuilt' } else { 'source' }
+        [IO.File]::WriteAllText(
+          (Join-Path $repositoryRoot '.local-runtime-revision'),
+          "${runtimeMode}:$revision`r`n"
+        )
+      }
+    }
+  }
+
   $loginUrl = 'http://127.0.0.1:3000/login'
   Write-Output "Dịch vụ sẵn sàng: $loginUrl"
   if (-not $NoOpen) {
@@ -727,10 +707,14 @@ finally {
   }
   $localSecretMarkers = @()
   $localEnvironment = $null
+  Restore-ValidatedLocalComposeEnvironment $previousLocalComposeEnvironment
+  Restore-ValidatedLocalComposeEnvironment $previousComposeControlEnvironment
   Restore-ProcessEnvironment BUILDKIT_PROGRESS $previousBuildkitProgress
   Restore-ProcessEnvironment BUILDX_NO_DEFAULT_ATTESTATIONS $previousBuildxNoDefaultAttestations
   Restore-ProcessEnvironment COMPOSE_BAKE $previousComposeBake
+  Restore-ProcessEnvironment COMPOSE_FILE $previousComposeFile
   Restore-ProcessEnvironment COMPOSE_PROGRESS $previousComposeProgress
   Restore-ProcessEnvironment COMPOSE_PROJECT_NAME $previousComposeProjectName
+  Restore-ProcessEnvironment DASHBOARD_IMAGE_TAG $previousDashboardImageTag
   Set-Location -LiteralPath $previousLocation.Path
 }

@@ -18,11 +18,10 @@ Use `corepack pnpm` in terminals where a global `pnpm` shim is unavailable.
 
 ## Clone the current implementation branch
 
-GitHub's default branch may still point at an earlier foundation. Clone the
-latest implementation branch explicitly:
+Clone the supported implementation branch explicitly:
 
 ```text
-git clone --branch codex/phase-10-complete --single-branch https://github.com/duongvh86vn/DashBoard-YTB.git
+git clone --branch phase/0-foundation --single-branch https://github.com/duongvh86vn/DashBoard-YTB.git
 cd DashBoard-YTB
 ```
 
@@ -33,26 +32,35 @@ The supported clone startup is Docker-only. Host Node.js, pnpm, Corepack,
 Docker Desktop must be running Linux containers.
 
 Windows (cách nhanh nhất): nhấp đúp vào `start.bat` ở thư mục gốc dự án.
-Tệp này giữ cửa sổ mở nếu khởi động thất bại để có thể đọc hoặc chụp lại lỗi.
+Script tải image dựng sẵn từ GHCR khi có bản cập nhật rồi chỉ chạy
+`docker compose up` ở những lần sau; nó không build lại ứng dụng mỗi lần mở.
+Tệp giữ cửa sổ khi lỗi và tự in log API đã che bí mật.
 
 PowerShell:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-local.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-fast.ps1
 ```
 
 CMD or Git Bash:
 
 ```text
-scripts\start-local.cmd
+scripts\start-fast.cmd
 ```
 
 On the first run the script creates an ignored `.env` with random stable local
 secrets, asks for the ADMIN email and hidden password, runs migrations and
-starts the stack. Restarting reuses the same `.env` and PostgreSQL volume; it
-does not rotate credentials or ask for the ADMIN password again. Open
-`http://127.0.0.1:3000/login`. Use `-NoOpen` when automation should not open a
-browser.
+starts the prebuilt stack. Restarting reuses the same `.env`, images and
+PostgreSQL volume; it does not rotate credentials or ask for the ADMIN password
+again. Open `http://127.0.0.1:3000/login`. Use `-NoOpen` when automation should
+not open a browser. Run `setup.bat` only for first-time repair/reinitialization;
+if published images are temporarily unavailable it safely falls back to one
+local build without deleting the database.
+
+After one successful start, Docker Desktop displays the `dashboard-ytb`
+Compose application. Its Play button restarts the existing containers directly.
+See [`docs/PREBUILT_DOCKER.md`](./docs/PREBUILT_DOCKER.md) for update, pinned-tag
+and rollback commands.
 
 If an existing `.env` is not the exact LOCAL loopback configuration, the script
 stops without overwriting it. If a newly created `.env` does not match an old

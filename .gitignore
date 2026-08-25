@@ -8,6 +8,7 @@ coverage/
 .env
 .env.*
 !.env.example
+.local-runtime-revision
 backups/
 packages/db/src/generated/
 playwright-report/

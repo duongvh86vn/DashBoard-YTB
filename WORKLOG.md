@@ -518,3 +518,47 @@
   provider discovery and custom IDs remain available.
 - AI remains optional and cannot modify canonical YouTube data or stop collectors,
   dashboard, rankings or health collection paths.
+
+## 2026-08-25 — Prebuilt startup and monitoring-dashboard remediation
+
+### Defects fixed
+
+- Fixed API bootstrap with blank optional Gemini/NVIDIA URL or model values from
+  Compose. Fatal startup logs now expose only the error type and sanitized Zod
+  field paths/codes, never configuration values.
+- Added a prebuilt five-image Compose topology and a gated GHCR workflow. Every
+  service uses the same immutable commit tag; moving tags are promoted only
+  after the full image matrix succeeds.
+- Split first setup/repair (`setup.bat`) from normal startup (`start.bat`). The
+  normal path pins the checked-out Git SHA, pulls only after an update and then
+  runs Compose without rebuilding. A missing setup marker returns to migration,
+  identity and ADMIN verification instead of starting an unusable empty system.
+- Added strict `.env` validation and process-environment isolation for Windows
+  PowerShell 5.1. Ambient Compose profiles, project names, database credentials
+  and provider values cannot silently override the validated LOCAL contract.
+- Rebuilt the dashboard around canonical channel/video snapshots: four KPI
+  cards, channel scale charts, recent/weekly video charts, data coverage, live
+  ADMIN health, discovery feed and AI availability. Incomplete metric coverage
+  hides totals, and health/AI failures no longer erase canonical chart data.
+
+### Acceptance evidence
+
+- Windows PowerShell 5.1 parser/BOM checks — PASS for all three startup scripts;
+  environment set/clear/restore smoke — PASS with hostile ambient values.
+- Source and prebuilt Compose validation — PASS; prebuilt API/Web/Worker/migrate/
+  seed services contain immutable images and no build instructions.
+- Workspace validate/generate/typecheck/lint/format/unit/build gate — PASS: 86
+  files / 479 tests and all production routes.
+- Clean Docker/API/Worker/Web/Playwright acceptance — PASS: six migrations, 8
+  database/auth integration files / 37 tests, outage/recovery checks, browser
+  flow and verified isolated-resource cleanup.
+- Dashboard desktop/mobile browser QA with canonical mock snapshots — PASS; no
+  horizontal overflow or browser console error. Targeted Web suite covers empty,
+  partial-metric and optional-service-failure states.
+
+### Boundaries preserved
+
+- No PostgreSQL volume is deleted or credential rotated by startup/update paths.
+- AI remains optional and cannot replace or mutate canonical metrics.
+- LOCAL remains loopback-only; public hosting and proxy invariants are unchanged.
+- Scheduling/report boundaries remain on the spec baseline `Asia/Bangkok`.

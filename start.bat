@@ -4,18 +4,18 @@ setlocal
 cd /d "%~dp0"
 title YouTube Home Monitor AI
 
-echo Starting YouTube Home Monitor AI...
+echo Starting YouTube Home Monitor AI (fast Docker mode)...
 echo.
 
-if not exist "%~dp0scripts\start-local.cmd" (
-  echo ERROR: scripts\start-local.cmd was not found.
+if not exist "%~dp0scripts\start-fast.cmd" (
+  echo ERROR: scripts\start-fast.cmd was not found.
   echo Please make sure this file is inside the project root folder.
   echo.
   pause
   exit /b 1
 )
 
-call "%~dp0scripts\start-local.cmd" %*
+call "%~dp0scripts\start-fast.cmd" %*
 set "START_EXIT_CODE=%ERRORLEVEL%"
 
 if not "%START_EXIT_CODE%"=="0" (

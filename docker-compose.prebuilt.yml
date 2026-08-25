@@ -22,10 +22,7 @@ services:
       - database
 
   db-migrate:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      target: db-migrate
+    image: ghcr.io/duongvh86vn/dashboard-ytb-db-migrate:${DASHBOARD_IMAGE_TAG:-phase-0-foundation}
     restart: "no"
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
@@ -39,10 +36,7 @@ services:
 
   db-seed:
     profiles: ["seed"]
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      target: db-seed
+    image: ghcr.io/duongvh86vn/dashboard-ytb-db-seed:${DASHBOARD_IMAGE_TAG:-phase-0-foundation}
     restart: "no"
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
@@ -59,10 +53,7 @@ services:
       - database
 
   worker:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      target: worker
+    image: ghcr.io/duongvh86vn/dashboard-ytb-worker:${DASHBOARD_IMAGE_TAG:-phase-0-foundation}
     restart: unless-stopped
     init: true
     environment:
@@ -95,10 +86,7 @@ services:
       - egress
 
   api:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      target: api
+    image: ghcr.io/duongvh86vn/dashboard-ytb-api:${DASHBOARD_IMAGE_TAG:-phase-0-foundation}
     restart: unless-stopped
     init: true
     environment:
@@ -149,10 +137,7 @@ services:
       - database
 
   web:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      target: web
+    image: ghcr.io/duongvh86vn/dashboard-ytb-web:${DASHBOARD_IMAGE_TAG:-phase-0-foundation}
     restart: unless-stopped
     init: true
     environment:
@@ -194,38 +179,6 @@ services:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
-    depends_on:
-      web:
-        condition: service_healthy
-    security_opt:
-      - no-new-privileges:true
-    networks:
-      - frontend
-
-  e2e:
-    profiles: ["e2e"]
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      target: e2e
-    restart: "no"
-    init: true
-    environment:
-      E2E_BASE_URL:
-      E2E_ADMIN_EMAIL:
-      E2E_ADMIN_PASSWORD:
-      E2E_MATRIX_VIEWER_EMAIL:
-      E2E_MATRIX_VIEWER_UPDATED_EMAIL:
-      E2E_MATRIX_VIEWER_PASSWORD:
-      E2E_MATRIX_VIEWER_RESET_PASSWORD:
-      E2E_LOGOUT_VIEWER_EMAIL:
-      E2E_LOGOUT_VIEWER_PASSWORD:
-      E2E_CHANGE_VIEWER_EMAIL:
-      E2E_CHANGE_VIEWER_PASSWORD:
-      E2E_CHANGE_VIEWER_NEW_PASSWORD:
-      E2E_BROWSER_VIEWER_EMAIL:
-      E2E_BROWSER_VIEWER_PASSWORD:
-      E2E_RAW_SESSION_TOKEN_MARKER:
     depends_on:
       web:
         condition: service_healthy

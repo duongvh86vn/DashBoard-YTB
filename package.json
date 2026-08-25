@@ -25,6 +25,8 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "docker:up": "docker compose up -d --build --wait",
+    "docker:pull": "docker compose -f docker-compose.prebuilt.yml pull",
+    "docker:play": "docker compose -f docker-compose.prebuilt.yml up -d --wait",
     "docker:down": "docker compose down",
     "docker:health": "pwsh -NoProfile -File scripts/health-check.ps1",
     "verify": "pnpm db:validate && pnpm db:generate && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build",

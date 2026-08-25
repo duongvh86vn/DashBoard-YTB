@@ -1,9 +1,12 @@
 import { z } from "zod";
 
-const optionalSecret = z.preprocess(
-  (value) => (value === "" ? undefined : value),
-  z.string().min(1).optional(),
-);
+function emptyStringToUndefined(value: unknown): unknown {
+  return value === "" ? undefined : value;
+}
+
+const optionalSecret = z.preprocess(emptyStringToUndefined, z.string().min(1).optional());
+const optionalUrl = z.preprocess(emptyStringToUndefined, z.string().url().optional());
+const optionalNonEmptyString = z.preprocess(emptyStringToUndefined, z.string().min(1).optional());
 
 export const baseEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -12,14 +15,14 @@ export const baseEnvSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   SECRET_ENCRYPTION_KEY: optionalSecret,
   GEMINI_API_KEY: optionalSecret,
-  GEMINI_BASE_URL: z.string().url().optional(),
-  GEMINI_FAST_MODEL: z.string().min(1).optional(),
-  GEMINI_ANALYSIS_MODEL: z.string().min(1).optional(),
+  GEMINI_BASE_URL: optionalUrl,
+  GEMINI_FAST_MODEL: optionalNonEmptyString,
+  GEMINI_ANALYSIS_MODEL: optionalNonEmptyString,
   NVIDIA_API_KEY: optionalSecret,
-  NVIDIA_BASE_URL: z.string().url().optional(),
-  NVIDIA_FAST_MODEL: z.string().min(1).optional(),
-  NVIDIA_ANALYSIS_MODEL: z.string().min(1).optional(),
-  NVIDIA_LONG_CONTEXT_MODEL: z.string().min(1).optional(),
+  NVIDIA_BASE_URL: optionalUrl,
+  NVIDIA_FAST_MODEL: optionalNonEmptyString,
+  NVIDIA_ANALYSIS_MODEL: optionalNonEmptyString,
+  NVIDIA_LONG_CONTEXT_MODEL: optionalNonEmptyString,
 });
 
 export const databaseUrlSchema = z

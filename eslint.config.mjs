@@ -9,6 +9,7 @@ export default tseslint.config(
       "**/.next/**",
       "**/dist/**",
       "**/coverage/**",
+      "**/.worktrees/**",
       "packages/db/src/generated/**",
     ],
   },
