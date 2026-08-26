@@ -92,6 +92,10 @@ interface ParsedAboutMetrics {
   lifetimeViewCount: bigint | null;
 }
 
+type MetricKey = keyof ParsedAboutMetrics;
+
+const METRIC_KEYS: readonly MetricKey[] = ["subscriberCount", "videoCount", "lifetimeViewCount"];
+
 function hasMetric(metrics: ParsedAboutMetrics | null): metrics is ParsedAboutMetrics {
   return (
     metrics !== null &&
@@ -99,6 +103,23 @@ function hasMetric(metrics: ParsedAboutMetrics | null): metrics is ParsedAboutMe
       metrics.videoCount !== null ||
       metrics.lifetimeViewCount !== null)
   );
+}
+
+function hasEveryMetric(metrics: ParsedAboutMetrics | null): metrics is ParsedAboutMetrics {
+  return metrics !== null && METRIC_KEYS.every((key) => metrics[key] !== null);
+}
+
+function mergeMetrics(
+  preferred: ParsedAboutMetrics | null,
+  fallback: ParsedAboutMetrics | null,
+): ParsedAboutMetrics | null {
+  if (preferred === null) return fallback;
+  if (fallback === null) return preferred;
+  return {
+    subscriberCount: preferred.subscriberCount ?? fallback.subscriberCount,
+    videoCount: preferred.videoCount ?? fallback.videoCount,
+    lifetimeViewCount: preferred.lifetimeViewCount ?? fallback.lifetimeViewCount,
+  };
 }
 
 function decodeJsonString(value: string): string | null {
@@ -159,48 +180,69 @@ export async function collectPublicChannelCurrentStats(
 ): Promise<ChannelCurrentStats | null> {
   const url = aboutUrl(channel.canonicalUrl);
   const capturedAt = (options.now ?? (() => new Date()))();
-  const html = options.contextFactory ? null : await fetchPublicPage(url, options);
-  let metrics = html === null ? null : parsePublicChannelAboutHtml(html, channel.youtubeChannelId);
+  // An injected browser context traditionally means a render-only unit test.
+  // When a fetch implementation is also injected, exercise the production
+  // HTML-plus-render enrichment path without making a real network request.
+  const html =
+    options.contextFactory && options.fetchImpl === undefined
+      ? null
+      : await fetchPublicPage(url, options);
+  const htmlMetrics =
+    html === null ? null : parsePublicChannelAboutHtml(html, channel.youtubeChannelId);
+  let renderedMetrics: ParsedAboutMetrics | null = null;
   let renderedTitle: string | null = null;
-  let provenanceSource = "YOUTUBE_PUBLIC_ABOUT_HTML";
 
-  if (!hasMetric(metrics)) {
-    const page = await renderPublicStatsPage(url, options);
-    const detection = detectPublicPage(page);
-    if (detection.kind !== "RENDERED" || detection.channelId !== channel.youtubeChannelId) {
-      return null;
+  if (!hasEveryMetric(htmlMetrics)) {
+    try {
+      const page = await renderPublicStatsPage(url, options);
+      const detection = detectPublicPage(page);
+      if (detection.kind === "RENDERED" && detection.channelId === channel.youtubeChannelId) {
+        renderedMetrics = parsePublicChannelAboutText(page.visibleText);
+        renderedTitle = pageTitle(page.title);
+      }
+    } catch (error) {
+      // A partial structured About model is still reliable. Do not discard its
+      // available counters merely because optional browser enrichment failed.
+      if (!hasMetric(htmlMetrics)) throw error;
     }
-    metrics = parsePublicChannelAboutText(page.visibleText);
-    renderedTitle = pageTitle(page.title);
-    provenanceSource = "YOUTUBE_PUBLIC_ABOUT_RENDER";
   }
 
+  const metrics = mergeMetrics(htmlMetrics, renderedMetrics);
   if (!hasMetric(metrics)) return null;
 
   const sourceDetails: NonNullable<ChannelCurrentStats["sourceDetails"]> = {};
-  const exactProvenance = {
-    source: provenanceSource,
+  const metricSource = (key: MetricKey) =>
+    htmlMetrics?.[key] !== null && htmlMetrics?.[key] !== undefined
+      ? "YOUTUBE_PUBLIC_ABOUT_HTML"
+      : "YOUTUBE_PUBLIC_ABOUT_RENDER";
+  const exactProvenance = (key: MetricKey) => ({
+    source: metricSource(key),
     capturedAt: capturedAt.toISOString(),
     metricClass: "PUBLIC_CURRENT" as const,
     precision: "EXACT_AS_PUBLISHED" as const,
     scope: "PUBLIC_ONLY" as const,
-  };
-  const publicDisplayProvenance = {
-    ...exactProvenance,
-    precision:
-      provenanceSource === "YOUTUBE_PUBLIC_ABOUT_RENDER"
-        ? ("ROUNDED_PUBLIC_DISPLAY" as const)
-        : exactProvenance.precision,
+  });
+  const publicDisplayProvenance = (key: MetricKey) => {
+    const provenance = exactProvenance(key);
+    return {
+      ...provenance,
+      precision:
+        provenance.source === "YOUTUBE_PUBLIC_ABOUT_RENDER"
+          ? ("ROUNDED_PUBLIC_DISPLAY" as const)
+          : provenance.precision,
+    };
   };
   if (metrics.subscriberCount !== null) {
     sourceDetails.subscriberCount = {
-      ...exactProvenance,
+      ...exactProvenance("subscriberCount"),
       precision: "ROUNDED_3_SIGNIFICANT_DIGITS",
     };
   }
-  if (metrics.videoCount !== null) sourceDetails.videoCount = publicDisplayProvenance;
+  if (metrics.videoCount !== null) {
+    sourceDetails.videoCount = publicDisplayProvenance("videoCount");
+  }
   if (metrics.lifetimeViewCount !== null) {
-    sourceDetails.lifetimeViewCount = publicDisplayProvenance;
+    sourceDetails.lifetimeViewCount = publicDisplayProvenance("lifetimeViewCount");
   }
 
   return {

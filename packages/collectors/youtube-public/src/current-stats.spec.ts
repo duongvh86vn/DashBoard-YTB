@@ -76,6 +76,28 @@ describe("collectPublicChannelCurrentStats", () => {
     expect(parsePublicChannelAboutHtml(html, "UCabcdefghijklmnopqrstuv")).toBeNull();
   });
 
+  it("treats the canonical About zero label as an observed zero", () => {
+    const html = `
+      "aboutChannelViewModel":{
+        "subscriberCountText":"No subscribers",
+        "viewCountText":"50 views",
+        "channelId":"UC1234567890123456789012",
+        "videoCountText":"2 videos"
+      },"shareChannel":{}
+    `;
+
+    expect(parsePublicChannelAboutHtml(html, channel.youtubeChannelId)).toEqual({
+      subscriberCount: 0n,
+      videoCount: 2n,
+      lifetimeViewCount: 50n,
+    });
+    expect(parsePublicChannelAboutText("More info\nNo subscribers\n2 videos\n50 views")).toEqual({
+      subscriberCount: 0n,
+      videoCount: 2n,
+      lifetimeViewCount: 50n,
+    });
+  });
+
   it("returns public channel metrics with per-field provenance", async () => {
     const result = await collectPublicChannelCurrentStats(channel, {
       contextFactory: page({
@@ -118,6 +140,68 @@ describe("collectPublicChannelCurrentStats", () => {
           precision: "ROUNDED_PUBLIC_DISPLAY",
           scope: "PUBLIC_ONLY",
         },
+      },
+    });
+  });
+
+  it("fills missing HTML fields from the rendered canonical About page", async () => {
+    const html = `
+      "aboutChannelViewModel":{
+        "viewCountText":"1,234,567 views",
+        "channelId":"UC1234567890123456789012",
+        "videoCountText":"87 videos"
+      },"shareChannel":{}
+    `;
+    const fetchImpl = async () =>
+      new Response(html, { status: 200, headers: { "Content-Type": "text/html" } });
+
+    const result = await collectPublicChannelCurrentStats(channel, {
+      fetchImpl,
+      contextFactory: page({
+        text: "More info\n1.25K subscribers\n86 videos\n1,200,000 views",
+      }),
+      now: () => new Date("2026-08-25T01:02:03.000Z"),
+      renderWaitMs: 0,
+    });
+
+    expect(result).toMatchObject({
+      subscriberCount: 1250n,
+      videoCount: 87n,
+      lifetimeViewCount: 1_234_567n,
+      sourceDetails: {
+        subscriberCount: { source: "YOUTUBE_PUBLIC_ABOUT_RENDER" },
+        videoCount: { source: "YOUTUBE_PUBLIC_ABOUT_HTML" },
+        lifetimeViewCount: { source: "YOUTUBE_PUBLIC_ABOUT_HTML" },
+      },
+    });
+  });
+
+  it("keeps reliable HTML fields when rendered enrichment fails", async () => {
+    const html = `
+      "aboutChannelViewModel":{
+        "viewCountText":"1,234,567 views",
+        "channelId":"UC1234567890123456789012",
+        "videoCountText":"87 videos"
+      },"shareChannel":{}
+    `;
+    const fetchImpl = async () =>
+      new Response(html, { status: 200, headers: { "Content-Type": "text/html" } });
+
+    await expect(
+      collectPublicChannelCurrentStats(channel, {
+        fetchImpl,
+        contextFactory: async () => {
+          throw new Error("browser unavailable");
+        },
+        now: () => new Date("2026-08-25T01:02:03.000Z"),
+      }),
+    ).resolves.toMatchObject({
+      subscriberCount: null,
+      videoCount: 87n,
+      lifetimeViewCount: 1_234_567n,
+      sourceDetails: {
+        videoCount: { source: "YOUTUBE_PUBLIC_ABOUT_HTML" },
+        lifetimeViewCount: { source: "YOUTUBE_PUBLIC_ABOUT_HTML" },
       },
     });
   });

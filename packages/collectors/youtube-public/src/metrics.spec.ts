@@ -23,4 +23,22 @@ describe("public page metric parser", () => {
       lifetimeViewCount: 12_345_678n,
     });
   });
+
+  it("distinguishes an explicit public zero from an absent subscriber metric", () => {
+    expect(parsePublicPageMetrics("0 subscribers\n2 videos\n50 views")).toEqual({
+      subscriberCount: 0n,
+      videoCount: 2n,
+      lifetimeViewCount: 50n,
+    });
+    expect(parsePublicPageMetrics("No subscribers\n2 videos\n50 views")).toEqual({
+      subscriberCount: 0n,
+      videoCount: 2n,
+      lifetimeViewCount: 50n,
+    });
+    expect(parsePublicPageMetrics("Subscribers unavailable\n2 videos\n50 views")).toEqual({
+      subscriberCount: null,
+      videoCount: 2n,
+      lifetimeViewCount: 50n,
+    });
+  });
 });

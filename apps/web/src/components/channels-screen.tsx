@@ -12,6 +12,14 @@ import {
 } from "../lib/api-client";
 import { useAuth } from "../lib/auth-context";
 
+function subscriberLabel(channel: {
+  subscriberCount: string | null;
+  lastChannelScanAt: string | null;
+}): string {
+  if (channel.subscriberCount !== null) return channel.subscriberCount;
+  return channel.lastChannelScanAt === null ? "Chưa thu thập" : "Không đọc được công khai";
+}
+
 export function ChannelsScreen() {
   const PAGE_SIZE = 20;
   const auth = useAuth();
@@ -131,8 +139,8 @@ export function ChannelsScreen() {
             <dl className="mt-5 grid grid-cols-3 gap-3 text-sm">
               <div>
                 <dt className="text-slate-500">Người đăng ký</dt>
-                <dd className="mt-1 font-semibold text-slate-900">
-                  {channel.subscriberCount ?? "—"}
+                <dd className="mt-1 break-words font-semibold text-slate-900">
+                  {subscriberLabel(channel)}
                 </dd>
               </div>
               <div>
