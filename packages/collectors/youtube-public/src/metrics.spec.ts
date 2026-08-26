@@ -41,4 +41,20 @@ describe("public page metric parser", () => {
       lifetimeViewCount: 50n,
     });
   });
+
+  it("does not treat singular numeric subscriber text as a verified zero", () => {
+    expect(parsePublicPageMetrics("0 subscriber\n2 videos\n50 views")).toEqual({
+      subscriberCount: null,
+      videoCount: 2n,
+      lifetimeViewCount: 50n,
+    });
+  });
+
+  it("does not treat singular No subscriber text as a verified zero", () => {
+    expect(parsePublicPageMetrics("No subscriber\n2 videos\n50 views")).toEqual({
+      subscriberCount: null,
+      videoCount: 2n,
+      lifetimeViewCount: 50n,
+    });
+  });
 });

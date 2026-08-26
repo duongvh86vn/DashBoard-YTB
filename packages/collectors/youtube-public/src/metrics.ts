@@ -25,13 +25,13 @@ function extractMetric(text: string, labels: readonly string[]): bigint | null {
 }
 
 function extractSubscriberCount(text: string): bigint | null {
-  const numeric = extractMetric(text, ["subscribers", "subscriber"]);
+  const numeric = extractMetric(text, ["subscribers"]);
   if (numeric !== null) return numeric;
 
   // YouTube renders a genuine zero as a standalone "No subscribers" label
   // on some public channel surfaces. Keep the match line-bounded so prose or
   // a missing counter cannot be silently reclassified as zero.
-  return /(?:^|\n)\s*No subscribers?\s*(?:\n|$)/iu.test(text) ? 0n : null;
+  return /(?:^|\n)\s*No subscribers\s*(?:\n|$)/iu.test(text) ? 0n : null;
 }
 
 export function parsePublicPageMetrics(visibleText: string): PublicPageMetrics {
