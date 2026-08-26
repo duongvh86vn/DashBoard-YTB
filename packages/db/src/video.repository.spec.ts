@@ -3,6 +3,30 @@ import { describe, expect, it, vi } from "vitest";
 import { VideoRepository } from "./video.repository.js";
 
 describe("VideoRepository published range", () => {
+  it("intersects a direct ranking channel with an empty visible-channel scope", async () => {
+    const findMany = vi.fn(async () => []);
+    const repository = new VideoRepository({ video: { findMany } } as never);
+
+    await expect(
+      repository.listForRanking({ channelId: "channel-id", channelIds: [] }),
+    ).resolves.toEqual([]);
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        isAvailable: true,
+        AND: [{ channelId: "channel-id" }, { channelId: { in: [] } }],
+      },
+      orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
+      take: 5_000,
+      include: {
+        snapshots: {
+          orderBy: [{ capturedAt: "desc" }, { id: "desc" }],
+          take: 300,
+        },
+        channel: { select: { id: true, title: true, thumbnail: true } },
+      },
+    });
+  });
+
   it("uses an end-exclusive published-at range and selects no unrelated fields", async () => {
     const findMany = vi.fn(async () => []);
     const repository = new VideoRepository({ video: { findMany } } as never);

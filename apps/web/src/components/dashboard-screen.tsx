@@ -232,9 +232,17 @@ export function DashboardScreen() {
     setHealthUnavailable(false);
     setReportsUnavailable(false);
     setSupplementalLoading(true);
-    const healthRequest = auth.state.user.role === "ADMIN" ? getHealth() : Promise.resolve(null);
+    const isAdminUser = auth.state.user.role === "ADMIN";
     const reportDate = calendarDateInTimeZone(new Date(), APPLICATION_TIME_ZONE);
-
+    const healthRequest = isAdminUser ? getHealth() : Promise.resolve(null);
+    const dailyReportRequest =
+      isAdminUser
+        ? getAiReport("daily", reportDate)
+        : Promise.resolve(null);
+    const weeklyReportRequest =
+      isAdminUser
+        ? getAiReport("weekly", reportDate)
+        : Promise.resolve(null);
     void Promise.allSettled([
       listChannels({ page: 1, pageSize: 100, signal: controller.signal }),
       listRecentVideos({ page: 1, pageSize: 6, signal: controller.signal }),
@@ -334,8 +342,8 @@ export function DashboardScreen() {
 
     void Promise.allSettled([
       healthRequest,
-      getAiReport("daily", reportDate),
-      getAiReport("weekly", reportDate),
+      dailyReportRequest,
+      weeklyReportRequest,
     ])
       .then(([healthResult, dailyResult, weeklyReportResult]) => {
         if (!mounted.current || controller.signal.aborted) return;
@@ -348,11 +356,12 @@ export function DashboardScreen() {
         setHealthUnavailable(healthResult.status === "rejected");
         setReports(
           [dailyResult, weeklyReportResult].flatMap((result) =>
-            result.status === "fulfilled" ? [result.value] : [],
+            result.status === "fulfilled" && result.value !== null ? [result.value] : [],
           ),
         );
         setReportsUnavailable(
-          dailyResult.status === "rejected" || weeklyReportResult.status === "rejected",
+          isAdminUser &&
+            (dailyResult.status === "rejected" || weeklyReportResult.status === "rejected"),
         );
       })
       .finally(() => {
@@ -377,10 +386,11 @@ export function DashboardScreen() {
   const subscriberSummary = sumMetrics(channelItems.map((channel) => channel.subscriberCount));
   const lifetimeViewSummary = sumMetrics(channelItems.map((channel) => channel.lifetimeViewCount));
   const videoSummary = sumMetrics(channelItems.map((channel) => channel.videoCount));
-  const totalSubscribers =
-    hasCompleteChannelCoverage && subscriberSummary.known === channelItems.length
-      ? subscriberSummary.total
-      : null;
+  const subscriberCoverageComplete =
+    hasCompleteChannelCoverage && subscriberSummary.known === channelItems.length;
+  const displayedSubscriberTotal = hasCompleteChannelCoverage
+    ? subscriberSummary.total ?? 0n
+    : null;
   const totalLifetimeViews =
     hasCompleteChannelCoverage && lifetimeViewSummary.known === channelItems.length
       ? lifetimeViewSummary.total
@@ -519,9 +529,21 @@ export function DashboardScreen() {
             accent: "bg-sky-500",
           },
           {
-            label: "Tổng người đăng ký",
-            value: formatNumber(totalSubscribers),
-            hint: `${subscriberSummary.known}/${channelItems.length} kênh có snapshot`,
+            label: subscriberCoverageComplete
+              ? "Tổng người đăng ký"
+              : "Người đăng ký đã ghi nhận",
+            value:
+              displayedSubscriberTotal === null
+                ? "—"
+                : subscriberCoverageComplete
+                  ? formatNumber(displayedSubscriberTotal)
+                  : `≥ ${formatNumber(displayedSubscriberTotal)}`,
+            hint: subscriberCoverageComplete
+              ? `${subscriberSummary.known}/${channelItems.length} kênh có số liệu`
+              : `${subscriberSummary.known}/${channelItems.length} kênh có số liệu · ${Math.max(
+                  0,
+                  channelItems.length - subscriberSummary.known,
+                )} chưa xác minh`,
             accent: "bg-violet-500",
           },
           {
@@ -658,7 +680,19 @@ export function DashboardScreen() {
                         </p>
                       </td>
                       <td className="px-4 py-4 text-right font-black tabular-nums">
-                        {formatNumber(channel.subscriberCount)}
+                        {channel.subscriberCount === null ? (
+                          <span
+                            className="inline-flex flex-col items-end"
+                            title="Chưa đọc được số người đăng ký công khai; 0 là giá trị hiển thị tạm, không phải dữ liệu đã xác minh."
+                          >
+                            <span>0*</span>
+                            <span className="text-[10px] font-medium text-amber-700">
+                              chưa xác minh
+                            </span>
+                          </span>
+                        ) : (
+                          formatNumber(channel.subscriberCount)
+                        )}
                       </td>
                       <td className="px-4 py-4 text-right font-black tabular-nums">
                         {formatNumber(channel.lifetimeViewCount)}

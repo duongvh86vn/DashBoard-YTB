@@ -6,12 +6,24 @@ import { VideoRankingsService } from "./rankings.service.js";
 
 const now = new Date("2026-08-22T12:00:00.000Z");
 const channelId = "00000000-0000-4000-8000-000000000010";
+const adminSubject = {
+  id: "00000000-0000-4000-8000-000000000001",
+  role: "ADMIN" as const,
+};
+const viewerSubject = {
+  id: "00000000-0000-4000-8000-000000000002",
+  role: "VIEWER" as const,
+};
 
-function video(id: string, points: Array<[string, bigint | null]>): VideoRankingRecord {
+function video(
+  id: string,
+  points: Array<[string, bigint | null]>,
+  videoChannelId = channelId,
+): VideoRankingRecord {
   return {
     id,
     youtubeVideoId: `youtube-${id}`,
-    channelId,
+    channelId: videoChannelId,
     title: id,
     description: null,
     thumbnail: null,
@@ -36,7 +48,7 @@ function video(id: string, points: Array<[string, bigint | null]>): VideoRanking
     snapshots: points.map(([capturedAt, views], index) => ({
       id: `${id}-snapshot-${index}`,
       videoId: id,
-      channelId,
+      channelId: videoChannelId,
       capturedAt: new Date(capturedAt),
       snapshotBucket: new Date(capturedAt),
       views,
@@ -45,18 +57,24 @@ function video(id: string, points: Array<[string, bigint | null]>): VideoRanking
       source: "YTDLP" as const,
       createdAt: new Date(capturedAt),
     })),
-    channel: { id: channelId, title: "Example", thumbnail: null },
+    channel: { id: videoChannelId, title: "Example", thumbnail: null },
   };
 }
 
-function service(videos: VideoRankingRecord[]) {
+function service(videos: VideoRankingRecord[], visibleChannelIds: string[] | null = null) {
   return new VideoRankingsService({
+    access: { resolveVisibleChannelIds: async () => visibleChannelIds },
     now: () => now,
     unitOfWork: {
       transaction: async (work) =>
         work({
           videos: {
-            listForRanking: async () => videos,
+            listForRanking: async (input: { channelId?: string; channelIds?: string[] }) =>
+              videos.filter(
+                (item) =>
+                  (input.channelId === undefined || item.channelId === input.channelId) &&
+                  (input.channelIds === undefined || input.channelIds.includes(item.channelId)),
+              ),
             findById: async (id: string) => videos.find((item) => item.id === id) ?? null,
           },
           videoSnapshots: {
@@ -69,6 +87,64 @@ function service(videos: VideoRankingRecord[]) {
 }
 
 describe("VideoRankingsService", () => {
+  it("keeps ADMIN ranking results unrestricted when the resolver returns null", async () => {
+    const hiddenChannelId = "00000000-0000-4000-8000-000000000011";
+
+    const result = await service([
+      video("visible", [], channelId),
+      video("also-visible", [], hiddenChannelId),
+    ]).recent({ page: 1, pageSize: 20, subject: adminSubject });
+
+    expect(result).toMatchObject({ total: 2 });
+  });
+
+  it("limits VIEWER ranking results to the resolver's membership union", async () => {
+    const secondChannelId = "00000000-0000-4000-8000-000000000011";
+    const hiddenChannelId = "00000000-0000-4000-8000-000000000012";
+
+    const result = await service(
+      [
+        video("visible-a", [], channelId),
+        video("visible-b", [], secondChannelId),
+        video("hidden", [], hiddenChannelId),
+      ],
+      [channelId, secondChannelId],
+    ).recent({ page: 1, pageSize: 20, subject: viewerSubject });
+
+    expect(result.items.map((item) => item.id).sort()).toEqual(["visible-a", "visible-b"]);
+    expect(result.total).toBe(2);
+  });
+
+  it("returns an empty ranking page for a VIEWER with no assigned channels", async () => {
+    const result = await service([video("hidden", [], channelId)], []).recent({
+      page: 1,
+      pageSize: 20,
+      subject: viewerSubject,
+    });
+
+    expect(result).toMatchObject({ items: [], total: 0 });
+  });
+
+  it("returns not-found semantics for a VIEWER requesting a video outside the visible set", async () => {
+    await expect(
+      service([video("hidden", [], channelId)], []).get({
+        videoId: "hidden",
+        subject: viewerSubject,
+      }),
+    ).rejects.toMatchObject({ code: "CHANNEL_NOT_FOUND", status: 404 });
+  });
+
+  it("returns not-found semantics for snapshots outside a VIEWER's visible set", async () => {
+    await expect(
+      service([video("hidden", [], channelId)], []).snapshots({
+        videoId: "hidden",
+        page: 1,
+        pageSize: 20,
+        subject: viewerSubject,
+      }),
+    ).rejects.toMatchObject({ code: "CHANNEL_NOT_FOUND", status: 404 });
+  });
+
   it("uses rolling seven-day gain and paginates on the server", async () => {
     const result = await service([
       video("a", [
@@ -80,7 +156,7 @@ describe("VideoRankingsService", () => {
         ["2026-08-22T12:00:00.000Z", 55_000n],
       ]),
       video("warming", [["2026-08-22T12:00:00.000Z", 99_000n]]),
-    ]).weekly({ page: 1, pageSize: 1 });
+    ]).weekly({ page: 1, pageSize: 1, subject: adminSubject });
 
     expect(result).toMatchObject({ page: 1, pageSize: 1, total: 2, warmingUpCount: 1 });
     expect(result.items[0]).toMatchObject({ id: "a", rank: 1, weeklyGain: "50000" });
@@ -94,13 +170,18 @@ describe("VideoRankingsService", () => {
         ["2026-08-15T12:00:00.000Z", 50_000n],
         ["2026-08-22T12:00:00.000Z", 55_000n],
       ]),
-    ]).weekly({ page: 2, pageSize: 1 });
+    ]).weekly({ page: 2, pageSize: 1, subject: adminSubject });
     expect(secondPage.items[0]).toMatchObject({ id: "b", rank: 2, weeklyGain: "5000" });
   });
 
   it("returns a not-found error for an unknown snapshot video", async () => {
     await expect(
-      service([]).snapshots({ videoId: "missing", page: 1, pageSize: 20 }),
+      service([]).snapshots({
+        videoId: "missing",
+        page: 1,
+        pageSize: 20,
+        subject: adminSubject,
+      }),
     ).rejects.toMatchObject({
       code: "CHANNEL_NOT_FOUND",
       status: 404,

@@ -8,6 +8,8 @@ import { ChannelHealthRepository } from "./channel-health.repository.js";
 import { VideoRepository } from "./video.repository.js";
 import { VideoSnapshotRepository } from "./video-snapshot.repository.js";
 import { AiRepository } from "./ai.repository.js";
+import { AuditLogRepository } from "./audit-log.repository.js";
+import { ChannelGroupRepository } from "./channel-group.repository.js";
 
 export interface ChannelRepositories {
   channels: ChannelRepository;
@@ -17,6 +19,8 @@ export interface ChannelRepositories {
   videos: VideoRepository;
   videoSnapshots: VideoSnapshotRepository;
   ai: AiRepository;
+  audit: AuditLogRepository;
+  channelGroups: ChannelGroupRepository;
 }
 
 export class ChannelUnitOfWork {
@@ -35,6 +39,8 @@ export class ChannelUnitOfWork {
               videos: new VideoRepository(transaction),
               videoSnapshots: new VideoSnapshotRepository(transaction),
               ai: new AiRepository(transaction),
+              audit: new AuditLogRepository(transaction),
+              channelGroups: new ChannelGroupRepository(transaction),
             }),
           { isolationLevel: "Serializable" },
         );

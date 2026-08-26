@@ -325,6 +325,17 @@ describe("default-deny API security pipeline", () => {
     expectExactPolicyResponse(admin, 403, CSRF_BODY);
   });
 
+  it.each([
+    ["global AI reports", "/api/v1/ai/reports/DAILY/2026-08-25"],
+    ["global channel sync runs", "/api/v1/channels/sync-runs"],
+  ])("returns 403 to a VIEWER inspecting %s", async (_resource, path) => {
+    const response = await request(app.getHttpServer())
+      .get(path)
+      .set("Cookie", `yhm_session=${VIEWER_TOKEN}`);
+
+    expectExactPolicyResponse(response, 403, FORBIDDEN_BODY);
+  });
+
   it("lets handler role metadata override controller role metadata", async () => {
     await request(app.getHttpServer())
       .get("/api/v1/test-policy/viewer-override")

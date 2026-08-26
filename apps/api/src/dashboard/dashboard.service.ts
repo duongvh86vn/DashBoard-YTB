@@ -13,16 +13,37 @@ import {
 } from "@yt-monitor/shared";
 
 import type { DashboardApplicationPort } from "./dashboard-application.port.js";
+import type {
+  ChannelAccessResolverPort,
+  ChannelAccessSubject,
+} from "../channel-groups/channel-groups-application.port.js";
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
 
 interface DashboardServiceDependencies {
   unitOfWork: Pick<ChannelUnitOfWork, "transaction">;
+  access: ChannelAccessResolverPort;
   timeZone: string;
   now?: () => Date;
 }
 
 type MetricName = "subscriberDelta" | "viewDelta";
+type CurrentMetricName = "subscriberCount" | "videoCount" | "lifetimeViewCount";
+
+function observedMetric(values: Array<bigint | null>) {
+  const known = values.filter((value): value is bigint => value !== null);
+  const coveredChannels = known.length;
+  const totalChannels = values.length;
+  if (coveredChannels === 0) {
+    return { value: null, coveredChannels, totalChannels, status: "UNAVAILABLE" as const };
+  }
+  return {
+    value: known.reduce<bigint>((sum, value) => sum + value, 0n).toString(),
+    coveredChannels,
+    totalChannels,
+    status: coveredChannels === totalChannels ? ("COMPLETE" as const) : ("PARTIAL" as const),
+  };
+}
 
 function shiftCalendarDate(date: string, days: number): string {
   const value = new Date(`${date}T00:00:00.000Z`);
@@ -60,26 +81,24 @@ function storedDelta(stat: ChannelDailyStatRecord | undefined, metric: MetricNam
   return metric === "viewDelta" ? stat.viewDelta : stat.subscriberDelta;
 }
 
-function totalDelta(
+function totalDeltaValues(
   channels: readonly ChannelRecord[],
   baselineByChannel: ReadonlyMap<string, ChannelDailyStatRecord>,
   metric: MetricName,
   endDate: string,
   timeZone: string,
-): string | null {
-  return sumComplete(
-    channels.map((channel) => {
-      if (
-        channel.lastChannelScanAt === null ||
-        localCalendarDate(channel.lastChannelScanAt, timeZone) !== endDate
-      ) {
-        return null;
-      }
-      const current = currentMetric(channel, metric);
-      const baseline = baselineMetric(baselineByChannel.get(channel.id), metric);
-      return current !== null && baseline !== null ? current - baseline : null;
-    }),
-  );
+): Array<bigint | null> {
+  return channels.map((channel) => {
+    if (
+      channel.lastChannelScanAt === null ||
+      localCalendarDate(channel.lastChannelScanAt, timeZone) !== endDate
+    ) {
+      return null;
+    }
+    const current = currentMetric(channel, metric);
+    const baseline = baselineMetric(baselineByChannel.get(channel.id), metric);
+    return current !== null && baseline !== null ? current - baseline : null;
+  });
 }
 
 function hasCompleteCurrentSnapshot(
@@ -93,6 +112,19 @@ function hasCompleteCurrentSnapshot(
     channel.subscriberCount !== null &&
     channel.videoCount !== null &&
     channel.lifetimeViewCount !== null
+  );
+}
+
+function hasCurrentMetric(
+  channel: ChannelRecord,
+  date: string,
+  timeZone: string,
+  metric: CurrentMetricName,
+): boolean {
+  return (
+    channel.lastChannelScanAt !== null &&
+    localCalendarDate(channel.lastChannelScanAt, timeZone) === date &&
+    channel[metric] !== null
   );
 }
 
@@ -115,30 +147,28 @@ function isCompleteDay(
   );
 }
 
-function dailyDelta(
+function dailyDeltaValues(
   date: string,
   endDate: string,
   timeZone: string,
   channels: readonly ChannelRecord[],
   statsByDateAndChannel: ReadonlyMap<string, ReadonlyMap<string, ChannelDailyStatRecord>>,
   metric: MetricName,
-): string | null {
+): Array<bigint | null> {
   const rows = statsByDateAndChannel.get(date);
   const previousRows = statsByDateAndChannel.get(previousCalendarDate(date));
-  return sumComplete(
-    channels.map((channel) => {
-      const scannedToday =
-        date === endDate &&
-        channel.lastChannelScanAt !== null &&
-        localCalendarDate(channel.lastChannelScanAt, timeZone) === date;
-      if (scannedToday) {
-        const current = currentMetric(channel, metric);
-        const previous = baselineMetric(previousRows?.get(channel.id), metric);
-        return current !== null && previous !== null ? current - previous : null;
-      }
-      return storedDelta(rows?.get(channel.id), metric);
-    }),
-  );
+  return channels.map((channel) => {
+    const scannedToday =
+      date === endDate &&
+      channel.lastChannelScanAt !== null &&
+      localCalendarDate(channel.lastChannelScanAt, timeZone) === date;
+    if (scannedToday) {
+      const current = currentMetric(channel, metric);
+      const previous = baselineMetric(previousRows?.get(channel.id), metric);
+      return current !== null && previous !== null ? current - previous : null;
+    }
+    return storedDelta(rows?.get(channel.id), metric);
+  });
 }
 
 function hasSnapshotForDate(
@@ -179,7 +209,10 @@ function videoCountsByDate(
 export class DashboardService implements DashboardApplicationPort {
   constructor(private readonly dependencies: DashboardServiceDependencies) {}
 
-  async trends(input: { days: number }): Promise<DashboardTrendResponse> {
+  async trends(input: {
+    days: number;
+    subject: ChannelAccessSubject;
+  }): Promise<DashboardTrendResponse> {
     const now = (this.dependencies.now ?? (() => new Date()))();
     const endDate = localCalendarDate(now, this.dependencies.timeZone);
     const startDate = shiftCalendarDate(endDate, -(input.days - 1));
@@ -189,9 +222,12 @@ export class DashboardService implements DashboardApplicationPort {
     const publishedStart = new Date(databaseStart.getTime() - DAY_MS);
     const publishedEndExclusive = new Date(databaseEnd.getTime() + 2 * DAY_MS);
 
+    const visibleChannelIds = await this.dependencies.access.resolveVisibleChannelIds(input.subject);
     const { channels, stats, videos } = await this.dependencies.unitOfWork.transaction(
       async (repositories) => {
-        const channels = await repositories.channels.listEnabled();
+        const channels = await repositories.channels.listEnabled(
+          visibleChannelIds === null ? undefined : visibleChannelIds,
+        );
         const channelIds = channels.map((channel) => channel.id);
         const [stats, videos] = await Promise.all([
           repositories.dailyStats.listByChannelsAndDateRange(
@@ -199,7 +235,11 @@ export class DashboardService implements DashboardApplicationPort {
             databaseStart,
             databaseEnd,
           ),
-          repositories.videos.listPublishedBetween(publishedStart, publishedEndExclusive),
+          repositories.videos.listPublishedBetween(
+            publishedStart,
+            publishedEndExclusive,
+            channelIds,
+          ),
         ]);
         return { channels, stats, videos };
       },
@@ -221,33 +261,41 @@ export class DashboardService implements DashboardApplicationPort {
       startDate,
       endDate,
     );
-    const series: DashboardTrendPoint[] = calendarDateRange(startDate, input.days).map((date) => ({
-      date,
-      viewDelta: dailyDelta(
+    const series: DashboardTrendPoint[] = calendarDateRange(startDate, input.days).map((date) => {
+      const viewDeltas = dailyDeltaValues(
         date,
         endDate,
         this.dependencies.timeZone,
         channels,
         statsByDateAndChannel,
         "viewDelta",
-      ),
-      subscriberDelta: dailyDelta(
+      );
+      const subscriberDeltas = dailyDeltaValues(
         date,
         endDate,
         this.dependencies.timeZone,
         channels,
         statsByDateAndChannel,
         "subscriberDelta",
-      ),
-      publishedVideos: publishedByDate.get(date) ?? 0,
-      hasSnapshot: hasSnapshotForDate(
+      );
+      return {
         date,
-        endDate,
-        this.dependencies.timeZone,
-        channels,
-        statsByDateAndChannel,
-      ),
-    }));
+        viewDelta: sumComplete(viewDeltas),
+        subscriberDelta: sumComplete(subscriberDeltas),
+        observed: {
+          viewDelta: observedMetric(viewDeltas),
+          subscriberDelta: observedMetric(subscriberDeltas),
+        },
+        publishedVideos: publishedByDate.get(date) ?? 0,
+        hasSnapshot: hasSnapshotForDate(
+          date,
+          endDate,
+          this.dependencies.timeZone,
+          channels,
+          statsByDateAndChannel,
+        ),
+      };
+    });
     const completeDays = series.filter((point) =>
       isCompleteDay(
         point.date,
@@ -269,6 +317,21 @@ export class DashboardService implements DashboardApplicationPort {
         ),
     ).length;
 
+    const totalViewDeltas = totalDeltaValues(
+      channels,
+      baselineByChannel,
+      "viewDelta",
+      endDate,
+      this.dependencies.timeZone,
+    );
+    const totalSubscriberDeltas = totalDeltaValues(
+      channels,
+      baselineByChannel,
+      "subscriberDelta",
+      endDate,
+      this.dependencies.timeZone,
+    );
+
     return DashboardTrendResponseSchema.parse({
       period: {
         startDate,
@@ -277,26 +340,35 @@ export class DashboardService implements DashboardApplicationPort {
         timeZone: this.dependencies.timeZone,
       },
       totals: {
-        viewDelta: totalDelta(
-          channels,
-          baselineByChannel,
-          "viewDelta",
-          endDate,
-          this.dependencies.timeZone,
-        ),
-        subscriberDelta: totalDelta(
-          channels,
-          baselineByChannel,
-          "subscriberDelta",
-          endDate,
-          this.dependencies.timeZone,
-        ),
+        viewDelta: sumComplete(totalViewDeltas),
+        subscriberDelta: sumComplete(totalSubscriberDeltas),
         publishedVideos: [...publishedByDate.values()].reduce((sum, value) => sum + value, 0),
+      },
+      observedTotals: {
+        viewDelta: observedMetric(totalViewDeltas),
+        subscriberDelta: observedMetric(totalSubscriberDeltas),
       },
       coverage: {
         totalChannels: channels.length,
         channelsWithCurrentSnapshot: channels.filter(
           (channel) => channel.lastChannelScanAt !== null,
+        ).length,
+        channelsScanned: channels.filter(
+          (channel) =>
+            channel.lastChannelScanAt !== null &&
+            localCalendarDate(channel.lastChannelScanAt, this.dependencies.timeZone) === endDate,
+        ).length,
+        channelsWithCompleteCurrentSnapshot: channels.filter((channel) =>
+          hasCompleteCurrentSnapshot(channel, endDate, this.dependencies.timeZone),
+        ).length,
+        channelsWithCurrentSubscribers: channels.filter((channel) =>
+          hasCurrentMetric(channel, endDate, this.dependencies.timeZone, "subscriberCount"),
+        ).length,
+        channelsWithCurrentLifetimeViews: channels.filter((channel) =>
+          hasCurrentMetric(channel, endDate, this.dependencies.timeZone, "lifetimeViewCount"),
+        ).length,
+        channelsWithCurrentPublicVideos: channels.filter((channel) =>
+          hasCurrentMetric(channel, endDate, this.dependencies.timeZone, "videoCount"),
         ).length,
         channelsWithBaseline: channels.filter((channel) => {
           const baseline = baselineByChannel.get(channel.id);

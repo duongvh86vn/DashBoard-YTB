@@ -19,9 +19,18 @@ const populatedTrend: DashboardTrendData = {
     subscriberDelta: "399",
     publishedVideos: 2,
   },
+  observedTotals: {
+    viewDelta: { value: "320157", coveredChannels: 2, totalChannels: 2, status: "COMPLETE" },
+    subscriberDelta: { value: "399", coveredChannels: 2, totalChannels: 2, status: "COMPLETE" },
+  },
   coverage: {
     totalChannels: 2,
     channelsWithCurrentSnapshot: 2,
+    channelsScanned: 2,
+    channelsWithCompleteCurrentSnapshot: 2,
+    channelsWithCurrentSubscribers: 2,
+    channelsWithCurrentLifetimeViews: 2,
+    channelsWithCurrentPublicVideos: 2,
     channelsWithBaseline: 1,
     requestedDays: 28,
     completeDays: 20,
@@ -33,6 +42,10 @@ const populatedTrend: DashboardTrendData = {
       date: "2026-07-28",
       viewDelta: "12000",
       subscriberDelta: "10",
+      observed: {
+        viewDelta: { value: "12000", coveredChannels: 2, totalChannels: 2, status: "COMPLETE" },
+        subscriberDelta: { value: "10", coveredChannels: 2, totalChannels: 2, status: "COMPLETE" },
+      },
       publishedVideos: 0,
       hasSnapshot: true,
     },
@@ -40,6 +53,15 @@ const populatedTrend: DashboardTrendData = {
       date: "2026-07-29",
       viewDelta: null,
       subscriberDelta: null,
+      observed: {
+        viewDelta: { value: null, coveredChannels: 0, totalChannels: 2, status: "UNAVAILABLE" },
+        subscriberDelta: {
+          value: null,
+          coveredChannels: 0,
+          totalChannels: 2,
+          status: "UNAVAILABLE",
+        },
+      },
       publishedVideos: 1,
       hasSnapshot: false,
     },
@@ -47,6 +69,10 @@ const populatedTrend: DashboardTrendData = {
       date: "2026-07-30",
       viewDelta: "10500",
       subscriberDelta: "12",
+      observed: {
+        viewDelta: { value: "10500", coveredChannels: 2, totalChannels: 2, status: "COMPLETE" },
+        subscriberDelta: { value: "12", coveredChannels: 2, totalChannels: 2, status: "COMPLETE" },
+      },
       publishedVideos: 1,
       hasSnapshot: true,
     },
@@ -73,7 +99,7 @@ describe("DashboardTrendPanel", () => {
     expect(screen.getByText("2", { selector: "span" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /Lượt xem tăng trong 28 ngày/ })).toBeInTheDocument();
     expect(screen.getByRole("table", { name: /Chi tiết theo ngày/ })).toBeInTheDocument();
-    expect(screen.getByText(/1\/2 kênh đủ baseline/)).toBeInTheDocument();
+    expect(screen.getByText(/1\/2 kênh có baseline đủ 28 ngày/)).toBeInTheDocument();
     expect(screen.getByText(/20\/28 ngày đủ dữ liệu/)).toBeInTheDocument();
     expect(screen.queryByText(/doanh thu/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/thời gian xem \(giờ\)/i)).not.toBeInTheDocument();
@@ -95,9 +121,23 @@ describe("DashboardTrendPanel", () => {
     const warming: DashboardTrendData = {
       ...populatedTrend,
       totals: { viewDelta: null, subscriberDelta: null, publishedVideos: 0 },
+      observedTotals: {
+        viewDelta: { value: null, coveredChannels: 0, totalChannels: 1, status: "UNAVAILABLE" },
+        subscriberDelta: {
+          value: null,
+          coveredChannels: 0,
+          totalChannels: 1,
+          status: "UNAVAILABLE",
+        },
+      },
       coverage: {
         totalChannels: 1,
         channelsWithCurrentSnapshot: 1,
+        channelsScanned: 1,
+        channelsWithCompleteCurrentSnapshot: 1,
+        channelsWithCurrentSubscribers: 1,
+        channelsWithCurrentLifetimeViews: 1,
+        channelsWithCurrentPublicVideos: 1,
         channelsWithBaseline: 0,
         requestedDays: 28,
         completeDays: 0,
@@ -108,6 +148,15 @@ describe("DashboardTrendPanel", () => {
         ...point,
         viewDelta: null,
         subscriberDelta: null,
+        observed: {
+          viewDelta: { value: null, coveredChannels: 0, totalChannels: 1, status: "UNAVAILABLE" },
+          subscriberDelta: {
+            value: null,
+            coveredChannels: 0,
+            totalChannels: 1,
+            status: "UNAVAILABLE",
+          },
+        },
         publishedVideos: 0,
       })),
     };
@@ -122,6 +171,119 @@ describe("DashboardTrendPanel", () => {
     expect(
       screen.getByRole("img", { name: /Video mới đã phát hiện trong 28 ngày/ }),
     ).toBeInTheDocument();
+  });
+
+  it("renders honest partial aggregates instead of blanking all covered channels", () => {
+    const partial: DashboardTrendData = {
+      ...populatedTrend,
+      totals: { ...populatedTrend.totals, viewDelta: null, subscriberDelta: null },
+      observedTotals: {
+        viewDelta: { value: "200", coveredChannels: 1, totalChannels: 2, status: "PARTIAL" },
+        subscriberDelta: { value: "-3", coveredChannels: 1, totalChannels: 2, status: "PARTIAL" },
+      },
+      coverage: {
+        ...populatedTrend.coverage,
+        channelsWithBaseline: 1,
+        channelsWithCompleteCurrentSnapshot: 1,
+      },
+      series: populatedTrend.series.map((point, index) => ({
+        ...point,
+        viewDelta: null,
+        subscriberDelta: null,
+        observed: {
+          viewDelta:
+            index === 0
+              ? { value: "25", coveredChannels: 1, totalChannels: 2, status: "PARTIAL" as const }
+              : {
+                  value: null,
+                  coveredChannels: 0,
+                  totalChannels: 2,
+                  status: "UNAVAILABLE" as const,
+                },
+          subscriberDelta:
+            index === 0
+              ? { value: "-3", coveredChannels: 1, totalChannels: 2, status: "PARTIAL" as const }
+              : {
+                  value: null,
+                  coveredChannels: 0,
+                  totalChannels: 2,
+                  status: "UNAVAILABLE" as const,
+                },
+        },
+      })),
+    };
+
+    render(<DashboardTrendPanel data={partial} />);
+
+    expect(screen.getByText("+200")).toBeInTheDocument();
+    expect(screen.getAllByText(/1\/2 kênh có dữ liệu/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("img", { name: /Lượt xem tăng trong 28 ngày/ })).toBeInTheDocument();
+    expect(screen.getByText(/baseline đủ 28 ngày/)).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("button", { name: /Lượt xem tăng/ })).queryByText("0"),
+    ).not.toBeInTheDocument();
+
+    const subscriberButton = screen.getByRole("button", { name: /Người đăng ký thay đổi/ });
+    fireEvent.click(subscriberButton);
+    expect(subscriberButton).toHaveAttribute("aria-pressed", "true");
+    expect(within(subscriberButton).getByText("-3")).toBeVisible();
+    expect(within(screen.getByRole("table", { name: /Chi tiết theo ngày/ })).getByText("-3")).toBeInTheDocument();
+  });
+
+  it("shows a visible partial-day legend even when the selected aggregate is complete", () => {
+    const dailyPartial: DashboardTrendData = {
+      ...populatedTrend,
+      series: populatedTrend.series.map((point, index) => {
+        if (index !== 0 || !point.observed) return point;
+        return {
+          ...point,
+          viewDelta: null,
+          observed: {
+            ...point.observed,
+            viewDelta: {
+              value: "12000",
+              coveredChannels: 1,
+              totalChannels: 2,
+              status: "PARTIAL" as const,
+            },
+          },
+        };
+      }),
+    };
+
+    render(<DashboardTrendPanel data={dailyPartial} />);
+
+    expect(screen.getByText(/Một số ngày chỉ có dữ liệu của một phần kênh/)).toBeVisible();
+    expect(screen.getByText(/1\/2 kênh ở ngày có độ phủ thấp nhất/)).toBeVisible();
+  });
+
+  it("recomputes legacy chart coverage when total channel coverage changes", () => {
+    const legacySeries = populatedTrend.series.map((point) => ({
+      date: point.date,
+      viewDelta: point.viewDelta,
+      subscriberDelta: point.subscriberDelta,
+      publishedVideos: point.publishedVideos,
+      hasSnapshot: point.hasSnapshot,
+    }));
+    const legacy: DashboardTrendData = {
+      ...populatedTrend,
+      coverage: { ...populatedTrend.coverage, totalChannels: 2 },
+      series: legacySeries,
+    };
+    const { container, rerender } = render(<DashboardTrendPanel data={legacy} />);
+
+    expect(container.querySelector("circle title")?.textContent).toContain("2/2 kênh có dữ liệu");
+
+    rerender(
+      <DashboardTrendPanel
+        data={{
+          ...legacy,
+          coverage: { ...legacy.coverage, totalChannels: 3 },
+        }}
+      />,
+    );
+
+    expect(container.querySelector("circle title")?.textContent).toContain("3/3 kênh có dữ liệu");
   });
 
   it("keeps loading, failure, and no-data states explicit", () => {
@@ -141,9 +303,23 @@ describe("DashboardTrendPanel", () => {
         data={{
           ...populatedTrend,
           totals: { viewDelta: null, subscriberDelta: null, publishedVideos: 0 },
+          observedTotals: {
+            viewDelta: { value: null, coveredChannels: 0, totalChannels: 0, status: "UNAVAILABLE" },
+            subscriberDelta: {
+              value: null,
+              coveredChannels: 0,
+              totalChannels: 0,
+              status: "UNAVAILABLE",
+            },
+          },
           coverage: {
             totalChannels: 0,
             channelsWithCurrentSnapshot: 0,
+            channelsScanned: 0,
+            channelsWithCompleteCurrentSnapshot: 0,
+            channelsWithCurrentSubscribers: 0,
+            channelsWithCurrentLifetimeViews: 0,
+            channelsWithCurrentPublicVideos: 0,
             channelsWithBaseline: 0,
             requestedDays: 28,
             completeDays: 0,

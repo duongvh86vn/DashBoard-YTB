@@ -82,6 +82,18 @@ import {
 } from "./dashboard/dashboard-application.port.js";
 import { DashboardController } from "./dashboard/dashboard.controller.js";
 import { DashboardService } from "./dashboard/dashboard.service.js";
+import { ChannelGroupApplicationError } from "./channel-groups/channel-group-application.error.js";
+import {
+  CHANNEL_ACCESS_RESOLVER,
+  CHANNEL_GROUPS_APPLICATION_PORT,
+  type ChannelAccessResolverPort,
+  type ChannelGroupsApplicationPort,
+} from "./channel-groups/channel-groups-application.port.js";
+import {
+  ChannelGroupsController,
+  UserChannelGroupsController,
+} from "./channel-groups/channel-groups.controller.js";
+import { ChannelGroupsService } from "./channel-groups/channel-groups.service.js";
 
 export { API_ENV } from "./auth/api-environment.port.js";
 export const DATABASE_CLIENT = Symbol("DATABASE_CLIENT");
@@ -107,6 +119,8 @@ export interface TestingAppModuleOptions {
   videoRankingsApplication?: VideoRankingsApplicationPort;
   aiApplication?: AiApplicationPort;
   dashboardApplication?: DashboardApplicationPort;
+  channelGroupsApplication?: ChannelGroupsApplicationPort;
+  channelAccessResolver?: ChannelAccessResolverPort;
 }
 
 const denyAllSessionAuthenticator: SessionAuthenticationPort = {
@@ -235,6 +249,36 @@ const denyAllDashboardApplication: DashboardApplicationPort = {
   },
 };
 
+const denyAllChannelGroupsApplication: ChannelGroupsApplicationPort = {
+  async list(): Promise<never> {
+    throw ChannelGroupApplicationError.notFound();
+  },
+  async listAccessible(): Promise<never> {
+    throw ChannelGroupApplicationError.notFound();
+  },
+  async get(): Promise<never> {
+    throw ChannelGroupApplicationError.notFound();
+  },
+  async create(): Promise<never> {
+    throw ChannelGroupApplicationError.notFound();
+  },
+  async update(): Promise<never> {
+    throw ChannelGroupApplicationError.notFound();
+  },
+  async archive(): Promise<never> {
+    throw ChannelGroupApplicationError.notFound();
+  },
+  async replaceChannels(): Promise<never> {
+    throw ChannelGroupApplicationError.notFound();
+  },
+  async replaceViewerGroups(): Promise<never> {
+    throw ChannelGroupApplicationError.notFound();
+  },
+  async resolveVisibleChannelIds(): Promise<string[]> {
+    return [];
+  },
+};
+
 class ConfiguredAiHealthReader implements AiHealthReader {
   constructor(
     private readonly configured: boolean,
@@ -276,6 +320,8 @@ function applicationProviders(
   dashboardApplication: DashboardApplicationPort,
   aiHealthReader: AiHealthReader,
   channelProvider: ChannelProviderPort,
+  channelGroupsApplication: ChannelGroupsApplicationPort,
+  channelAccessResolver: ChannelAccessResolverPort,
 ): Provider[] {
   return [
     { provide: API_ENV, useValue: env },
@@ -291,6 +337,8 @@ function applicationProviders(
     { provide: DASHBOARD_APPLICATION_PORT, useValue: dashboardApplication },
     { provide: AI_HEALTH_READER, useValue: aiHealthReader },
     { provide: CHANNEL_PROVIDER, useValue: channelProvider },
+    { provide: CHANNEL_GROUPS_APPLICATION_PORT, useValue: channelGroupsApplication },
+    { provide: CHANNEL_ACCESS_RESOLVER, useValue: channelAccessResolver },
     {
       provide: SessionCookieService,
       useValue: new SessionCookieService(env.DEPLOYMENT_MODE, env.SESSION_ABSOLUTE_HOURS),
@@ -349,16 +397,25 @@ export class AppModule {
       passwords: systemPasswords,
     });
     const channelUnitOfWork = new ChannelUnitOfWork(options.databaseClient);
+    const channelGroupsApplication = new ChannelGroupsService({ unitOfWork: channelUnitOfWork });
     const channelProvider = new CompositePublicChannelProvider();
     const channelsApplication = new ChannelsService({
       unitOfWork: channelUnitOfWork,
+      access: channelGroupsApplication,
       provider: channelProvider,
       timeZone: options.env.APP_TIMEZONE,
     });
-    const videosApplication = new VideosService({ unitOfWork: channelUnitOfWork });
-    const videoRankingsApplication = new VideoRankingsService({ unitOfWork: channelUnitOfWork });
+    const videosApplication = new VideosService({
+      unitOfWork: channelUnitOfWork,
+      access: channelGroupsApplication,
+    });
+    const videoRankingsApplication = new VideoRankingsService({
+      unitOfWork: channelUnitOfWork,
+      access: channelGroupsApplication,
+    });
     const dashboardApplication = new DashboardService({
       unitOfWork: channelUnitOfWork,
+      access: channelGroupsApplication,
       timeZone: options.env.APP_TIMEZONE,
     });
     const aiRuntimeFactory = createAiRuntimeFactory(options.env);
@@ -389,6 +446,8 @@ export class AppModule {
         VideoRankingsController,
         AiController,
         DashboardController,
+        ChannelGroupsController,
+        UserChannelGroupsController,
       ],
       providers: [
         ...applicationProviders(
@@ -408,6 +467,8 @@ export class AppModule {
             options.env.GEMINI_ANALYSIS_MODEL ?? null,
           ),
           channelProvider,
+          channelGroupsApplication,
+          channelGroupsApplication,
         ),
         { provide: DATABASE_CLIENT, useValue: options.databaseClient },
         DatabaseLifecycle,
@@ -427,6 +488,8 @@ export class AppModule {
         VideoRankingsController,
         AiController,
         DashboardController,
+        ChannelGroupsController,
+        UserChannelGroupsController,
       ],
       providers: applicationProviders(
         options.env,
@@ -442,6 +505,10 @@ export class AppModule {
         options.dashboardApplication ?? denyAllDashboardApplication,
         new ConfiguredAiHealthReader(false, null),
         new CompositePublicChannelProvider(),
+        options.channelGroupsApplication ?? denyAllChannelGroupsApplication,
+        options.channelAccessResolver ??
+          options.channelGroupsApplication ??
+          denyAllChannelGroupsApplication,
       ),
     };
   }

@@ -30,8 +30,47 @@ const channel = {
   archivedAt: null,
 };
 
+const adminSubject = {
+  id: "00000000-0000-4000-8000-000000000001",
+  role: "ADMIN" as const,
+};
+
+const viewerSubject = {
+  id: "00000000-0000-4000-8000-000000000002",
+  role: "VIEWER" as const,
+};
+
+function access(visibleChannelIds: string[] | null = null) {
+  return {
+    resolveVisibleChannelIds: vi.fn(async () => visibleChannelIds),
+  };
+}
+
+function scopedService(visibleChannelIds: string[] | null, channels = [channel]) {
+  return new ChannelsService({
+    access: access(visibleChannelIds),
+    provider: { resolveChannel: async () => null } as never,
+    unitOfWork: {
+      transaction: async (work) =>
+        work({
+          channels: {
+            list: async (input: { channelIds?: string[] }) => {
+              const items =
+                input.channelIds === undefined
+                  ? channels
+                  : channels.filter((item) => input.channelIds?.includes(item.id));
+              return { items, total: items.length };
+            },
+            findById: async (id: string) => channels.find((item) => item.id === id) ?? null,
+          },
+        } as never),
+    },
+  });
+}
+
 function service(provider: { resolveChannel: (input: string) => Promise<unknown> }) {
   return new ChannelsService({
+    access: access(),
     provider: provider as never,
     unitOfWork: {
       transaction: async (work) =>
@@ -54,6 +93,7 @@ function publicIntelligenceService(input: {
   timeZone?: string;
 }) {
   return new ChannelsService({
+    access: access(),
     provider: { resolveChannel: async () => null } as never,
     timeZone: input.timeZone ?? "UTC",
     now: () => new Date(input.now),
@@ -80,6 +120,47 @@ function publicIntelligenceService(input: {
 }
 
 describe("ChannelsService", () => {
+  it("keeps ADMIN channel listing unrestricted when the resolver returns null", async () => {
+    const second = { ...channel, id: "00000000-0000-4000-8000-000000000004" };
+
+    const result = await scopedService(null, [channel, second]).list({
+      page: 1,
+      pageSize: 20,
+      subject: adminSubject,
+    });
+
+    expect(result).toMatchObject({ total: 2, items: [{ id: channel.id }, { id: second.id }] });
+  });
+
+  it("limits VIEWER channel listing to the resolver's membership union", async () => {
+    const second = { ...channel, id: "00000000-0000-4000-8000-000000000004" };
+    const hidden = { ...channel, id: "00000000-0000-4000-8000-000000000005" };
+
+    const result = await scopedService([channel.id, second.id], [channel, second, hidden]).list({
+      page: 1,
+      pageSize: 20,
+      subject: viewerSubject,
+    });
+
+    expect(result).toMatchObject({ total: 2, items: [{ id: channel.id }, { id: second.id }] });
+  });
+
+  it("returns an empty channel page for a VIEWER with no assigned channels", async () => {
+    const result = await scopedService([], [channel]).list({
+      page: 1,
+      pageSize: 20,
+      subject: viewerSubject,
+    });
+
+    expect(result).toEqual({ items: [], page: 1, pageSize: 20, total: 0 });
+  });
+
+  it("returns not-found semantics for a VIEWER requesting a channel outside the visible set", async () => {
+    await expect(
+      scopedService([]).get({ id: channel.id, subject: viewerSubject }),
+    ).rejects.toMatchObject({ code: "CHANNEL_NOT_FOUND", status: 404 });
+  });
+
   it("does not create when no provider returns a canonical channel", async () => {
     await expect(
       service({ resolveChannel: async () => null }).create({ originalInput: "@missing" }),
@@ -99,13 +180,14 @@ describe("ChannelsService", () => {
         description: null,
         thumbnail: null,
       }),
-    }).get(channel.id);
+    }).get({ id: channel.id, subject: adminSubject });
     expect(result).toMatchObject({ id: channel.id, youtubeChannelId: channel.youtubeChannelId });
   });
 
   it("maps canonical duplicate failures to the narrow API error", async () => {
     const duplicate = new ChannelConflictError();
     const value = new ChannelsService({
+      access: access(),
       provider: {
         resolveChannel: async () => ({
           youtubeChannelId: "UC1234567890123456789012",
@@ -132,6 +214,7 @@ describe("ChannelsService", () => {
 
   it("queues an admin health check and exposes safe history", async () => {
     const serviceUnderTest = new ChannelsService({
+      access: access(),
       provider: { resolveChannel: async () => null } as never,
       unitOfWork: {
         transaction: async (work) =>
@@ -169,7 +252,12 @@ describe("ChannelsService", () => {
       status: "QUEUED",
     });
     await expect(
-      serviceUnderTest.healthHistory({ id: channel.id, page: 1, pageSize: 20 }),
+      serviceUnderTest.healthHistory({
+        id: channel.id,
+        page: 1,
+        pageSize: 20,
+        subject: adminSubject,
+      }),
     ).resolves.toMatchObject({ total: 1, items: [{ evidenceCode: "BLOCKED_PUBLIC_PAGE" }] });
   });
 
@@ -194,6 +282,7 @@ describe("ChannelsService", () => {
       date: new Date(`2026-08-${String(19 + index).padStart(2, "0")}T00:00:00.000Z`),
     }));
     const serviceUnderTest = new ChannelsService({
+      access: access(),
       provider: { resolveChannel: async () => null } as never,
       timeZone: "Asia/Bangkok",
       now: () => new Date("2026-08-25T03:00:00.000Z"),
@@ -232,7 +321,11 @@ describe("ChannelsService", () => {
       },
     });
 
-    const result = await serviceUnderTest.publicIntelligence({ id: channel.id, days: 7 });
+    const result = await serviceUnderTest.publicIntelligence({
+      id: channel.id,
+      days: 7,
+      subject: adminSubject,
+    });
 
     expect(result.metrics.viewsGained).toMatchObject({
       value: "-10",
@@ -301,7 +394,11 @@ describe("ChannelsService", () => {
       stats: [baseline],
     });
 
-    const result = await serviceUnderTest.publicIntelligence({ id: channel.id, days: 7 });
+    const result = await serviceUnderTest.publicIntelligence({
+      id: channel.id,
+      days: 7,
+      subject: adminSubject,
+    });
 
     expect(result.metrics.viewsGained.precision).toBe("DERIVED_FROM_EXACT_PUBLIC_COUNTERS");
     expect(result.metrics.publicInventoryDelta.precision).toBe(
@@ -338,7 +435,11 @@ describe("ChannelsService", () => {
       ],
     });
 
-    const result = await serviceUnderTest.publicIntelligence({ id: channel.id, days: 7 });
+    const result = await serviceUnderTest.publicIntelligence({
+      id: channel.id,
+      days: 7,
+      subject: adminSubject,
+    });
 
     expect(result.metrics.lifetimeViews).toMatchObject({
       status: "PARTIAL",
@@ -369,7 +470,11 @@ describe("ChannelsService", () => {
       },
     });
 
-    const result = await serviceUnderTest.publicIntelligence({ id: channel.id, days: 7 });
+    const result = await serviceUnderTest.publicIntelligence({
+      id: channel.id,
+      days: 7,
+      subject: adminSubject,
+    });
 
     expect(result.metrics.lifetimeViews).toMatchObject({ status: "READY", reason: null });
     expect(result.warnings).not.toContain("STALE_CURRENT_SNAPSHOT");
@@ -377,6 +482,7 @@ describe("ChannelsService", () => {
 
   it("returns honest warming and null values before the first snapshot or catalog pass", async () => {
     const serviceUnderTest = new ChannelsService({
+      access: access(),
       provider: { resolveChannel: async () => null } as never,
       timeZone: "UTC",
       now: () => new Date("2026-08-25T03:00:00.000Z"),
@@ -398,7 +504,11 @@ describe("ChannelsService", () => {
       },
     });
 
-    const result = await serviceUnderTest.publicIntelligence({ id: channel.id, days: 30 });
+    const result = await serviceUnderTest.publicIntelligence({
+      id: channel.id,
+      days: 30,
+      subject: adminSubject,
+    });
 
     expect(result.metrics.lifetimeViews).toMatchObject({
       value: null,
@@ -425,6 +535,7 @@ describe("ChannelsService", () => {
 
   it("treats legacy snapshots without field precision as rounded public display data", async () => {
     const serviceUnderTest = new ChannelsService({
+      access: access(),
       provider: { resolveChannel: async () => null } as never,
       timeZone: "UTC",
       now: () => new Date("2026-08-25T03:00:00.000Z"),
@@ -471,7 +582,11 @@ describe("ChannelsService", () => {
       },
     });
 
-    const result = await serviceUnderTest.publicIntelligence({ id: channel.id, days: 7 });
+    const result = await serviceUnderTest.publicIntelligence({
+      id: channel.id,
+      days: 7,
+      subject: adminSubject,
+    });
 
     expect(result.metrics.lifetimeViews.precision).toBe("ROUNDED_PUBLIC_DISPLAY");
     expect(result.metrics.publicVideos.precision).toBe("ROUNDED_PUBLIC_DISPLAY");

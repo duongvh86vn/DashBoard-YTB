@@ -36,6 +36,7 @@ export class AiController {
   }
 
   @Get("reports/:kind/:date")
+  @Roles("ADMIN")
   @Header("Cache-Control", "no-store")
   report(@Param("kind") kind: string, @Param("date") date: string) {
     return this.ai.getReport({ kind: parseReportKind(kind), reportDate: parseReportDate(date) });

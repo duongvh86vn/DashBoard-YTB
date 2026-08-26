@@ -3,6 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import { DashboardService } from "./dashboard.service.js";
 
 const channelId = "00000000-0000-4000-8000-000000000101";
+const adminSubject = {
+  id: "00000000-0000-4000-8000-000000000001",
+  role: "ADMIN" as const,
+};
+const viewerSubject = {
+  id: "00000000-0000-4000-8000-000000000002",
+  role: "VIEWER" as const,
+};
 
 function channel(
   overrides: Partial<{
@@ -74,19 +82,33 @@ function service(input: {
   channels: ReturnType<typeof channel>[];
   stats: ReturnType<typeof stat>[];
   videos?: Array<{ channelId: string; publishedAt: Date | null }>;
+  visibleChannelIds?: string[] | null;
 }) {
-  const listByChannelsAndDateRange = vi.fn(async () => input.stats);
-  const listPublishedBetween = vi.fn(async () => input.videos ?? []);
+  const listByChannelsAndDateRange = vi.fn(async (channelIds: string[]) =>
+    input.stats.filter((item) => channelIds.includes(item.channelId)),
+  );
+  const listPublishedBetween = vi.fn(
+    async (_start: Date, _end: Date, channelIds: string[]) =>
+      (input.videos ?? []).filter((item) => channelIds.includes(item.channelId)),
+  );
   return {
     listByChannelsAndDateRange,
     listPublishedBetween,
     value: new DashboardService({
+      access: {
+        resolveVisibleChannelIds: async () => input.visibleChannelIds ?? null,
+      },
       timeZone: "Asia/Bangkok",
       now: () => new Date("2026-08-25T08:00:00.000Z"),
       unitOfWork: {
         transaction: async (work) =>
           work({
-            channels: { listEnabled: async () => input.channels },
+            channels: {
+              listEnabled: async (channelIds?: string[]) =>
+                channelIds === undefined
+                  ? input.channels
+                  : input.channels.filter((item) => channelIds.includes(item.id)),
+            },
             dailyStats: { listByChannelsAndDateRange },
             videos: { listPublishedBetween },
           } as never),
@@ -96,6 +118,76 @@ function service(input: {
 }
 
 describe("DashboardService trends", () => {
+  it("keeps ADMIN dashboard aggregation unrestricted when the resolver returns null", async () => {
+    const secondId = "00000000-0000-4000-8000-000000000102";
+    const result = await service({
+      channels: [channel(), channel({ id: secondId })],
+      stats: [],
+      visibleChannelIds: null,
+    }).value.trends({ days: 2, subject: adminSubject });
+
+    expect(result.coverage.totalChannels).toBe(2);
+  });
+
+  it("aggregates a VIEWER dashboard only across the resolver's membership union", async () => {
+    const secondId = "00000000-0000-4000-8000-000000000102";
+    const hiddenId = "00000000-0000-4000-8000-000000000103";
+    const result = await service({
+      channels: [channel(), channel({ id: secondId }), channel({ id: hiddenId })],
+      stats: [
+        stat("2026-08-24", {
+          subscriberCount: 13n,
+          lifetimeViewCount: 1_025n,
+          subscriberDelta: 2n,
+          viewDelta: 15n,
+        }),
+        stat("2026-08-24", {
+          channelId: secondId,
+          subscriberCount: 20n,
+          lifetimeViewCount: 2_000n,
+          subscriberDelta: 3n,
+          viewDelta: 30n,
+        }),
+        stat("2026-08-24", {
+          channelId: hiddenId,
+          subscriberCount: 30n,
+          lifetimeViewCount: 3_000n,
+          subscriberDelta: 100n,
+          viewDelta: 1_000n,
+        }),
+      ],
+      videos: [
+        { channelId, publishedAt: new Date("2026-08-24T02:00:00.000Z") },
+        { channelId: secondId, publishedAt: new Date("2026-08-24T03:00:00.000Z") },
+        { channelId: hiddenId, publishedAt: new Date("2026-08-24T04:00:00.000Z") },
+      ],
+      visibleChannelIds: [channelId, secondId],
+    }).value.trends({ days: 2, subject: viewerSubject });
+
+    expect(result.coverage.totalChannels).toBe(2);
+    expect(result.series[0]).toMatchObject({
+      date: "2026-08-24",
+      viewDelta: "45",
+      subscriberDelta: "5",
+      publishedVideos: 2,
+    });
+  });
+
+  it("returns null dashboard metrics for a VIEWER with no assigned channels", async () => {
+    const result = await service({
+      channels: [channel()],
+      stats: [],
+      visibleChannelIds: [],
+    }).value.trends({ days: 2, subject: viewerSubject });
+
+    expect(result.totals).toEqual({
+      viewDelta: null,
+      subscriberDelta: null,
+      publishedVideos: 0,
+    });
+    expect(result.coverage.totalChannels).toBe(0);
+  });
+
   it("returns real cumulative 28-day totals and real daily deltas without revenue", async () => {
     const fixture = service({
       channels: [channel()],
@@ -125,7 +217,7 @@ describe("DashboardService trends", () => {
       ],
     });
 
-    const result = await fixture.value.trends({ days: 3 });
+    const result = await fixture.value.trends({ days: 3, subject: adminSubject });
 
     expect(result.period).toEqual({
       startDate: "2026-08-23",
@@ -138,9 +230,18 @@ describe("DashboardService trends", () => {
       subscriberDelta: "4",
       publishedVideos: 2,
     });
+    expect(result.observedTotals).toEqual({
+      viewDelta: { value: "40", coveredChannels: 1, totalChannels: 1, status: "COMPLETE" },
+      subscriberDelta: { value: "4", coveredChannels: 1, totalChannels: 1, status: "COMPLETE" },
+    });
     expect(result.coverage).toEqual({
       totalChannels: 1,
       channelsWithCurrentSnapshot: 1,
+      channelsScanned: 1,
+      channelsWithCompleteCurrentSnapshot: 1,
+      channelsWithCurrentSubscribers: 1,
+      channelsWithCurrentLifetimeViews: 1,
+      channelsWithCurrentPublicVideos: 1,
       channelsWithBaseline: 1,
       requestedDays: 3,
       completeDays: 3,
@@ -152,6 +253,15 @@ describe("DashboardService trends", () => {
         date: "2026-08-23",
         viewDelta: "10",
         subscriberDelta: "1",
+        observed: {
+          viewDelta: { value: "10", coveredChannels: 1, totalChannels: 1, status: "COMPLETE" },
+          subscriberDelta: {
+            value: "1",
+            coveredChannels: 1,
+            totalChannels: 1,
+            status: "COMPLETE",
+          },
+        },
         publishedVideos: 1,
         hasSnapshot: true,
       },
@@ -159,6 +269,15 @@ describe("DashboardService trends", () => {
         date: "2026-08-24",
         viewDelta: "15",
         subscriberDelta: "2",
+        observed: {
+          viewDelta: { value: "15", coveredChannels: 1, totalChannels: 1, status: "COMPLETE" },
+          subscriberDelta: {
+            value: "2",
+            coveredChannels: 1,
+            totalChannels: 1,
+            status: "COMPLETE",
+          },
+        },
         publishedVideos: 0,
         hasSnapshot: true,
       },
@@ -166,6 +285,15 @@ describe("DashboardService trends", () => {
         date: "2026-08-25",
         viewDelta: "15",
         subscriberDelta: "1",
+        observed: {
+          viewDelta: { value: "15", coveredChannels: 1, totalChannels: 1, status: "COMPLETE" },
+          subscriberDelta: {
+            value: "1",
+            coveredChannels: 1,
+            totalChannels: 1,
+            status: "COMPLETE",
+          },
+        },
         publishedVideos: 1,
         hasSnapshot: true,
       },
@@ -193,16 +321,25 @@ describe("DashboardService trends", () => {
       videos: [{ channelId: secondId, publishedAt: new Date("2026-08-23T02:00:00.000Z") }],
     });
 
-    const result = await fixture.value.trends({ days: 3 });
+    const result = await fixture.value.trends({ days: 3, subject: adminSubject });
 
     expect(result.totals).toEqual({
       viewDelta: null,
       subscriberDelta: null,
       publishedVideos: 1,
     });
+    expect(result.observedTotals).toEqual({
+      viewDelta: { value: "40", coveredChannels: 1, totalChannels: 2, status: "PARTIAL" },
+      subscriberDelta: { value: "4", coveredChannels: 1, totalChannels: 2, status: "PARTIAL" },
+    });
     expect(result.coverage).toEqual({
       totalChannels: 2,
       channelsWithCurrentSnapshot: 2,
+      channelsScanned: 2,
+      channelsWithCompleteCurrentSnapshot: 1,
+      channelsWithCurrentSubscribers: 1,
+      channelsWithCurrentLifetimeViews: 2,
+      channelsWithCurrentPublicVideos: 2,
       channelsWithBaseline: 1,
       requestedDays: 3,
       completeDays: 0,
@@ -215,11 +352,115 @@ describe("DashboardService trends", () => {
       subscriberDelta: null,
       publishedVideos: 1,
       hasSnapshot: true,
+      observed: {
+        viewDelta: { value: "10", coveredChannels: 1, totalChannels: 2, status: "PARTIAL" },
+        subscriberDelta: {
+          value: "1",
+          coveredChannels: 1,
+          totalChannels: 2,
+          status: "PARTIAL",
+        },
+      },
+    });
+  });
+
+  it("preserves exact zero and negative corrections for complete daily and total metrics", async () => {
+    const result = await service({
+      channels: [channel({ subscriberCount: 10n, lifetimeViewCount: 990n })],
+      stats: [
+        stat("2026-08-22", {
+          subscriberCount: 10n,
+          lifetimeViewCount: 1_000n,
+          subscriberDelta: 1n,
+          viewDelta: 8n,
+        }),
+        stat("2026-08-23", {
+          subscriberCount: 10n,
+          lifetimeViewCount: 995n,
+          subscriberDelta: 0n,
+          viewDelta: -5n,
+        }),
+        stat("2026-08-24", {
+          subscriberCount: 10n,
+          lifetimeViewCount: 995n,
+          subscriberDelta: 0n,
+          viewDelta: 0n,
+        }),
+      ],
+    }).value.trends({ days: 3, subject: adminSubject });
+
+    expect(result.totals).toMatchObject({ viewDelta: "-10", subscriberDelta: "0" });
+    expect(result.observedTotals).toEqual({
+      viewDelta: { value: "-10", coveredChannels: 1, totalChannels: 1, status: "COMPLETE" },
+      subscriberDelta: { value: "0", coveredChannels: 1, totalChannels: 1, status: "COMPLETE" },
+    });
+    expect(result.series[0]).toMatchObject({
+      viewDelta: "-5",
+      subscriberDelta: "0",
+      observed: {
+        viewDelta: { value: "-5", coveredChannels: 1, totalChannels: 1, status: "COMPLETE" },
+        subscriberDelta: { value: "0", coveredChannels: 1, totalChannels: 1, status: "COMPLETE" },
+      },
+    });
+    expect(result.series[2]).toMatchObject({
+      viewDelta: "-5",
+      subscriberDelta: "0",
+      observed: {
+        viewDelta: { value: "-5", coveredChannels: 1, totalChannels: 1, status: "COMPLETE" },
+        subscriberDelta: { value: "0", coveredChannels: 1, totalChannels: 1, status: "COMPLETE" },
+      },
+    });
+  });
+
+  it("preserves exact zero and negative corrections as partial observations without weakening strict totals", async () => {
+    const secondId = "00000000-0000-4000-8000-000000000102";
+    const result = await service({
+      channels: [
+        channel({ subscriberCount: 10n, lifetimeViewCount: 990n }),
+        channel({ id: secondId, subscriberCount: null, lifetimeViewCount: null }),
+      ],
+      stats: [
+        stat("2026-08-22", {
+          subscriberCount: 10n,
+          lifetimeViewCount: 1_000n,
+          subscriberDelta: 1n,
+          viewDelta: 8n,
+        }),
+        stat("2026-08-23", {
+          subscriberCount: 10n,
+          lifetimeViewCount: 995n,
+          subscriberDelta: 0n,
+          viewDelta: -5n,
+        }),
+        stat("2026-08-24", {
+          subscriberCount: 10n,
+          lifetimeViewCount: 995n,
+          subscriberDelta: 0n,
+          viewDelta: 0n,
+        }),
+      ],
+    }).value.trends({ days: 3, subject: adminSubject });
+
+    expect(result.totals).toMatchObject({ viewDelta: null, subscriberDelta: null });
+    expect(result.observedTotals).toEqual({
+      viewDelta: { value: "-10", coveredChannels: 1, totalChannels: 2, status: "PARTIAL" },
+      subscriberDelta: { value: "0", coveredChannels: 1, totalChannels: 2, status: "PARTIAL" },
+    });
+    expect(result.series[0]).toMatchObject({
+      viewDelta: null,
+      subscriberDelta: null,
+      observed: {
+        viewDelta: { value: "-5", coveredChannels: 1, totalChannels: 2, status: "PARTIAL" },
+        subscriberDelta: { value: "0", coveredChannels: 1, totalChannels: 2, status: "PARTIAL" },
+      },
     });
   });
 
   it("returns a dated empty series rather than fabricated zeros for unavailable metrics", async () => {
-    const result = await service({ channels: [], stats: [] }).value.trends({ days: 2 });
+    const result = await service({ channels: [], stats: [] }).value.trends({
+      days: 2,
+      subject: adminSubject,
+    });
 
     expect(result.totals).toEqual({
       viewDelta: null,
@@ -229,6 +470,11 @@ describe("DashboardService trends", () => {
     expect(result.coverage).toEqual({
       totalChannels: 0,
       channelsWithCurrentSnapshot: 0,
+      channelsScanned: 0,
+      channelsWithCompleteCurrentSnapshot: 0,
+      channelsWithCurrentSubscribers: 0,
+      channelsWithCurrentLifetimeViews: 0,
+      channelsWithCurrentPublicVideos: 0,
       channelsWithBaseline: 0,
       requestedDays: 2,
       completeDays: 0,
@@ -240,6 +486,15 @@ describe("DashboardService trends", () => {
         date: "2026-08-24",
         viewDelta: null,
         subscriberDelta: null,
+        observed: {
+          viewDelta: { value: null, coveredChannels: 0, totalChannels: 0, status: "UNAVAILABLE" },
+          subscriberDelta: {
+            value: null,
+            coveredChannels: 0,
+            totalChannels: 0,
+            status: "UNAVAILABLE",
+          },
+        },
         publishedVideos: 0,
         hasSnapshot: false,
       },
@@ -247,6 +502,15 @@ describe("DashboardService trends", () => {
         date: "2026-08-25",
         viewDelta: null,
         subscriberDelta: null,
+        observed: {
+          viewDelta: { value: null, coveredChannels: 0, totalChannels: 0, status: "UNAVAILABLE" },
+          subscriberDelta: {
+            value: null,
+            coveredChannels: 0,
+            totalChannels: 0,
+            status: "UNAVAILABLE",
+          },
+        },
         publishedVideos: 0,
         hasSnapshot: false,
       },
@@ -278,10 +542,15 @@ describe("DashboardService trends", () => {
       ],
     });
 
-    const result = await fixture.value.trends({ days: 3 });
+    const result = await fixture.value.trends({ days: 3, subject: adminSubject });
 
     expect(result.totals).toMatchObject({ viewDelta: null, subscriberDelta: null });
     expect(result.coverage).toMatchObject({
+      channelsScanned: 0,
+      channelsWithCompleteCurrentSnapshot: 0,
+      channelsWithCurrentSubscribers: 0,
+      channelsWithCurrentLifetimeViews: 0,
+      channelsWithCurrentPublicVideos: 0,
       requestedDays: 3,
       completeDays: 2,
       partialDays: 0,

@@ -25,6 +25,7 @@ export interface CreateChannelInput {
 export interface ListChannelsInput {
   page: number;
   pageSize: number;
+  channelIds?: readonly string[];
 }
 
 export interface ChannelPage {
@@ -79,7 +80,10 @@ export class ChannelRepository {
   }
 
   async list(input: ListChannelsInput): Promise<ChannelPage> {
-    const where = { archivedAt: null } as const;
+    const where = {
+      archivedAt: null,
+      ...(input.channelIds === undefined ? {} : { id: { in: [...input.channelIds] } }),
+    } as const;
     const [items, total] = await Promise.all([
       this.client.channel.findMany({
         where,
@@ -92,9 +96,13 @@ export class ChannelRepository {
     return { items, total };
   }
 
-  listEnabled(): Promise<ChannelRecord[]> {
+  listEnabled(channelIds?: readonly string[]): Promise<ChannelRecord[]> {
     return this.client.channel.findMany({
-      where: { isEnabled: true, archivedAt: null },
+      where: {
+        isEnabled: true,
+        archivedAt: null,
+        ...(channelIds === undefined ? {} : { id: { in: [...channelIds] } }),
+      },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
   }

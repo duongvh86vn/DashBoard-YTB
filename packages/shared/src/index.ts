@@ -97,3 +97,13 @@ export {
   type PublicMetricStatus,
   type PublicMetricUnit,
 } from "./public-intelligence-contracts.js";
+export {
+  ChannelGroupDetailSchema,
+  ChannelGroupResponseSchema,
+  ChannelGroupsResponseSchema,
+  ChannelGroupSummarySchema,
+  type ChannelGroupDetail,
+  type ChannelGroupResponse,
+  type ChannelGroupsResponse,
+  type ChannelGroupSummary,
+} from "./channel-group-contracts.js";

@@ -5,9 +5,14 @@ import type {
   PublicVideoSnapshot,
   VideosApplicationPort,
 } from "./videos-application.port.js";
+import type {
+  ChannelAccessResolverPort,
+  ChannelAccessSubject,
+} from "../channel-groups/channel-groups-application.port.js";
 
 interface VideosServiceDependencies {
   unitOfWork: Pick<ChannelUnitOfWork, "transaction">;
+  access: ChannelAccessResolverPort;
 }
 
 function toPublicVideo(video: VideoRecord): PublicVideo {
@@ -48,7 +53,18 @@ function toPublicSnapshot(snapshot: VideoSnapshotRecord): PublicVideoSnapshot {
 export class VideosService implements VideosApplicationPort {
   constructor(private readonly dependencies: VideosServiceDependencies) {}
 
-  async listRecent(input: { channelId: string; page: number; pageSize: number }) {
+  private async assertVisible(channelId: string, subject: ChannelAccessSubject): Promise<void> {
+    const visible = await this.dependencies.access.resolveVisibleChannelIds(subject);
+    if (visible !== null && !visible.includes(channelId)) throw ChannelApplicationError.notFound();
+  }
+
+  async listRecent(input: {
+    channelId: string;
+    page: number;
+    pageSize: number;
+    subject: ChannelAccessSubject;
+  }) {
+    await this.assertVisible(input.channelId, input.subject);
     const result = await this.dependencies.unitOfWork.transaction(async ({ channels, videos }) => {
       if ((await channels.findById(input.channelId)) === null)
         throw ChannelApplicationError.notFound();
@@ -66,7 +82,14 @@ export class VideosService implements VideosApplicationPort {
     };
   }
 
-  async snapshots(input: { channelId: string; videoId: string; page: number; pageSize: number }) {
+  async snapshots(input: {
+    channelId: string;
+    videoId: string;
+    page: number;
+    pageSize: number;
+    subject: ChannelAccessSubject;
+  }) {
+    await this.assertVisible(input.channelId, input.subject);
     const result = await this.dependencies.unitOfWork.transaction(
       async ({ videos, videoSnapshots }) => {
         const video = await videos.findById(input.videoId);

@@ -30,9 +30,14 @@ import type {
   PublicChannelHealthCheck,
   SyncRunsPage,
 } from "./channels-application.port.js";
+import type {
+  ChannelAccessResolverPort,
+  ChannelAccessSubject,
+} from "../channel-groups/channel-groups-application.port.js";
 
 interface ChannelsServiceDependencies {
   unitOfWork: Pick<ChannelUnitOfWork, "transaction">;
+  access: ChannelAccessResolverPort;
   provider: ChannelProviderPort;
   timeZone?: string;
   now?: () => Date;
@@ -374,14 +379,32 @@ function toPublicSyncRun(run: SyncRunRecord): SyncRunsPage["items"][number] {
 export class ChannelsService implements ChannelsApplicationPort {
   constructor(private readonly dependencies: ChannelsServiceDependencies) {}
 
-  async list(input: { page: number; pageSize: number }): Promise<{
+  private async visibleChannelIds(subject: ChannelAccessSubject): Promise<string[] | null> {
+    return this.dependencies.access.resolveVisibleChannelIds(subject);
+  }
+
+  private async assertVisible(id: string, subject: ChannelAccessSubject): Promise<void> {
+    const visible = await this.visibleChannelIds(subject);
+    if (visible !== null && !visible.includes(id)) throw ChannelApplicationError.notFound();
+  }
+
+  async list(input: {
+    page: number;
+    pageSize: number;
+    subject: ChannelAccessSubject;
+  }): Promise<{
     items: PublicChannel[];
     page: number;
     pageSize: number;
     total: number;
   }> {
+    const channelIds = await this.visibleChannelIds(input.subject);
     const page = await this.dependencies.unitOfWork.transaction((repositories) =>
-      repositories.channels.list(input),
+      repositories.channels.list({
+        page: input.page,
+        pageSize: input.pageSize,
+        ...(channelIds === null ? {} : { channelIds }),
+      }),
     );
     return {
       items: page.items.map(toPublicChannel),
@@ -391,9 +414,10 @@ export class ChannelsService implements ChannelsApplicationPort {
     };
   }
 
-  async get(id: string): Promise<PublicChannel> {
+  async get(input: { id: string; subject: ChannelAccessSubject }): Promise<PublicChannel> {
+    await this.assertVisible(input.id, input.subject);
     const channel = await this.dependencies.unitOfWork.transaction((repositories) =>
-      repositories.channels.findById(id),
+      repositories.channels.findById(input.id),
     );
     if (channel === null) throw ChannelApplicationError.notFound();
     return toPublicChannel(channel);
@@ -402,7 +426,9 @@ export class ChannelsService implements ChannelsApplicationPort {
   async publicIntelligence(input: {
     id: string;
     days: number;
+    subject: ChannelAccessSubject;
   }): Promise<PublicIntelligenceResponse> {
+    await this.assertVisible(input.id, input.subject);
     const timeZone = this.dependencies.timeZone ?? "UTC";
     const now = (this.dependencies.now ?? (() => new Date()))();
     const endDate = localCalendarDate(now, timeZone);
@@ -604,12 +630,18 @@ export class ChannelsService implements ChannelsApplicationPort {
     return { syncRunId: syncRun.id, status: "QUEUED" };
   }
 
-  async healthHistory(input: { id: string; page: number; pageSize: number }): Promise<{
+  async healthHistory(input: {
+    id: string;
+    page: number;
+    pageSize: number;
+    subject: ChannelAccessSubject;
+  }): Promise<{
     items: PublicChannelHealthCheck[];
     page: number;
     pageSize: number;
     total: number;
   }> {
+    await this.assertVisible(input.id, input.subject);
     const result = await this.dependencies.unitOfWork.transaction(async (repositories) => {
       const channel = await repositories.channels.findById(input.id);
       if (channel === null) throw ChannelApplicationError.notFound();

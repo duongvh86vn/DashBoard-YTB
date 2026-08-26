@@ -33,6 +33,17 @@ export type {
   VideoSnapshotRecord,
 } from "./channel-records.js";
 export { ChannelUnitOfWork, type ChannelRepositories } from "./channel-unit-of-work.js";
+export {
+  ChannelGroupRepository,
+  type CreateChannelGroupInput,
+  type UpdateChannelGroupInput,
+} from "./channel-group.repository.js";
+export type { ChannelGroupAggregateRecord, ChannelGroupRecord } from "./channel-group-records.js";
+export {
+  ChannelGroupConflictError,
+  ChannelGroupMembershipTargetError,
+  ChannelGroupNotFoundError,
+} from "./channel-group-errors.js";
 export { AiRepository, type UpsertAiModelRoleInput } from "./ai.repository.js";
 export type {
   AiChannelClassificationRecord,

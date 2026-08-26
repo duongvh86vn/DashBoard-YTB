@@ -45,6 +45,9 @@ export const AuthErrorCodeSchema = z.enum([
   "CHANNEL_NOT_FOUND",
   "CHANNEL_ALREADY_EXISTS",
   "CHANNEL_RESOLVE_FAILED",
+  "CHANNEL_GROUP_NOT_FOUND",
+  "CHANNEL_GROUP_ALREADY_EXISTS",
+  "CHANNEL_GROUP_MEMBERSHIP_INVALID",
 ]);
 export type AuthErrorCode = z.infer<typeof AuthErrorCodeSchema>;
 

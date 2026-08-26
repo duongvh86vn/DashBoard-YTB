@@ -1,4 +1,5 @@
 export const VIDEOS_APPLICATION_PORT = Symbol("VIDEOS_APPLICATION_PORT");
+import type { ChannelAccessSubject } from "../channel-groups/channel-groups-application.port.js";
 
 export interface PublicVideo {
   id: string;
@@ -32,7 +33,12 @@ export interface PublicVideoSnapshot {
 }
 
 export interface VideosApplicationPort {
-  listRecent(input: { channelId: string; page: number; pageSize: number }): Promise<{
+  listRecent(input: {
+    channelId: string;
+    page: number;
+    pageSize: number;
+    subject: ChannelAccessSubject;
+  }): Promise<{
     items: PublicVideo[];
     page: number;
     pageSize: number;
@@ -43,6 +49,7 @@ export interface VideosApplicationPort {
     videoId: string;
     page: number;
     pageSize: number;
+    subject: ChannelAccessSubject;
   }): Promise<{
     items: PublicVideoSnapshot[];
     page: number;

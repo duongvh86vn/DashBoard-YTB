@@ -1,5 +1,6 @@
-import { Controller, Get, Header, Inject, Param, Query } from "@nestjs/common";
+import { Controller, Get, Header, Inject, Param, Query, Req } from "@nestjs/common";
 
+import type { AuthenticatedRequest } from "../../auth/request-user.js";
 import {
   VIDEO_RANKINGS_APPLICATION_PORT,
   type VideoRankingsApplicationPort,
@@ -15,43 +16,51 @@ export class VideoRankingsController {
 
   @Get("recent")
   @Header("Cache-Control", "no-store")
-  recentAlias(@Query() query: unknown) {
-    return this.rankings.recent(parseRankingQuery(query));
+  recentAlias(@Query() query: unknown, @Req() request: AuthenticatedRequest) {
+    return this.rankings.recent({ ...parseRankingQuery(query), subject: request.user });
   }
 
   @Get("rankings/weekly")
   @Header("Cache-Control", "no-store")
-  weekly(@Query() query: unknown) {
-    return this.rankings.weekly(parseRankingQuery(query));
+  weekly(@Query() query: unknown, @Req() request: AuthenticatedRequest) {
+    return this.rankings.weekly({ ...parseRankingQuery(query), subject: request.user });
   }
 
   @Get("rankings/hot")
   @Header("Cache-Control", "no-store")
-  hot(@Query() query: unknown) {
-    return this.rankings.hot(parseRankingQuery(query));
+  hot(@Query() query: unknown, @Req() request: AuthenticatedRequest) {
+    return this.rankings.hot({ ...parseRankingQuery(query), subject: request.user });
   }
 
   @Get("rankings/breakout")
   @Header("Cache-Control", "no-store")
-  breakout(@Query() query: unknown) {
-    return this.rankings.breakout(parseRankingQuery(query));
+  breakout(@Query() query: unknown, @Req() request: AuthenticatedRequest) {
+    return this.rankings.breakout({ ...parseRankingQuery(query), subject: request.user });
   }
 
   @Get(":id/snapshots")
   @Header("Cache-Control", "no-store")
-  snapshots(@Param("id") id: string, @Query() query: unknown) {
-    return this.rankings.snapshots({ videoId: parseVideoId(id), ...parseRankingQuery(query) });
+  snapshots(
+    @Param("id") id: string,
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.rankings.snapshots({
+      videoId: parseVideoId(id),
+      ...parseRankingQuery(query),
+      subject: request.user,
+    });
   }
 
   @Get(":id")
   @Header("Cache-Control", "no-store")
-  get(@Param("id") id: string) {
-    return this.rankings.get({ videoId: parseVideoId(id) });
+  get(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
+    return this.rankings.get({ videoId: parseVideoId(id), subject: request.user });
   }
 
   @Get()
   @Header("Cache-Control", "no-store")
-  recent(@Query() query: unknown) {
-    return this.rankings.recent(parseRankingQuery(query));
+  recent(@Query() query: unknown, @Req() request: AuthenticatedRequest) {
+    return this.rankings.recent({ ...parseRankingQuery(query), subject: request.user });
   }
 }

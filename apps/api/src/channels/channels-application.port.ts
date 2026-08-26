@@ -1,4 +1,5 @@
 import type { PublicChannelProvider, PublicIntelligenceResponse } from "@yt-monitor/shared";
+import type { ChannelAccessSubject } from "../channel-groups/channel-groups-application.port.js";
 
 export const CHANNELS_APPLICATION_PORT = Symbol("CHANNELS_APPLICATION_PORT");
 export const CHANNEL_PROVIDER = Symbol("CHANNEL_PROVIDER");
@@ -48,18 +49,27 @@ export interface PublicChannel {
 }
 
 export interface ChannelsApplicationPort {
-  list(input: { page: number; pageSize: number }): Promise<{
+  list(input: { page: number; pageSize: number; subject: ChannelAccessSubject }): Promise<{
     items: PublicChannel[];
     page: number;
     pageSize: number;
     total: number;
   }>;
-  get(id: string): Promise<PublicChannel>;
-  publicIntelligence(input: { id: string; days: number }): Promise<PublicIntelligenceResponse>;
+  get(input: { id: string; subject: ChannelAccessSubject }): Promise<PublicChannel>;
+  publicIntelligence(input: {
+    id: string;
+    days: number;
+    subject: ChannelAccessSubject;
+  }): Promise<PublicIntelligenceResponse>;
   create(input: { originalInput: string }): Promise<PublicChannel>;
   archive(input: { id: string }): Promise<void>;
   requestHealthCheck(input: { id: string }): Promise<{ syncRunId: string; status: "QUEUED" }>;
-  healthHistory(input: { id: string; page: number; pageSize: number }): Promise<{
+  healthHistory(input: {
+    id: string;
+    page: number;
+    pageSize: number;
+    subject: ChannelAccessSubject;
+  }): Promise<{
     items: PublicChannelHealthCheck[];
     page: number;
     pageSize: number;

@@ -7,6 +7,14 @@ import type { DashboardTrendPoint, DashboardTrendResponse } from "@yt-monitor/sh
 export type DashboardTrendData = DashboardTrendResponse;
 
 type TrendMetric = "views" | "subscribers" | "videos";
+type ObservedStatus = "COMPLETE" | "PARTIAL" | "UNAVAILABLE";
+
+interface MetricPresentation {
+  value: bigint | null;
+  status: ObservedStatus | null;
+  coveredChannels: number | null;
+  totalChannels: number | null;
+}
 
 const fullNumberFormatter = new Intl.NumberFormat("vi-VN");
 const compactNumberFormatter = new Intl.NumberFormat("vi-VN", {
@@ -62,16 +70,93 @@ const metricDetails = {
   },
 } as const;
 
-function metricTotal(data: DashboardTrendData, metric: TrendMetric): bigint | null {
-  if (metric === "views") return parseInteger(data.totals.viewDelta);
-  if (metric === "subscribers") return parseInteger(data.totals.subscriberDelta);
-  return BigInt(data.totals.publishedVideos);
+function metricTotal(data: DashboardTrendData, metric: TrendMetric): MetricPresentation {
+  if (metric === "videos") {
+    return {
+      value: BigInt(data.totals.publishedVideos),
+      status: null,
+      coveredChannels: null,
+      totalChannels: null,
+    };
+  }
+  const observed =
+    metric === "views" ? data.observedTotals?.viewDelta : data.observedTotals?.subscriberDelta;
+  if (observed) {
+    return {
+      value: parseInteger(observed.value),
+      status: observed.status,
+      coveredChannels: observed.coveredChannels,
+      totalChannels: observed.totalChannels,
+    };
+  }
+  const strict = parseInteger(
+    metric === "views" ? data.totals.viewDelta : data.totals.subscriberDelta,
+  );
+  return {
+    value: strict,
+    status: strict === null ? "UNAVAILABLE" : "COMPLETE",
+    coveredChannels: strict === null ? 0 : data.coverage.totalChannels,
+    totalChannels: data.coverage.totalChannels,
+  };
 }
 
-function pointValue(point: DashboardTrendPoint, metric: TrendMetric): bigint | null {
-  if (metric === "views") return parseInteger(point.viewDelta);
-  if (metric === "subscribers") return parseInteger(point.subscriberDelta);
-  return BigInt(point.publishedVideos);
+function pointMetric(
+  point: DashboardTrendPoint,
+  metric: TrendMetric,
+  totalChannels: number,
+): MetricPresentation {
+  if (metric === "videos") {
+    return {
+      value: BigInt(point.publishedVideos),
+      status: null,
+      coveredChannels: null,
+      totalChannels: null,
+    };
+  }
+  const observed = metric === "views" ? point.observed?.viewDelta : point.observed?.subscriberDelta;
+  const strict = parseInteger(metric === "views" ? point.viewDelta : point.subscriberDelta);
+  return observed
+    ? {
+        value: parseInteger(observed.value),
+        status: observed.status,
+        coveredChannels: observed.coveredChannels,
+        totalChannels: observed.totalChannels,
+      }
+    : {
+        value: strict,
+        status: strict === null ? "UNAVAILABLE" : "COMPLETE",
+        coveredChannels: strict === null ? 0 : totalChannels,
+        totalChannels,
+      };
+}
+
+function partialDayCoverage(
+  data: DashboardTrendData,
+  metric: TrendMetric,
+): { days: number; coveredChannels: number; totalChannels: number } | null {
+  if (metric === "videos") return null;
+  const partial = data.series
+    .map((point) => pointMetric(point, metric, data.coverage.totalChannels))
+    .filter(
+      (
+        point,
+      ): point is MetricPresentation & { coveredChannels: number; totalChannels: number } =>
+        point.status === "PARTIAL" &&
+        point.coveredChannels !== null &&
+        point.totalChannels !== null,
+    );
+  if (partial.length === 0) return null;
+  const lowestCoverage = partial.reduce((lowest, point) =>
+    point.coveredChannels * lowest.totalChannels <
+    lowest.coveredChannels * point.totalChannels
+      ? point
+      : lowest,
+  );
+  return {
+    days: partial.length,
+    coveredChannels: lowestCoverage.coveredChannels,
+    totalChannels: lowestCoverage.totalChannels,
+  };
 }
 
 function metricValueLabel(value: bigint | null, metric: TrendMetric): string {
@@ -82,15 +167,23 @@ function metricValueLabel(value: bigint | null, metric: TrendMetric): string {
 function TrendMetricButton({
   metric,
   selected,
-  value,
+  aggregate,
   onSelect,
 }: {
   metric: TrendMetric;
   selected: boolean;
-  value: bigint | null;
+  aggregate: MetricPresentation;
   onSelect: (metric: TrendMetric) => void;
 }) {
   const detail = metricDetails[metric];
+  const coverageHint =
+    metric === "videos"
+      ? "Dữ liệu catalog đã lưu"
+      : aggregate.status === "PARTIAL"
+        ? `${aggregate.coveredChannels}/${aggregate.totalChannels} kênh có dữ liệu · tổng quan sát`
+        : aggregate.status === "COMPLETE"
+          ? `${aggregate.coveredChannels}/${aggregate.totalChannels} kênh có dữ liệu`
+          : `0/${aggregate.totalChannels ?? 0} kênh có baseline đủ 28 ngày`;
   return (
     <button
       type="button"
@@ -102,11 +195,9 @@ function TrendMetricButton({
     >
       <span className="block text-xs font-semibold text-slate-400">{detail.label}</span>
       <span className={`mt-2 block text-2xl font-black tabular-nums ${detail.tone}`}>
-        {metricValueLabel(value, metric)}
+        {metricValueLabel(aggregate.value, metric)}
       </span>
-      <span className="mt-1 block text-xs text-slate-500">
-        {value === null ? "Đang chờ đủ hai mốc snapshot" : "Dữ liệu công khai đã lưu"}
-      </span>
+      <span className="mt-1 block text-xs text-slate-500">{coverageHint}</span>
     </button>
   );
 }
@@ -114,6 +205,9 @@ function TrendMetricButton({
 interface ChartPoint {
   date: string;
   value: bigint | null;
+  status: ObservedStatus | null;
+  coveredChannels: number | null;
+  totalChannels: number | null;
   x: number;
   y: number | null;
 }
@@ -147,7 +241,7 @@ function DashboardTrendChart({ data, metric }: { data: DashboardTrendData; metri
   const model = useMemo(() => {
     const raw = data.series.map((point) => ({
       date: point.date,
-      value: pointValue(point, metric),
+      ...pointMetric(point, metric, data.coverage.totalChannels),
     }));
     const known = raw.flatMap((point) => (point.value === null ? [] : [point.value]));
     if (known.length === 0) return null;
@@ -177,7 +271,7 @@ function DashboardTrendChart({ data, metric }: { data: DashboardTrendData; metri
         value: maximum - (range * BigInt(step)) / 3n,
       })),
     };
-  }, [data.series, metric]);
+  }, [data.coverage.totalChannels, data.series, metric]);
 
   if (model === null) {
     return (
@@ -258,6 +352,9 @@ function DashboardTrendChart({ data, metric }: { data: DashboardTrendData; metri
                   fill="none"
                   stroke={detail.line}
                   strokeWidth="3"
+                  strokeDasharray={
+                    segment.some((point) => point.status === "PARTIAL") ? "7 5" : undefined
+                  }
                   strokeLinejoin="round"
                   strokeLinecap="round"
                   vectorEffect="non-scaling-stroke"
@@ -270,9 +367,11 @@ function DashboardTrendChart({ data, metric }: { data: DashboardTrendData; metri
                   cy={point.y ?? 0}
                   r="4"
                   fill={detail.line}
+                  stroke={point.status === "PARTIAL" ? "#fbbf24" : "none"}
+                  strokeWidth={point.status === "PARTIAL" ? "3" : "0"}
                   vectorEffect="non-scaling-stroke"
                 >
-                  <title>{`${formatCalendarDate(point.date)}: ${metricValueLabel(point.value, metric)}`}</title>
+                  <title>{`${formatCalendarDate(point.date)}: ${metricValueLabel(point.value, metric)}${point.coveredChannels === null ? "" : ` · ${point.coveredChannels}/${point.totalChannels} kênh có dữ liệu`}`}</title>
                 </circle>
               ))}
             </g>
@@ -314,15 +413,25 @@ function DashboardTrendChart({ data, metric }: { data: DashboardTrendData; metri
           <tr>
             <th scope="col">Ngày</th>
             <th scope="col">{detail.label}</th>
+            <th scope="col">Độ phủ</th>
           </tr>
         </thead>
         <tbody>
           {data.series.map((point) => {
-            const value = pointValue(point, metric);
+            const observed = pointMetric(point, metric, data.coverage.totalChannels);
             return (
               <tr key={point.date}>
                 <th scope="row">{formatCalendarDate(point.date)}</th>
-                <td>{value === null ? "Thiếu snapshot" : metricValueLabel(value, metric)}</td>
+                <td>
+                  {observed.value === null
+                    ? "Thiếu snapshot"
+                    : metricValueLabel(observed.value, metric)}
+                </td>
+                <td>
+                  {observed.coveredChannels === null
+                    ? "Catalog công khai"
+                    : `${observed.coveredChannels}/${observed.totalChannels} kênh có dữ liệu`}
+                </td>
               </tr>
             );
           })}
@@ -333,8 +442,12 @@ function DashboardTrendChart({ data, metric }: { data: DashboardTrendData; metri
 }
 
 function headline(data: DashboardTrendData): string {
-  const views = parseInteger(data.totals.viewDelta);
+  const aggregate = metricTotal(data, "views");
+  const views = aggregate.value;
   if (views === null) return `Xu hướng công khai trong ${data.period.days} ngày qua`;
+  if (aggregate.status === "PARTIAL") {
+    return `Đã quan sát ${formatSigned(views)} lượt xem trên ${aggregate.coveredChannels}/${aggregate.totalChannels} kênh trong ${data.period.days} ngày qua`;
+  }
   if (views >= 0n) {
     return `Các kênh tăng ${formatExact(views)} lượt xem trong ${data.period.days} ngày qua`;
   }
@@ -351,6 +464,8 @@ export function DashboardTrendPanel({
   failed?: boolean;
 }) {
   const [selectedMetric, setSelectedMetric] = useState<TrendMetric>("views");
+  const selectedTotal = data ? metricTotal(data, selectedMetric) : null;
+  const selectedPartialDays = data ? partialDayCoverage(data, selectedMetric) : null;
 
   return (
     <section
@@ -407,18 +522,33 @@ export function DashboardTrendPanel({
                 key={metric}
                 metric={metric}
                 selected={selectedMetric === metric}
-                value={metricTotal(data, metric)}
+                aggregate={metricTotal(data, metric)}
                 onSelect={setSelectedMetric}
               />
             ))}
           </div>
           <div className="px-4 py-5 sm:px-7 sm:py-7">
             <DashboardTrendChart data={data} metric={selectedMetric} />
+            {selectedTotal?.status === "PARTIAL" ? (
+              <p className="mt-4 rounded-xl border border-amber-700/60 bg-amber-950/30 px-4 py-3 text-sm font-semibold text-amber-200">
+                Dữ liệu một phần: chỉ cộng {selectedTotal.coveredChannels}/
+                {selectedTotal.totalChannels} kênh có dữ liệu. Kênh còn thiếu vẫn là NULL, không
+                được đổi thành 0.
+              </p>
+            ) : null}
+            {selectedPartialDays ? (
+              <p className="mt-4 rounded-xl border border-amber-700/60 bg-amber-950/30 px-4 py-3 text-sm font-semibold text-amber-200">
+                Một số ngày chỉ có dữ liệu của một phần kênh: {selectedPartialDays.days} ngày
+                PARTIAL · {selectedPartialDays.coveredChannels}/{selectedPartialDays.totalChannels}{" "}
+                kênh ở ngày có độ phủ thấp nhất.
+              </p>
+            ) : null}
             <div className="mt-4 flex flex-col justify-between gap-2 border-t border-slate-800 pt-4 text-xs text-slate-400 sm:flex-row sm:items-center">
               <p>
-                {data.coverage.channelsWithBaseline}/{data.coverage.totalChannels} kênh đủ baseline
-                · {data.coverage.channelsWithCurrentSnapshot}/{data.coverage.totalChannels} kênh có
-                snapshot hiện tại
+                {data.coverage.channelsWithBaseline}/{data.coverage.totalChannels} kênh có baseline
+                đủ 28 ngày ·{" "}
+                {data.coverage.channelsScanned ?? data.coverage.channelsWithCurrentSnapshot}/
+                {data.coverage.totalChannels} kênh đã quét
               </p>
               <p>
                 {data.coverage.completeDays}/{data.coverage.requestedDays} ngày đủ dữ liệu
@@ -429,6 +559,18 @@ export function DashboardTrendPanel({
                   : ""}
               </p>
             </div>
+            <p className="mt-2 text-right text-xs text-slate-500">
+              Snapshot đầy đủ hôm nay:{" "}
+              {data.coverage.channelsWithCompleteCurrentSnapshot ??
+                data.coverage.channelsWithCurrentSnapshot}
+              /{data.coverage.totalChannels} kênh · subscriber{" "}
+              {data.coverage.channelsWithCurrentSubscribers ??
+                data.coverage.channelsWithCurrentSnapshot}
+              /{data.coverage.totalChannels} · lượt xem{" "}
+              {data.coverage.channelsWithCurrentLifetimeViews ??
+                data.coverage.channelsWithCurrentSnapshot}
+              /{data.coverage.totalChannels}
+            </p>
             <p className="mt-2 text-right text-xs text-slate-500">
               {formatCalendarDate(data.period.startDate)}–{formatCalendarDate(data.period.endDate)}{" "}
               · không nội suy ngày thiếu

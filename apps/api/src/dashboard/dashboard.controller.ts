@@ -1,5 +1,6 @@
-import { Controller, Get, Header, Inject, Query } from "@nestjs/common";
+import { Controller, Get, Header, Inject, Query, Req } from "@nestjs/common";
 
+import type { AuthenticatedRequest } from "../auth/request-user.js";
 import {
   DASHBOARD_APPLICATION_PORT,
   type DashboardApplicationPort,
@@ -15,7 +16,10 @@ export class DashboardController {
 
   @Get("trends")
   @Header("Cache-Control", "no-store")
-  trends(@Query() query: unknown) {
-    return this.dashboard.trends(parseDashboardTrendsQuery(query));
+  trends(@Query() query: unknown, @Req() request: AuthenticatedRequest) {
+    return this.dashboard.trends({
+      ...parseDashboardTrendsQuery(query),
+      subject: request.user,
+    });
   }
 }

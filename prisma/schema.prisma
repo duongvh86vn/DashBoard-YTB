@@ -35,6 +35,11 @@ enum AuditAction {
   USER_DISABLED
   USER_ENABLED
   AUTHORIZATION_DENIED
+  CHANNEL_GROUP_CREATED
+  CHANNEL_GROUP_UPDATED
+  CHANNEL_GROUP_ARCHIVED
+  CHANNEL_GROUP_CHANNELS_REPLACED
+  VIEWER_CHANNEL_GROUPS_REPLACED
 }
 
 enum ChannelAvailabilityStatus {
@@ -141,17 +146,19 @@ model WorkerHeartbeat {
 }
 
 model User {
-  id            String     @id @default(uuid()) @db.Uuid
-  email         String     @unique(map: "users_email_key") @db.VarChar(320)
-  passwordHash  String     @map("password_hash") @db.Text
-  role          UserRole
-  isEnabled     Boolean    @default(true) @map("is_enabled")
-  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
-  disabledAt    DateTime?  @map("disabled_at") @db.Timestamptz(3)
-  sessions      Session[]
-  auditAsActor  AuditLog[] @relation("AuditActor")
-  auditAsTarget AuditLog[] @relation("AuditTarget")
+  id                      String             @id @default(uuid()) @db.Uuid
+  email                   String             @unique(map: "users_email_key") @db.VarChar(320)
+  passwordHash            String             @map("password_hash") @db.Text
+  role                    UserRole
+  isEnabled               Boolean            @default(true) @map("is_enabled")
+  createdAt               DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  disabledAt              DateTime?          @map("disabled_at") @db.Timestamptz(3)
+  sessions                Session[]
+  auditAsActor            AuditLog[]         @relation("AuditActor")
+  auditAsTarget           AuditLog[]         @relation("AuditTarget")
+  channelGroupMemberships UserChannelGroup[] @relation("ViewerChannelGroupMemberships")
+  channelGroupAssignments UserChannelGroup[] @relation("ChannelGroupAssignmentActor")
 
   @@index([role, isEnabled], map: "users_role_enabled_idx")
   @@map("users")
@@ -208,36 +215,37 @@ model AuditLog {
 }
 
 model Channel {
-  id                       String                    @id @default(uuid()) @db.Uuid
-  youtubeChannelId         String                    @unique(map: "channels_youtube_channel_id_key") @map("youtube_channel_id") @db.VarChar(24)
-  originalInput            String                    @map("original_input") @db.Text
+  id                        String                    @id @default(uuid()) @db.Uuid
+  youtubeChannelId          String                    @unique(map: "channels_youtube_channel_id_key") @map("youtube_channel_id") @db.VarChar(24)
+  originalInput             String                    @map("original_input") @db.Text
   canonicalUrl              String                    @map("canonical_url") @db.Text
-  handle                   String?                   @db.VarChar(64)
-  title                    String                    @db.VarChar(512)
-  description              String?                   @db.Text
-  thumbnail                String?                   @db.Text
-  subscriberCount          BigInt?                   @map("subscriber_count")
-  videoCount               BigInt?                   @map("video_count")
-  lifetimeViewCount        BigInt?                   @map("lifetime_view_count")
-  lastUploadAt             DateTime?                 @map("last_upload_at") @db.Timestamptz(3)
-  availabilityStatus       ChannelAvailabilityStatus @default(ACTIVE) @map("availability_status")
-  activityStatus           ChannelActivityStatus     @default(UNKNOWN) @map("activity_status")
-  lastChannelScanAt        DateTime?                 @map("last_channel_scan_at") @db.Timestamptz(3)
-  lastHealthCheckAt        DateTime?                 @map("last_health_check_at") @db.Timestamptz(3)
-  lastSeenAliveAt          DateTime?                 @map("last_seen_alive_at") @db.Timestamptz(3)
+  handle                    String?                   @db.VarChar(64)
+  title                     String                    @db.VarChar(512)
+  description               String?                   @db.Text
+  thumbnail                 String?                   @db.Text
+  subscriberCount           BigInt?                   @map("subscriber_count")
+  videoCount                BigInt?                   @map("video_count")
+  lifetimeViewCount         BigInt?                   @map("lifetime_view_count")
+  lastUploadAt              DateTime?                 @map("last_upload_at") @db.Timestamptz(3)
+  availabilityStatus        ChannelAvailabilityStatus @default(ACTIVE) @map("availability_status")
+  activityStatus            ChannelActivityStatus     @default(UNKNOWN) @map("activity_status")
+  lastChannelScanAt         DateTime?                 @map("last_channel_scan_at") @db.Timestamptz(3)
+  lastHealthCheckAt         DateTime?                 @map("last_health_check_at") @db.Timestamptz(3)
+  lastSeenAliveAt           DateTime?                 @map("last_seen_alive_at") @db.Timestamptz(3)
   consecutiveHealthFailures Int                       @default(0) @map("consecutive_health_failures")
-  firstUnavailableAt       DateTime?                 @map("first_unavailable_at") @db.Timestamptz(3)
-  isEnabled                Boolean                   @default(true) @map("is_enabled")
-  createdAt                DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt                DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
-  archivedAt               DateTime?                 @map("archived_at") @db.Timestamptz(3)
-  snapshots                ChannelSnapshot[]
-  healthChecks             ChannelHealthCheck[]
-  videos                   Video[]
-  videoSnapshots           VideoSnapshot[]
-  dailyStats               ChannelDailyStat[]
-  syncRuns                 SyncRun[]
-  aiClassification         AiChannelClassification?
+  firstUnavailableAt        DateTime?                 @map("first_unavailable_at") @db.Timestamptz(3)
+  isEnabled                 Boolean                   @default(true) @map("is_enabled")
+  createdAt                 DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                 DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  archivedAt                DateTime?                 @map("archived_at") @db.Timestamptz(3)
+  snapshots                 ChannelSnapshot[]
+  healthChecks              ChannelHealthCheck[]
+  videos                    Video[]
+  videoSnapshots            VideoSnapshot[]
+  dailyStats                ChannelDailyStat[]
+  syncRuns                  SyncRun[]
+  aiClassification          AiChannelClassification?
+  groupMemberships          ChannelGroupChannel[]
 
   @@index([handle], map: "channels_handle_idx")
   @@index([availabilityStatus], map: "channels_availability_status_idx")
@@ -245,37 +253,79 @@ model Channel {
   @@map("channels")
 }
 
-model ChannelSnapshot {
+model ChannelGroup {
   id                 String                @id @default(uuid()) @db.Uuid
-  channelId          String                @map("channel_id") @db.Uuid
-  capturedAt         DateTime              @map("captured_at") @db.Timestamptz(3)
-  subscriberCount    BigInt?               @map("subscriber_count")
-  videoCount         BigInt?               @map("video_count")
-  lifetimeViewCount  BigInt?               @map("lifetime_view_count")
-  lastUploadAt       DateTime?             @map("last_upload_at") @db.Timestamptz(3)
-  source             ChannelSnapshotSource
-  sourceDetails      Json?                 @map("source_details")
+  name               String                @db.VarChar(120)
+  slug               String                @unique(map: "channel_groups_slug_key") @db.VarChar(128)
+  description        String?               @db.VarChar(1000)
   createdAt          DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
-  channel            Channel               @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  updatedAt          DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  archivedAt         DateTime?             @map("archived_at") @db.Timestamptz(3)
+  channelMemberships ChannelGroupChannel[]
+  userMemberships    UserChannelGroup[]
+
+  @@index([archivedAt, name], map: "channel_groups_archived_name_idx")
+  @@map("channel_groups")
+}
+
+model ChannelGroupChannel {
+  groupId    String       @map("group_id") @db.Uuid
+  channelId  String       @map("channel_id") @db.Uuid
+  assignedAt DateTime     @default(now()) @map("assigned_at") @db.Timestamptz(3)
+  group      ChannelGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  channel    Channel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, channelId])
+  @@index([channelId, groupId], map: "channel_group_channels_channel_group_idx")
+  @@map("channel_group_channels")
+}
+
+model UserChannelGroup {
+  userId           String       @map("user_id") @db.Uuid
+  groupId          String       @map("group_id") @db.Uuid
+  assignedAt       DateTime     @default(now()) @map("assigned_at") @db.Timestamptz(3)
+  assignedByUserId String?      @map("assigned_by_user_id") @db.Uuid
+  user             User         @relation("ViewerChannelGroupMemberships", fields: [userId], references: [id], onDelete: Cascade)
+  group            ChannelGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  assignedBy       User?        @relation("ChannelGroupAssignmentActor", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+
+  @@id([userId, groupId])
+  @@index([groupId, userId], map: "user_channel_groups_group_user_idx")
+  @@index([assignedByUserId], map: "user_channel_groups_assigned_by_idx")
+  @@map("user_channel_groups")
+}
+
+model ChannelSnapshot {
+  id                String                @id @default(uuid()) @db.Uuid
+  channelId         String                @map("channel_id") @db.Uuid
+  capturedAt        DateTime              @map("captured_at") @db.Timestamptz(3)
+  subscriberCount   BigInt?               @map("subscriber_count")
+  videoCount        BigInt?               @map("video_count")
+  lifetimeViewCount BigInt?               @map("lifetime_view_count")
+  lastUploadAt      DateTime?             @map("last_upload_at") @db.Timestamptz(3)
+  source            ChannelSnapshotSource
+  sourceDetails     Json?                 @map("source_details")
+  createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  channel           Channel               @relation(fields: [channelId], references: [id], onDelete: Restrict)
 
   @@index([channelId, capturedAt(sort: Desc)], map: "channel_snapshots_channel_captured_idx")
   @@map("channel_snapshots")
 }
 
 model ChannelHealthCheck {
-  id                    String                    @id @default(uuid()) @db.Uuid
-  channelId             String                    @map("channel_id") @db.Uuid
-  checkedAt             DateTime                  @map("checked_at") @db.Timestamptz(3)
-  publicPageStatus      String                    @map("public_page_status") @db.VarChar(64)
-  ytdlpStatus           String                    @map("ytdlp_status") @db.VarChar(64)
-  rssStatus             String                    @map("rss_status") @db.VarChar(64)
+  id                     String                    @id @default(uuid()) @db.Uuid
+  channelId              String                    @map("channel_id") @db.Uuid
+  checkedAt              DateTime                  @map("checked_at") @db.Timestamptz(3)
+  publicPageStatus       String                    @map("public_page_status") @db.VarChar(64)
+  ytdlpStatus            String                    @map("ytdlp_status") @db.VarChar(64)
+  rssStatus              String                    @map("rss_status") @db.VarChar(64)
   normalizedAvailability ChannelAvailabilityStatus @map("normalized_availability")
-  evidenceCode          String                    @map("evidence_code") @db.VarChar(64)
-  evidenceTextSafe      String?                   @map("evidence_text_safe") @db.VarChar(256)
-  httpStatus            Int?                      @map("http_status")
-  durationMs            Int                       @map("duration_ms")
-  createdAt             DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
-  channel               Channel                   @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  evidenceCode           String                    @map("evidence_code") @db.VarChar(64)
+  evidenceTextSafe       String?                   @map("evidence_text_safe") @db.VarChar(256)
+  httpStatus             Int?                      @map("http_status")
+  durationMs             Int                       @map("duration_ms")
+  createdAt              DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  channel                Channel                   @relation(fields: [channelId], references: [id], onDelete: Restrict)
 
   @@index([channelId, checkedAt(sort: Desc)], map: "channel_health_checks_channel_checked_idx")
   @@index([normalizedAvailability, checkedAt(sort: Desc)], map: "channel_health_checks_availability_checked_idx")
@@ -283,33 +333,33 @@ model ChannelHealthCheck {
 }
 
 model Video {
-  id                String            @id @default(uuid()) @db.Uuid
-  youtubeVideoId    String            @unique(map: "videos_youtube_video_id_key") @map("youtube_video_id") @db.VarChar(32)
-  channelId         String            @map("channel_id") @db.Uuid
-  title             String?           @db.Text
-  description       String?           @db.Text
-  thumbnail         String?           @db.Text
-  publishedAt       DateTime?         @map("published_at") @db.Timestamptz(3)
-  durationSeconds   Int?              @map("duration_seconds")
-  currentViews      BigInt?           @map("current_views")
-  currentLikes      BigInt?           @map("current_likes")
-  currentComments   BigInt?           @map("current_comments")
-  vph1h             Decimal?          @map("vph_1h") @db.Decimal(24, 6)
-  vph3h             Decimal?          @map("vph_3h") @db.Decimal(24, 6)
-  vph6h             Decimal?          @map("vph_6h") @db.Decimal(24, 6)
-  breakout24h       Decimal?          @map("breakout_24h") @db.Decimal(24, 6)
-  breakout48h       Decimal?          @map("breakout_48h") @db.Decimal(24, 6)
-  breakout7d        Decimal?          @map("breakout_7d") @db.Decimal(24, 6)
-  monitorTier       VideoMonitorTier  @default(WARM) @map("monitor_tier")
-  firstSeenAt       DateTime          @default(now()) @map("first_seen_at") @db.Timestamptz(3)
-  lastSeenAt        DateTime          @map("last_seen_at") @db.Timestamptz(3)
-  isAvailable       Boolean           @default(true) @map("is_available")
-  isPinned          Boolean           @default(false) @map("is_pinned")
-  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
-  channel           Channel           @relation(fields: [channelId], references: [id], onDelete: Restrict)
-  snapshots         VideoSnapshot[]
-  aiAnalysis        AiVideoAnalysis?
+  id              String           @id @default(uuid()) @db.Uuid
+  youtubeVideoId  String           @unique(map: "videos_youtube_video_id_key") @map("youtube_video_id") @db.VarChar(32)
+  channelId       String           @map("channel_id") @db.Uuid
+  title           String?          @db.Text
+  description     String?          @db.Text
+  thumbnail       String?          @db.Text
+  publishedAt     DateTime?        @map("published_at") @db.Timestamptz(3)
+  durationSeconds Int?             @map("duration_seconds")
+  currentViews    BigInt?          @map("current_views")
+  currentLikes    BigInt?          @map("current_likes")
+  currentComments BigInt?          @map("current_comments")
+  vph1h           Decimal?         @map("vph_1h") @db.Decimal(24, 6)
+  vph3h           Decimal?         @map("vph_3h") @db.Decimal(24, 6)
+  vph6h           Decimal?         @map("vph_6h") @db.Decimal(24, 6)
+  breakout24h     Decimal?         @map("breakout_24h") @db.Decimal(24, 6)
+  breakout48h     Decimal?         @map("breakout_48h") @db.Decimal(24, 6)
+  breakout7d      Decimal?         @map("breakout_7d") @db.Decimal(24, 6)
+  monitorTier     VideoMonitorTier @default(WARM) @map("monitor_tier")
+  firstSeenAt     DateTime         @default(now()) @map("first_seen_at") @db.Timestamptz(3)
+  lastSeenAt      DateTime         @map("last_seen_at") @db.Timestamptz(3)
+  isAvailable     Boolean          @default(true) @map("is_available")
+  isPinned        Boolean          @default(false) @map("is_pinned")
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  channel         Channel          @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  snapshots       VideoSnapshot[]
+  aiAnalysis      AiVideoAnalysis?
 
   @@index([channelId, publishedAt(sort: Desc)], map: "videos_channel_published_idx")
   @@index([monitorTier, lastSeenAt(sort: Desc)], map: "videos_tier_seen_idx")
@@ -339,20 +389,20 @@ model VideoSnapshot {
 }
 
 model ChannelDailyStat {
-  id                   String         @id @default(uuid()) @db.Uuid
-  channelId            String         @map("channel_id") @db.Uuid
-  date                 DateTime       @db.Date
-  subscriberCount      BigInt?        @map("subscriber_count")
-  videoCount           BigInt?        @map("video_count")
-  lifetimeViewCount    BigInt?        @map("lifetime_view_count")
-  subscriberDelta      BigInt?        @map("subscriber_delta")
-  videoDelta           BigInt?        @map("video_delta")
-  viewDelta            BigInt?        @map("view_delta")
-  coverageStatus       CoverageStatus @map("coverage_status")
-  sourceSummary        Json           @map("source_summary")
-  createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
-  channel              Channel        @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  id                String         @id @default(uuid()) @db.Uuid
+  channelId         String         @map("channel_id") @db.Uuid
+  date              DateTime       @db.Date
+  subscriberCount   BigInt?        @map("subscriber_count")
+  videoCount        BigInt?        @map("video_count")
+  lifetimeViewCount BigInt?        @map("lifetime_view_count")
+  subscriberDelta   BigInt?        @map("subscriber_delta")
+  videoDelta        BigInt?        @map("video_delta")
+  viewDelta         BigInt?        @map("view_delta")
+  coverageStatus    CoverageStatus @map("coverage_status")
+  sourceSummary     Json           @map("source_summary")
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  channel           Channel        @relation(fields: [channelId], references: [id], onDelete: Restrict)
 
   @@unique([channelId, date], map: "channel_daily_stats_channel_date_key")
   @@index([channelId, date], map: "channel_daily_stats_channel_date_idx")
@@ -360,17 +410,17 @@ model ChannelDailyStat {
 }
 
 model SyncRun {
-  id                String         @id @default(uuid()) @db.Uuid
-  channelId         String?        @map("channel_id") @db.Uuid
-  jobType           SyncRunJobType  @map("job_type")
-  status            SyncRunStatus
-  startedAt         DateTime?      @map("started_at") @db.Timestamptz(3)
-  completedAt       DateTime?      @map("completed_at") @db.Timestamptz(3)
-  recordsProcessed  Int?           @map("records_processed")
-  errorCode         String?        @map("error_code") @db.VarChar(64)
-  errorMessageSafe  String?        @map("error_message_safe") @db.VarChar(512)
-  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  channel           Channel?       @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  id               String         @id @default(uuid()) @db.Uuid
+  channelId        String?        @map("channel_id") @db.Uuid
+  jobType          SyncRunJobType @map("job_type")
+  status           SyncRunStatus
+  startedAt        DateTime?      @map("started_at") @db.Timestamptz(3)
+  completedAt      DateTime?      @map("completed_at") @db.Timestamptz(3)
+  recordsProcessed Int?           @map("records_processed")
+  errorCode        String?        @map("error_code") @db.VarChar(64)
+  errorMessageSafe String?        @map("error_message_safe") @db.VarChar(512)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  channel          Channel?       @relation(fields: [channelId], references: [id], onDelete: Restrict)
 
   @@index([channelId, createdAt(sort: Desc)], map: "sync_runs_channel_created_idx")
   @@index([jobType, status, createdAt(sort: Desc)], map: "sync_runs_job_status_created_idx")
@@ -378,45 +428,45 @@ model SyncRun {
 }
 
 model AiProviderSetting {
-  id                String     @id @default(uuid()) @db.Uuid
-  provider          AiProvider @unique
-  isEnabled         Boolean    @default(false) @map("is_enabled")
-  priority          Int        @default(0)
-  baseUrl           String?    @map("base_url") @db.Text
-  apiKeyEncrypted   String?    @map("api_key_encrypted") @db.Text
-  configuredModels  Json?      @map("configured_models")
-  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id               String     @id @default(uuid()) @db.Uuid
+  provider         AiProvider @unique
+  isEnabled        Boolean    @default(false) @map("is_enabled")
+  priority         Int        @default(0)
+  baseUrl          String?    @map("base_url") @db.Text
+  apiKeyEncrypted  String?    @map("api_key_encrypted") @db.Text
+  configuredModels Json?      @map("configured_models")
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([isEnabled, priority], map: "ai_provider_settings_enabled_priority_idx")
   @@map("ai_provider_settings")
 }
 
 model AiModelRoleConfig {
-  role             AiModelRole @id
-  provider         AiProvider
-  modelId          String      @map("model_id") @db.VarChar(256)
-  temperature      Decimal?    @db.Decimal(4, 3)
-  maxOutputTokens  Int?        @map("max_output_tokens")
-  isEnabled        Boolean     @default(true) @map("is_enabled")
-  updatedAt        DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  role            AiModelRole @id
+  provider        AiProvider
+  modelId         String      @map("model_id") @db.VarChar(256)
+  temperature     Decimal?    @db.Decimal(4, 3)
+  maxOutputTokens Int?        @map("max_output_tokens")
+  isEnabled       Boolean     @default(true) @map("is_enabled")
+  updatedAt       DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([provider, isEnabled], map: "ai_model_roles_provider_enabled_idx")
   @@map("ai_model_roles")
 }
 
 model AiRun {
-  id                   String      @id @default(uuid()) @db.Uuid
-  provider             AiProvider
-  modelId              String      @map("model_id") @db.VarChar(256)
-  taskType             AiTaskType  @map("task_type")
-  fingerprint          String      @db.VarChar(128)
-  inputTokenEstimate   Int?        @map("input_token_estimate")
-  outputTokenEstimate  Int?        @map("output_token_estimate")
-  status               AiRunStatus
-  durationMs           Int?        @map("duration_ms")
-  errorCode            String?     @map("error_code") @db.VarChar(64)
-  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  id                  String      @id @default(uuid()) @db.Uuid
+  provider            AiProvider
+  modelId             String      @map("model_id") @db.VarChar(256)
+  taskType            AiTaskType  @map("task_type")
+  fingerprint         String      @db.VarChar(128)
+  inputTokenEstimate  Int?        @map("input_token_estimate")
+  outputTokenEstimate Int?        @map("output_token_estimate")
+  status              AiRunStatus
+  durationMs          Int?        @map("duration_ms")
+  errorCode           String?     @map("error_code") @db.VarChar(64)
+  createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@index([fingerprint], map: "ai_runs_fingerprint_idx")
   @@index([createdAt(sort: Desc)], map: "ai_runs_created_at_idx")
@@ -424,40 +474,40 @@ model AiRun {
 }
 
 model AiChannelClassification {
-  id            String   @id @default(uuid()) @db.Uuid
-  channelId     String   @unique @map("channel_id") @db.Uuid
-  primaryNiche  String   @map("primary_niche") @db.VarChar(256)
-  subNiches     Json     @map("sub_niches")
-  language      String   @db.VarChar(32)
-  contentFormat String   @map("content_format") @db.VarChar(256)
-  confidence    Decimal  @db.Decimal(4, 3)
+  id            String     @id @default(uuid()) @db.Uuid
+  channelId     String     @unique @map("channel_id") @db.Uuid
+  primaryNiche  String     @map("primary_niche") @db.VarChar(256)
+  subNiches     Json       @map("sub_niches")
+  language      String     @db.VarChar(32)
+  contentFormat String     @map("content_format") @db.VarChar(256)
+  confidence    Decimal    @db.Decimal(4, 3)
   provider      AiProvider
-  modelId       String   @map("model_id") @db.VarChar(256)
-  fingerprint   String   @db.VarChar(128)
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-  channel       Channel  @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  modelId       String     @map("model_id") @db.VarChar(256)
+  fingerprint   String     @db.VarChar(128)
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  channel       Channel    @relation(fields: [channelId], references: [id], onDelete: Restrict)
 
   @@index([fingerprint], map: "ai_channel_classifications_fingerprint_idx")
   @@map("ai_channel_classifications")
 }
 
 model AiVideoAnalysis {
-  id              String   @id @default(uuid()) @db.Uuid
-  videoId         String   @unique @map("video_id") @db.Uuid
-  summary         String   @db.Text
-  topic           String   @db.VarChar(256)
-  titlePattern    Json     @map("title_pattern")
+  id              String     @id @default(uuid()) @db.Uuid
+  videoId         String     @unique @map("video_id") @db.Uuid
+  summary         String     @db.Text
+  topic           String     @db.VarChar(256)
+  titlePattern    Json       @map("title_pattern")
   strengths       Json
-  possibleFactors Json     @map("possible_factors")
+  possibleFactors Json       @map("possible_factors")
   anomalies       Json
-  confidence      Decimal  @db.Decimal(4, 3)
+  confidence      Decimal    @db.Decimal(4, 3)
   provider        AiProvider
-  modelId         String   @map("model_id") @db.VarChar(256)
-  fingerprint     String   @db.VarChar(128)
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-  video           Video    @relation(fields: [videoId], references: [id], onDelete: Restrict)
+  modelId         String     @map("model_id") @db.VarChar(256)
+  fingerprint     String     @db.VarChar(128)
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  video           Video      @relation(fields: [videoId], references: [id], onDelete: Restrict)
 
   @@index([fingerprint], map: "ai_video_analyses_fingerprint_idx")
   @@map("ai_video_analyses")

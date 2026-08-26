@@ -27,6 +27,7 @@ export interface ListVideosInput {
 
 export interface ListRankingVideosInput {
   channelId?: string;
+  channelIds?: readonly string[];
   take?: number;
 }
 
@@ -109,9 +110,16 @@ export class VideoRepository {
     return { items, total };
   }
 
-  listPublishedBetween(start: Date, endExclusive: Date): Promise<PublishedVideoRecord[]> {
+  listPublishedBetween(
+    start: Date,
+    endExclusive: Date,
+    channelIds?: readonly string[],
+  ): Promise<PublishedVideoRecord[]> {
     return this.client.video.findMany({
-      where: { publishedAt: { gte: start, lt: endExclusive } },
+      where: {
+        publishedAt: { gte: start, lt: endExclusive },
+        ...(channelIds === undefined ? {} : { channelId: { in: [...channelIds] } }),
+      },
       orderBy: [{ publishedAt: "asc" }, { id: "asc" }],
       select: { channelId: true, publishedAt: true },
     });
@@ -152,7 +160,15 @@ export class VideoRepository {
   listForRanking(input: ListRankingVideosInput = {}): Promise<VideoRankingRecord[]> {
     const where = {
       isAvailable: true,
-      ...(input.channelId ? { channelId: input.channelId } : {}),
+      ...(input.channelId && input.channelIds !== undefined
+        ? {
+            AND: [{ channelId: input.channelId }, { channelId: { in: [...input.channelIds] } }],
+          }
+        : input.channelId
+          ? { channelId: input.channelId }
+          : input.channelIds === undefined
+            ? {}
+            : { channelId: { in: [...input.channelIds] } }),
     };
     return this.client.video.findMany({
       where,

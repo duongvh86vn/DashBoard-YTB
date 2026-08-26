@@ -19,9 +19,14 @@ import type {
   VideoRankingPage,
   VideoRankingsApplicationPort,
 } from "./rankings-application.port.js";
+import type {
+  ChannelAccessResolverPort,
+  ChannelAccessSubject,
+} from "../../channel-groups/channel-groups-application.port.js";
 
 interface RankingsServiceDependencies {
   unitOfWork: Pick<ChannelUnitOfWork, "transaction">;
+  access: ChannelAccessResolverPort;
   now?: () => Date;
 }
 
@@ -179,11 +184,17 @@ function toPublicSnapshot(snapshot: VideoSnapshotRecord): PublicVideoSnapshot {
 export class VideoRankingsService implements VideoRankingsApplicationPort {
   constructor(private readonly dependencies: RankingsServiceDependencies) {}
 
-  async get(input: { videoId: string }): Promise<PublicVideoDetail> {
+  async get(input: {
+    videoId: string;
+    subject: ChannelAccessSubject;
+  }): Promise<PublicVideoDetail> {
+    const visible = await this.dependencies.access.resolveVisibleChannelIds(input.subject);
     const video = await this.dependencies.unitOfWork.transaction((repositories) =>
       repositories.videos.findById(input.videoId),
     );
-    if (video === null) throw ChannelApplicationError.notFound();
+    if (video === null || (visible !== null && !visible.includes(video.channelId))) {
+      throw ChannelApplicationError.notFound();
+    }
 
     const enriched = await this.dependencies.unitOfWork.transaction((repositories) =>
       repositories.videos.listForRanking({ channelId: video.channelId, take: 5_000 }),
@@ -193,9 +204,19 @@ export class VideoRankingsService implements VideoRankingsApplicationPort {
     return toDetail(match);
   }
 
-  private load(input: { channelId?: string }): Promise<VideoRankingRecord[]> {
+  private async load(input: {
+    channelId?: string;
+    subject: ChannelAccessSubject;
+  }): Promise<VideoRankingRecord[]> {
+    const visible = await this.dependencies.access.resolveVisibleChannelIds(input.subject);
+    if (input.channelId && visible !== null && !visible.includes(input.channelId)) {
+      throw ChannelApplicationError.notFound();
+    }
     return this.dependencies.unitOfWork.transaction((repositories) =>
-      repositories.videos.listForRanking(input),
+      repositories.videos.listForRanking({
+        ...(input.channelId ? { channelId: input.channelId } : {}),
+        ...(visible === null ? {} : { channelIds: visible }),
+      }),
     );
   }
 
@@ -203,6 +224,7 @@ export class VideoRankingsService implements VideoRankingsApplicationPort {
     channelId?: string;
     page: number;
     pageSize: number;
+    subject: ChannelAccessSubject;
   }): Promise<VideoRankingPage> {
     const videos = await this.load(input);
     const items = videos
@@ -218,6 +240,7 @@ export class VideoRankingsService implements VideoRankingsApplicationPort {
     channelId?: string;
     page: number;
     pageSize: number;
+    subject: ChannelAccessSubject;
   }): Promise<VideoRankingPage> {
     const now = (this.dependencies.now ?? (() => new Date()))();
     const videos = await this.load(input);
@@ -246,6 +269,7 @@ export class VideoRankingsService implements VideoRankingsApplicationPort {
     channelId?: string;
     page: number;
     pageSize: number;
+    subject: ChannelAccessSubject;
   }): Promise<VideoRankingPage> {
     const now = (this.dependencies.now ?? (() => new Date()))();
     const videos = await this.load(input);
@@ -282,6 +306,7 @@ export class VideoRankingsService implements VideoRankingsApplicationPort {
     channelId?: string;
     page: number;
     pageSize: number;
+    subject: ChannelAccessSubject;
   }): Promise<VideoRankingPage> {
     const now = (this.dependencies.now ?? (() => new Date()))();
     const videos = await this.load(input);
@@ -321,10 +346,13 @@ export class VideoRankingsService implements VideoRankingsApplicationPort {
     videoId: string;
     page: number;
     pageSize: number;
+    subject: ChannelAccessSubject;
   }): Promise<PublicVideoSnapshotPage> {
+    const visible = await this.dependencies.access.resolveVisibleChannelIds(input.subject);
     const result = await this.dependencies.unitOfWork.transaction(
       async ({ videos, videoSnapshots }) => {
-        if ((await videos.findById(input.videoId)) === null) {
+        const video = await videos.findById(input.videoId);
+        if (video === null || (visible !== null && !visible.includes(video.channelId))) {
           throw ChannelApplicationError.notFound();
         }
         const [items, total] = await Promise.all([
