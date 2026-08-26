@@ -219,15 +219,20 @@ describe("channel-group guarded HTTP contract", () => {
     const { app } = await createApp("VIEWER");
     apps.push(app);
     const http = authenticated(app.getHttpServer());
-    const responses = await Promise.all([
-      http.get("/api/v1/channel-groups"),
-      http.get(`/api/v1/channel-groups/${GROUP_ID}`),
-      http.post("/api/v1/channel-groups", { name: "Denied" }),
-      http.patch(`/api/v1/channel-groups/${GROUP_ID}`, { name: "Denied" }),
-      http.delete(`/api/v1/channel-groups/${GROUP_ID}`),
-      http.put(`/api/v1/channel-groups/${GROUP_ID}/channels`, { channelIds: [CHANNEL_ID] }),
-      http.put(`/api/v1/users/${VIEWER_ID}/channel-groups`, { groupIds: [GROUP_ID] }),
-    ]);
+    // Exercise the shared in-memory HTTP server sequentially. Running all seven
+    // requests at once makes supertest open parallel sockets against the same
+    // ephemeral listener and can race with connection teardown on Linux CI.
+    const responses = [
+      await http.get("/api/v1/channel-groups"),
+      await http.get(`/api/v1/channel-groups/${GROUP_ID}`),
+      await http.post("/api/v1/channel-groups", { name: "Denied" }),
+      await http.patch(`/api/v1/channel-groups/${GROUP_ID}`, { name: "Denied" }),
+      await http.delete(`/api/v1/channel-groups/${GROUP_ID}`),
+      await http.put(`/api/v1/channel-groups/${GROUP_ID}/channels`, {
+        channelIds: [CHANNEL_ID],
+      }),
+      await http.put(`/api/v1/users/${VIEWER_ID}/channel-groups`, { groupIds: [GROUP_ID] }),
+    ];
 
     for (const response of responses) {
       expectError(response, 403, "AUTH_FORBIDDEN", "Forbidden");
