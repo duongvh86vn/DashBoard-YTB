@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { VideoRankingRecord } from "@yt-monitor/db";
 
+import { ChannelApplicationError } from "../../channels/channel-application.error.js";
 import { VideoRankingsService } from "./rankings.service.js";
 
 const now = new Date("2026-08-22T12:00:00.000Z");
@@ -61,9 +62,25 @@ function video(
   };
 }
 
-function service(videos: VideoRankingRecord[], visibleChannelIds: string[] | null = null) {
+function service(
+  videos: VideoRankingRecord[],
+  visibleChannelIds: string[] | null = null,
+  selectedChannelIds: string[] | null = visibleChannelIds,
+) {
   return new VideoRankingsService({
-    access: { resolveVisibleChannelIds: async () => visibleChannelIds },
+    access: {
+      resolveVisibleChannelIds: async () => visibleChannelIds,
+      resolveSelectedChannelIds: async (_subject, selection) => {
+        if (selection.groupId !== undefined) return selectedChannelIds;
+        if (selection.channelId !== undefined) {
+          if (visibleChannelIds !== null && !visibleChannelIds.includes(selection.channelId)) {
+            throw ChannelApplicationError.notFound();
+          }
+          return [selection.channelId];
+        }
+        return visibleChannelIds;
+      },
+    },
     now: () => now,
     unitOfWork: {
       transaction: async (work) =>
@@ -123,6 +140,19 @@ describe("VideoRankingsService", () => {
     });
 
     expect(result).toMatchObject({ items: [], total: 0 });
+  });
+
+  it("limits ranking inputs to the selected group's resolved channel set", async () => {
+    const secondChannelId = "00000000-0000-4000-8000-000000000011";
+    const groupId = "00000000-0000-4000-8000-000000000020";
+    const result = await service(
+      [video("outside", [], channelId), video("inside", [], secondChannelId)],
+      [channelId, secondChannelId],
+      [secondChannelId],
+    ).weekly({ groupId, page: 1, pageSize: 20, subject: viewerSubject });
+
+    expect(result.items.map((item) => item.id)).toEqual([]);
+    expect(result.warmingUpCount).toBe(1);
   });
 
   it("returns not-found semantics for a VIEWER requesting a video outside the visible set", async () => {

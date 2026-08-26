@@ -731,3 +731,49 @@
   Analytics scope was introduced.
 - UI hiding is not an authorization boundary; all scoped reads and group writes are
   enforced by authenticated server code and covered by PostgreSQL tests.
+
+## 2026-08-26 — Dashboard group/channel scope selectors
+
+### Delivered behavior
+
+- Added a group selector above the dashboard KPI cards using only the actor's
+  accessible groups, plus a channel selector whose default is every channel in the
+  selected group. Changing groups safely resets the selected channel.
+- Applied the same server-authoritative `groupId`/`channelId` selection to channel
+  KPIs, the 28-day timeline, recent videos and rolling seven-day rankings. Empty
+  groups remain empty; explicit missing, archived, unauthorized and mismatched
+  selections return the same not-found response.
+- Loaded every channel-option page instead of truncating at 100 entries. VIEWER
+  scope is the deduplicated union of assigned active groups; ADMIN remains
+  unrestricted when no explicit filter is selected.
+- Serialized dashboard polling so a slow request cannot cause overlapping batches
+  or permanent loading. Warm-up is bounded independently, scope changes abort old
+  work, and stale responses cannot overwrite newer data.
+- If a selected group or channel is revoked during the session, canonical data is
+  cleared and the closest valid server-authoritative scope is reloaded. Other poll
+  failures retain last-known data but visibly mark the affected surfaces stale.
+- Kept global health and AI surfaces explicitly ADMIN/global; no canonical metric,
+  missing subscriber value or AI/data-source invariant was changed.
+
+### Acceptance evidence
+
+- Workspace `pnpm verify` — PASS: Prisma validate/generate, all typechecks, ESLint,
+  Prettier, 117 files / 688 unit tests and every production build/route.
+- Focused scope suites — PASS: 17 Web files / 92 tests and 12 API files / 89 tests,
+  including 10-second warm-up, 60-second refresh, scoped pagination, empty groups,
+  slow batches and group/channel revocation.
+- PostgreSQL scope integration — PASS: all eight migrations clean/replay-safe,
+  11 files / 47 tests, valid composite group/channel selection, active unassigned
+  group denial and one 404 shape across all four dashboard sources.
+- Full `pnpm test:integration` — PASS: Docker images, API/Worker/Web health,
+  outage/restart recovery, browser/Playwright acceptance and isolated cleanup.
+- `pnpm audit --audit-level high` — PASS: no known vulnerabilities. Diff secret scan
+  and `git diff --check` — PASS.
+
+### Boundaries preserved
+
+- Missing canonical counters remain `NULL`; the UI does not serialize display
+  fallback values as observed facts or fabricate timeline baselines.
+- AI remains an explanation layer and cannot collect, alter or rank canonical
+  metrics. No Google login, vidIQ endpoint/cookie/scraper, revenue estimate or
+  private YouTube Analytics scope was introduced.

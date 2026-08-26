@@ -20,6 +20,8 @@ const client = createPrismaClient(databaseUrl);
 const sessionSecret = "phase11-access-session-secret-value";
 const viewerToken = "v".repeat(43);
 const now = new Date("2026-08-26T08:00:00.000Z");
+const missingGroupId = "00000000-0000-4000-8000-000000000091";
+const missingChannelId = "00000000-0000-4000-8000-000000000092";
 const env: ApiEnv = {
   NODE_ENV: "test",
   APP_VERSION: "0.1.0",
@@ -76,12 +78,41 @@ async function seedAccessRows() {
     (typeof channels)[number],
     (typeof channels)[number],
   ];
-  const [groupA, groupB] = await Promise.all([
+  const archivedChannel = await client.channel.create({
+    data: {
+      youtubeChannelId: "UCphase11access000000004",
+      originalInput: "@archived",
+      canonicalUrl: "https://www.youtube.com/channel/phase11-archived",
+      title: "archived",
+      isEnabled: false,
+      availabilityStatus: "ARCHIVED",
+      archivedAt: now,
+    },
+  });
+  const [groupA, groupB, emptyGroup, archivedGroup, unassignedGroup] = await Promise.all([
     client.channelGroup.create({
       data: { name: "Phase 11 Group A", slug: "phase11-group-a", description: null },
     }),
     client.channelGroup.create({
       data: { name: "Phase 11 Group B", slug: "phase11-group-b", description: null },
+    }),
+    client.channelGroup.create({
+      data: { name: "Phase 11 Empty Group", slug: "phase11-empty-group", description: null },
+    }),
+    client.channelGroup.create({
+      data: {
+        name: "Phase 11 Archived Group",
+        slug: "phase11-archived-group",
+        description: null,
+        archivedAt: now,
+      },
+    }),
+    client.channelGroup.create({
+      data: {
+        name: "Phase 11 Unassigned Group",
+        slug: "phase11-unassigned-group",
+        description: null,
+      },
     }),
   ]);
   await client.channelGroupChannel.createMany({
@@ -90,22 +121,41 @@ async function seedAccessRows() {
       { groupId: groupA.id, channelId: overlap.id },
       { groupId: groupB.id, channelId: overlap.id },
       { groupId: groupB.id, channelId: assignedB.id },
+      { groupId: archivedGroup.id, channelId: hidden.id },
     ],
   });
   await client.userChannelGroup.createMany({
-    data: [groupA.id, groupB.id].map((groupId) => ({
+    data: [groupA.id, groupB.id, emptyGroup.id, archivedGroup.id].map((groupId) => ({
       userId: viewer.id,
       groupId,
       assignedByUserId: admin.id,
     })),
   });
-  const [assignedVideo, hiddenVideo] = await Promise.all([
+  const [assignedVideo, overlapVideo, assignedBVideo, hiddenVideo] = await Promise.all([
     client.video.create({
       data: {
         youtubeVideoId: "phase11-assigned-video",
         channelId: assignedA.id,
         title: "Assigned video",
         publishedAt: new Date("2026-08-25T00:00:00.000Z"),
+        lastSeenAt: now,
+      },
+    }),
+    client.video.create({
+      data: {
+        youtubeVideoId: "phase11-overlap-video",
+        channelId: overlap.id,
+        title: "Overlap video",
+        publishedAt: new Date("2026-08-24T00:00:00.000Z"),
+        lastSeenAt: now,
+      },
+    }),
+    client.video.create({
+      data: {
+        youtubeVideoId: "phase11-assigned-b-video",
+        channelId: assignedB.id,
+        title: "Assigned B video",
+        publishedAt: new Date("2026-08-23T00:00:00.000Z"),
         lastSeenAt: now,
       },
     }),
@@ -119,6 +169,30 @@ async function seedAccessRows() {
       },
     }),
   ]);
+  await client.videoSnapshot.createMany({
+    data: [assignedVideo, overlapVideo, assignedBVideo, hiddenVideo].flatMap((video, index) => [
+      {
+        videoId: video.id,
+        channelId: video.channelId,
+        capturedAt: new Date("2026-08-19T08:00:00.000Z"),
+        snapshotBucket: new Date("2026-08-19T08:00:00.000Z"),
+        views: BigInt(100 + index),
+        likes: null,
+        comments: null,
+        source: "YTDLP" as const,
+      },
+      {
+        videoId: video.id,
+        channelId: video.channelId,
+        capturedAt: now,
+        snapshotBucket: now,
+        views: BigInt(200 + index),
+        likes: null,
+        comments: null,
+        source: "YTDLP" as const,
+      },
+    ]),
+  });
   await new SessionRepository(client).create({
     userId: viewer.id,
     tokenHash: hashSessionToken(sessionSecret, viewerToken),
@@ -133,9 +207,15 @@ async function seedAccessRows() {
     overlap,
     assignedB,
     hidden,
+    archivedChannel,
     groupA,
     groupB,
+    emptyGroup,
+    archivedGroup,
+    unassignedGroup,
     assignedVideo,
+    overlapVideo,
+    assignedBVideo,
     hiddenVideo,
   };
 }
@@ -164,16 +244,39 @@ describe("real PostgreSQL VIEWER access scope through the API", () => {
 
   afterAll(async () => {
     if (seeded !== undefined) {
+      const videoIds = [
+        seeded.assignedVideo.id,
+        seeded.overlapVideo.id,
+        seeded.assignedBVideo.id,
+        seeded.hiddenVideo.id,
+      ];
+      await client.videoSnapshot.deleteMany({ where: { videoId: { in: videoIds } } });
       await client.video.deleteMany({
-        where: { id: { in: [seeded.assignedVideo.id, seeded.hiddenVideo.id] } },
+        where: { id: { in: videoIds } },
       });
       await client.channelGroup.deleteMany({
-        where: { id: { in: [seeded.groupA.id, seeded.groupB.id] } },
+        where: {
+          id: {
+            in: [
+              seeded.groupA.id,
+              seeded.groupB.id,
+              seeded.emptyGroup.id,
+              seeded.archivedGroup.id,
+              seeded.unassignedGroup.id,
+            ],
+          },
+        },
       });
       await client.channel.deleteMany({
         where: {
           id: {
-            in: [seeded.assignedA.id, seeded.overlap.id, seeded.assignedB.id, seeded.hidden.id],
+            in: [
+              seeded.assignedA.id,
+              seeded.overlap.id,
+              seeded.assignedB.id,
+              seeded.hidden.id,
+              seeded.archivedChannel.id,
+            ],
           },
         },
       });
@@ -195,6 +298,95 @@ describe("real PostgreSQL VIEWER access scope through the API", () => {
     );
   }
 
+  it("scopes all dashboard sources to the VIEWER union, selected group/channel, and empty group", async () => {
+    const sources = [
+      { name: "channels", path: "/api/v1/channels", kind: "channels" },
+      { name: "trends", path: "/api/v1/dashboard/trends", kind: "trends" },
+      { name: "recent videos", path: "/api/v1/videos/recent", kind: "videos" },
+      { name: "weekly ranking", path: "/api/v1/videos/rankings/weekly", kind: "videos" },
+    ] as const;
+    const scopes = [
+      {
+        name: "assigned-group union",
+        query: {},
+        channelIds: [seeded.assignedA.id, seeded.overlap.id, seeded.assignedB.id],
+        videoIds: [seeded.assignedVideo.id, seeded.overlapVideo.id, seeded.assignedBVideo.id],
+      },
+      {
+        name: "assigned group",
+        query: { groupId: seeded.groupA.id },
+        channelIds: [seeded.assignedA.id, seeded.overlap.id],
+        videoIds: [seeded.assignedVideo.id, seeded.overlapVideo.id],
+      },
+      {
+        name: "assigned direct channel",
+        query: { channelId: seeded.assignedA.id },
+        channelIds: [seeded.assignedA.id],
+        videoIds: [seeded.assignedVideo.id],
+      },
+      {
+        name: "assigned group and direct channel",
+        query: { groupId: seeded.groupA.id, channelId: seeded.assignedA.id },
+        channelIds: [seeded.assignedA.id],
+        videoIds: [seeded.assignedVideo.id],
+      },
+      {
+        name: "assigned empty group",
+        query: { groupId: seeded.emptyGroup.id },
+        channelIds: [],
+        videoIds: [],
+      },
+    ];
+
+    for (const source of sources) {
+      for (const scope of scopes) {
+        const response = await viewerGet(source.path).query(scope.query).expect(200);
+        if (source.kind === "trends") {
+          expect(response.body.coverage.totalChannels, `${source.name}: ${scope.name}`).toBe(
+            scope.channelIds.length,
+          );
+          continue;
+        }
+
+        const expectedIds = source.kind === "channels" ? scope.channelIds : scope.videoIds;
+        expect(response.body.total, `${source.name}: ${scope.name}`).toBe(expectedIds.length);
+        expect(
+          response.body.items.map((item: { id: string }) => item.id).sort(),
+          `${source.name}: ${scope.name}`,
+        ).toEqual([...expectedIds].sort());
+      }
+    }
+  });
+
+  it("returns one not-found HTTP shape for every invalid selection across all dashboard sources", async () => {
+    const sources = [
+      ["channels", "/api/v1/channels"],
+      ["trends", "/api/v1/dashboard/trends"],
+      ["recent videos", "/api/v1/videos/recent"],
+      ["weekly ranking", "/api/v1/videos/rankings/weekly"],
+    ] as const;
+    const invalidSelections = [
+      ["missing group", { groupId: missingGroupId }],
+      ["archived group", { groupId: seeded.archivedGroup.id }],
+      ["active unassigned group", { groupId: seeded.unassignedGroup.id }],
+      ["missing channel", { channelId: missingChannelId }],
+      ["archived channel", { channelId: seeded.archivedChannel.id }],
+      ["unauthorized channel", { channelId: seeded.hidden.id }],
+      ["group/channel mismatch", { groupId: seeded.groupA.id, channelId: seeded.assignedB.id }],
+    ] as const;
+    const notFoundBody = {
+      error: { code: "CHANNEL_NOT_FOUND", message: "Channel not found" },
+    };
+
+    for (const [sourceName, path] of sources) {
+      for (const [selectionName, query] of invalidSelections) {
+        const response = await viewerGet(path).query(query);
+        expect(response.status, `${sourceName}: ${selectionName}`).toBe(404);
+        expect(response.body, `${sourceName}: ${selectionName}`).toEqual(notFoundBody);
+      }
+    }
+  });
+
   it("re-evaluates union, replacement, empty assignment and archived groups for one session", async () => {
     await expect(
       new VideoRepository(client).listForRanking({
@@ -205,7 +397,7 @@ describe("real PostgreSQL VIEWER access scope through the API", () => {
     await expectVisibleChannelIds([seeded.assignedA.id, seeded.overlap.id, seeded.assignedB.id]);
     const accessibleGroups = await viewerGet("/api/v1/channel-groups/accessible").expect(200);
     expect(accessibleGroups.body.items.map((item: { id: string }) => item.id).sort()).toEqual(
-      [seeded.groupA.id, seeded.groupB.id].sort(),
+      [seeded.groupA.id, seeded.groupB.id, seeded.emptyGroup.id].sort(),
     );
     await viewerGet(`/api/v1/channels/${seeded.assignedA.id}`).expect(200);
     await viewerGet(`/api/v1/channels/${seeded.assignedA.id}/videos`).expect(200);

@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { parseDashboardTrendsQuery } from "./dashboard.schemas.js";
 
+const groupId = "00000000-0000-4000-8000-000000000001";
+const channelId = "00000000-0000-4000-8000-000000000002";
+
 describe("dashboard trend query", () => {
   it("defaults to 28 days and accepts a bounded explicit period", () => {
     expect(parseDashboardTrendsQuery({})).toEqual({ days: 28 });
@@ -9,9 +12,19 @@ describe("dashboard trend query", () => {
     expect(parseDashboardTrendsQuery({ days: "90" })).toEqual({ days: 90 });
   });
 
+  it("accepts optional group and channel selectors together", () => {
+    expect(parseDashboardTrendsQuery({ days: "28", groupId, channelId })).toEqual({
+      days: 28,
+      groupId,
+      channelId,
+    });
+  });
+
   it("rejects unsafe, zero, oversized and extra values", () => {
     expect(() => parseDashboardTrendsQuery({ days: "0" })).toThrow();
     expect(() => parseDashboardTrendsQuery({ days: "91" })).toThrow();
+    expect(() => parseDashboardTrendsQuery({ groupId: "not-a-uuid" })).toThrow();
+    expect(() => parseDashboardTrendsQuery({ channelId: "not-a-uuid" })).toThrow();
     expect(() => parseDashboardTrendsQuery({ days: "28", revenue: "true" })).toThrow();
   });
 });

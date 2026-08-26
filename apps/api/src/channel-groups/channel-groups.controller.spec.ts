@@ -120,6 +120,14 @@ class GroupHttpApplication implements ChannelGroupsApplicationPort {
   async resolveVisibleChannelIds(subject: ChannelAccessSubject): Promise<string[] | null> {
     return subject.role === "ADMIN" ? null : [CHANNEL_ID];
   }
+
+  async resolveSelectedChannelIds(
+    subject: ChannelAccessSubject,
+    selection: { groupId?: string; channelId?: string },
+  ): Promise<string[] | null> {
+    if (selection.channelId !== undefined) return [selection.channelId];
+    return this.resolveVisibleChannelIds(subject);
+  }
 }
 
 function publicUser(role: "ADMIN" | "VIEWER"): PublicUser {

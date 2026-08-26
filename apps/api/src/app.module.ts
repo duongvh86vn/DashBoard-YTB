@@ -277,6 +277,9 @@ const denyAllChannelGroupsApplication: ChannelGroupsApplicationPort = {
   async resolveVisibleChannelIds(): Promise<string[]> {
     return [];
   },
+  async resolveSelectedChannelIds(): Promise<string[]> {
+    return [];
+  },
 };
 
 class ConfiguredAiHealthReader implements AiHealthReader {

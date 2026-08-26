@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
+  ApiError,
   getAiReport,
   getDashboardTrends,
   getHealth,
   getVietnameseApiMessage,
+  listAccessibleChannelGroups,
   listChannels,
   listRecentVideos,
   listWeeklyVideoRanking,
@@ -57,6 +59,24 @@ function calendarDateInTimeZone(date: Date, timeZone: string): string {
   }).formatToParts(date);
   const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${value.year}-${value.month}-${value.day}`;
+}
+
+async function listAllDashboardChannels(input: {
+  groupId?: string;
+  channelId?: string;
+  signal: AbortSignal;
+}): Promise<Awaited<ReturnType<typeof listChannels>>> {
+  const items: Awaited<ReturnType<typeof listChannels>>["items"] = [];
+  let page = 1;
+  while (true) {
+    const response = await listChannels({ page, pageSize: 100, ...input });
+    items.push(...response.items);
+    const total = response.total;
+    if (items.length >= total || response.items.length === 0) {
+      return { items, page: 1, pageSize: 100, total };
+    }
+    page += 1;
+  }
 }
 
 function sumMetrics(values: Array<string | null>): { total: bigint | null; known: number } {
@@ -199,6 +219,14 @@ function CoverageRow({ label, known, total }: { label: string; known: number; to
 
 export function DashboardScreen() {
   const auth = useAuth();
+  const [groups, setGroups] = useState<
+    Awaited<ReturnType<typeof listAccessibleChannelGroups>>["items"]
+  >([]);
+  const [selectedGroupId, setSelectedGroupId] = useState("");
+  const [selectedChannelId, setSelectedChannelId] = useState("");
+  const [channelOptions, setChannelOptions] = useState<Awaited<
+    ReturnType<typeof listChannels>
+  > | null>(null);
   const [channels, setChannels] = useState<Awaited<ReturnType<typeof listChannels>> | null>(null);
   const [recent, setRecent] = useState<Awaited<ReturnType<typeof listRecentVideos>> | null>(null);
   const [weekly, setWeekly] = useState<Awaited<ReturnType<typeof listWeeklyVideoRanking>> | null>(
@@ -216,19 +244,207 @@ export function DashboardScreen() {
   const [healthUnavailable, setHealthUnavailable] = useState(false);
   const [reportsUnavailable, setReportsUnavailable] = useState(false);
   const [supplementalLoading, setSupplementalLoading] = useState(true);
-  const mounted = useRef(true);
+  const [groupsLoading, setGroupsLoading] = useState(true);
+  const [groupsFailed, setGroupsFailed] = useState(false);
+  const [groupsRefreshKey, setGroupsRefreshKey] = useState(0);
 
   useEffect(() => {
     if (auth.state.status !== "authenticated") return;
 
     const controller = new AbortController();
-    mounted.current = true;
+    setGroupsLoading(true);
+    setGroupsFailed(false);
+    void listAccessibleChannelGroups(controller.signal)
+      .then((response) => {
+        if (controller.signal.aborted) return;
+        setGroups(response.items);
+      })
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted) return;
+        if (!auth.handleApiError(reason)) setGroupsFailed(true);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setGroupsLoading(false);
+      });
+    return () => controller.abort();
+  }, [auth.handleApiError, auth.state.status, groupsRefreshKey]);
+
+  useEffect(() => {
+    if (auth.state.status !== "authenticated") return;
+
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
+    setChannels(null);
+    setRecent(null);
+    setWeekly(null);
+    setTrends(null);
     setChannelsFailed(false);
     setRecentFailed(false);
     setWeeklyFailed(false);
     setTrendsFailed(false);
+
+    const groupScope = selectedGroupId ? { groupId: selectedGroupId } : {};
+    const selectedScope = {
+      ...groupScope,
+      ...(selectedChannelId ? { channelId: selectedChannelId } : {}),
+    };
+    let latestRequestGeneration = 0;
+    let requestInFlight = false;
+    const requestScope = () => {
+      const generation = ++latestRequestGeneration;
+      const optionRequest = listAllDashboardChannels({
+        ...groupScope,
+        signal: controller.signal,
+      });
+      const channelRequest = selectedChannelId
+        ? listAllDashboardChannels({
+            ...selectedScope,
+            signal: controller.signal,
+          })
+        : optionRequest;
+      return Promise.allSettled([
+        channelRequest,
+        optionRequest,
+        listRecentVideos({
+          page: 1,
+          pageSize: 6,
+          ...selectedScope,
+          signal: controller.signal,
+        }),
+        listWeeklyVideoRanking({
+          page: 1,
+          pageSize: 5,
+          ...selectedScope,
+          signal: controller.signal,
+        }),
+        getDashboardTrends({ days: 28, ...selectedScope, signal: controller.signal }),
+      ]).then((results) => ({ generation, results }));
+    };
+
+    type ScopeBatch = Awaited<ReturnType<typeof requestScope>>;
+    const applyScopeResults = (batch: ScopeBatch, replaceFailures: boolean): boolean => {
+      if (controller.signal.aborted || batch.generation !== latestRequestGeneration) return false;
+      const { results } = batch;
+      const [channelResult, optionResult, recentResult, weeklyResult, trendResult] = results;
+      if (
+        selectedChannelId &&
+        optionResult.status === "fulfilled" &&
+        !optionResult.value.items.some((channel) => channel.id === selectedChannelId)
+      ) {
+        setSelectedChannelId("");
+        return false;
+      }
+
+      const failures = [
+        channelResult,
+        optionResult,
+        recentResult,
+        weeklyResult,
+        trendResult,
+      ].flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
+      if (failures.some((reason) => auth.handleApiError(reason))) return false;
+
+      const explicitScopeNotFound =
+        (selectedGroupId !== "" || selectedChannelId !== "") &&
+        failures.find(
+          (reason): reason is ApiError => reason instanceof ApiError && reason.status === 404,
+        );
+      if (explicitScopeNotFound) {
+        setChannels(null);
+        setChannelOptions({ items: [], page: 1, pageSize: 100, total: 0 });
+        setRecent(null);
+        setWeekly(null);
+        setTrends(null);
+        setChannelsFailed(true);
+        setRecentFailed(true);
+        setWeeklyFailed(true);
+        setTrendsFailed(true);
+        setGroupsRefreshKey((value) => value + 1);
+        if (selectedChannelId !== "" && explicitScopeNotFound.code === "CHANNEL_NOT_FOUND") {
+          setSelectedChannelId("");
+        } else {
+          setSelectedChannelId("");
+          setSelectedGroupId("");
+        }
+        return false;
+      }
+
+      if (optionResult.status === "fulfilled") setChannelOptions(optionResult.value);
+      if (replaceFailures || channelResult.status === "fulfilled") {
+        setChannels(channelResult.status === "fulfilled" ? channelResult.value : null);
+      }
+      if (replaceFailures || recentResult.status === "fulfilled") {
+        setRecent(recentResult.status === "fulfilled" ? recentResult.value : null);
+      }
+      if (replaceFailures || weeklyResult.status === "fulfilled") {
+        setWeekly(weeklyResult.status === "fulfilled" ? weeklyResult.value : null);
+      }
+      if (replaceFailures || trendResult.status === "fulfilled") {
+        setTrends(trendResult.status === "fulfilled" ? trendResult.value : null);
+      }
+      setChannelsFailed(channelResult.status === "rejected");
+      setRecentFailed(recentResult.status === "rejected");
+      setWeeklyFailed(weeklyResult.status === "rejected");
+      setTrendsFailed(trendResult.status === "rejected");
+      setError(failures.length > 0 ? getVietnameseApiMessage(failures[0]) : null);
+      setLoading(false);
+      return true;
+    };
+
+    const runScopeRequest = async (replaceFailures: boolean): Promise<ScopeBatch | null> => {
+      if (controller.signal.aborted || requestInFlight) return null;
+      requestInFlight = true;
+      try {
+        const batch = await requestScope();
+        return applyScopeResults(batch, replaceFailures) ? batch : null;
+      } finally {
+        requestInFlight = false;
+      }
+    };
+
+    void runScopeRequest(true);
+
+    const dashboardRefreshTimer = window.setInterval(() => {
+      void runScopeRequest(false);
+    }, 60_000);
+
+    // A newly added channel is collected asynchronously by the worker. Poll only
+    // when the previous dashboard batch has settled during this bounded warm-up
+    // window, then fall back to the regular one-minute dashboard refresh.
+    let warmupAttempts = 0;
+    const snapshotWarmupTimer = window.setInterval(() => {
+      warmupAttempts += 1;
+      if (warmupAttempts >= 12) window.clearInterval(snapshotWarmupTimer);
+      void runScopeRequest(false).then((batch) => {
+        if (batch === null) return;
+        const [channelResult] = batch.results;
+        if (channelResult.status === "fulfilled") {
+          const enabled = channelResult.value.items.filter((channel) => channel.isEnabled);
+          if (
+            enabled.length === 0 ||
+            enabled.every((channel) => channel.lastChannelScanAt !== null) ||
+            warmupAttempts >= 12
+          ) {
+            window.clearInterval(snapshotWarmupTimer);
+          }
+        } else if (warmupAttempts >= 12) {
+          window.clearInterval(snapshotWarmupTimer);
+        }
+      });
+    }, 10_000);
+
+    return () => {
+      controller.abort();
+      window.clearInterval(dashboardRefreshTimer);
+      window.clearInterval(snapshotWarmupTimer);
+    };
+  }, [auth.handleApiError, auth.state.status, selectedChannelId, selectedGroupId]);
+
+  useEffect(() => {
+    if (auth.state.status !== "authenticated") return;
+
+    const controller = new AbortController();
     setHealthUnavailable(false);
     setReportsUnavailable(false);
     setSupplementalLoading(true);
@@ -241,106 +457,9 @@ export function DashboardScreen() {
     const weeklyReportRequest = isAdminUser
       ? getAiReport("weekly", reportDate)
       : Promise.resolve(null);
-    void Promise.allSettled([
-      listChannels({ page: 1, pageSize: 100, signal: controller.signal }),
-      listRecentVideos({ page: 1, pageSize: 6, signal: controller.signal }),
-      listWeeklyVideoRanking({ page: 1, pageSize: 5, signal: controller.signal }),
-      getDashboardTrends(28, controller.signal),
-    ])
-      .then(([channelResult, recentResult, weeklyResult, trendResult]) => {
-        if (!mounted.current || controller.signal.aborted) return;
-
-        const failures = [channelResult, recentResult, weeklyResult, trendResult].flatMap(
-          (result) => (result.status === "rejected" ? [result.reason] : []),
-        );
-        if (failures.some((reason) => auth.handleApiError(reason))) return;
-
-        setChannels(channelResult.status === "fulfilled" ? channelResult.value : null);
-        setRecent(recentResult.status === "fulfilled" ? recentResult.value : null);
-        setWeekly(weeklyResult.status === "fulfilled" ? weeklyResult.value : null);
-        setTrends(trendResult.status === "fulfilled" ? trendResult.value : null);
-        setChannelsFailed(channelResult.status === "rejected");
-        setRecentFailed(recentResult.status === "rejected");
-        setWeeklyFailed(weeklyResult.status === "rejected");
-        setTrendsFailed(trendResult.status === "rejected");
-        setError(failures.length > 0 ? getVietnameseApiMessage(failures[0]) : null);
-      })
-      .finally(() => {
-        if (mounted.current && !controller.signal.aborted) setLoading(false);
-      });
-
-    const dashboardRefreshTimer = window.setInterval(() => {
-      void Promise.allSettled([
-        listChannels({ page: 1, pageSize: 100, signal: controller.signal }),
-        listRecentVideos({ page: 1, pageSize: 6, signal: controller.signal }),
-        listWeeklyVideoRanking({ page: 1, pageSize: 5, signal: controller.signal }),
-        getDashboardTrends(28, controller.signal),
-      ]).then(([channelResult, recentResult, weeklyResult, trendResult]) => {
-        if (!mounted.current || controller.signal.aborted) return;
-        const failures = [channelResult, recentResult, weeklyResult, trendResult].flatMap(
-          (result) => (result.status === "rejected" ? [result.reason] : []),
-        );
-        if (failures.some((reason) => auth.handleApiError(reason))) return;
-
-        if (channelResult.status === "fulfilled") {
-          setChannels(channelResult.value);
-          setChannelsFailed(false);
-        }
-        if (recentResult.status === "fulfilled") {
-          setRecent(recentResult.value);
-          setRecentFailed(false);
-        }
-        if (weeklyResult.status === "fulfilled") {
-          setWeekly(weeklyResult.value);
-          setWeeklyFailed(false);
-        }
-        if (trendResult.status === "fulfilled") {
-          setTrends(trendResult.value);
-          setTrendsFailed(false);
-        }
-      });
-    }, 60_000);
-
-    // A newly added channel is collected asynchronously by the worker. Poll only
-    // the two snapshot-dependent endpoints more quickly during that bounded
-    // warm-up window, then fall back to the regular one-minute dashboard refresh.
-    let warmupAttempts = 0;
-    const snapshotWarmupTimer = window.setInterval(() => {
-      warmupAttempts += 1;
-      void Promise.allSettled([
-        listChannels({ page: 1, pageSize: 100, signal: controller.signal }),
-        getDashboardTrends(28, controller.signal),
-      ]).then(([channelResult, trendResult]) => {
-        if (!mounted.current || controller.signal.aborted) return;
-        const failures = [channelResult, trendResult].flatMap((result) =>
-          result.status === "rejected" ? [result.reason] : [],
-        );
-        if (failures.some((reason) => auth.handleApiError(reason))) return;
-
-        if (channelResult.status === "fulfilled") {
-          setChannels(channelResult.value);
-          setChannelsFailed(false);
-          const enabled = channelResult.value.items.filter((channel) => channel.isEnabled);
-          if (
-            enabled.length === 0 ||
-            enabled.every((channel) => channel.lastChannelScanAt !== null) ||
-            warmupAttempts >= 12
-          ) {
-            window.clearInterval(snapshotWarmupTimer);
-          }
-        } else if (warmupAttempts >= 12) {
-          window.clearInterval(snapshotWarmupTimer);
-        }
-        if (trendResult.status === "fulfilled") {
-          setTrends(trendResult.value);
-          setTrendsFailed(false);
-        }
-      });
-    }, 10_000);
-
     void Promise.allSettled([healthRequest, dailyReportRequest, weeklyReportRequest])
       .then(([healthResult, dailyResult, weeklyReportResult]) => {
-        if (!mounted.current || controller.signal.aborted) return;
+        if (controller.signal.aborted) return;
         const failures = [healthResult, dailyResult, weeklyReportResult].flatMap((result) =>
           result.status === "rejected" ? [result.reason] : [],
         );
@@ -359,15 +478,10 @@ export function DashboardScreen() {
         );
       })
       .finally(() => {
-        if (mounted.current && !controller.signal.aborted) setSupplementalLoading(false);
+        if (!controller.signal.aborted) setSupplementalLoading(false);
       });
-    return () => {
-      mounted.current = false;
-      controller.abort();
-      window.clearInterval(dashboardRefreshTimer);
-      window.clearInterval(snapshotWarmupTimer);
-    };
-  }, [auth]);
+    return () => controller.abort();
+  }, [auth.handleApiError, auth.state]);
 
   const channelItems = channels?.items ?? [];
   const hasCompleteChannelCoverage = channels ? channelItems.length >= channels.total : false;
@@ -462,6 +576,15 @@ export function DashboardScreen() {
     .flatMap((channel) => (channel.lastChannelScanAt ? [channel.lastChannelScanAt] : []))
     .sort((left, right) => right.localeCompare(left))[0];
   const isAdmin = auth.state.status === "authenticated" && auth.state.user.role === "ADMIN";
+  const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? null;
+  const selectableChannels = channelOptions?.items ?? [];
+  const selectedChannel =
+    selectableChannels.find((channel) => channel.id === selectedChannelId) ?? null;
+  const scopeLabel = selectedChannel
+    ? selectedChannel.title
+    : selectedGroup
+      ? `Tất cả kênh · ${selectedGroup.name}`
+      : "Tất cả nhóm được phép";
 
   return (
     <div className="mx-auto max-w-[92rem] space-y-7">
@@ -510,6 +633,75 @@ export function DashboardScreen() {
           Đang tải dashboard…
         </p>
       ) : null}
+
+      <section
+        className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto] xl:items-end"
+        aria-label="Phạm vi dashboard"
+      >
+        <label className="field-label" htmlFor="dashboard-group-filter">
+          <span>Nhóm kênh</span>
+          <select
+            className="field-input"
+            id="dashboard-group-filter"
+            value={selectedGroupId}
+            disabled={groupsLoading || groupsFailed}
+            onChange={(event) => {
+              setSelectedGroupId(event.target.value);
+              setSelectedChannelId("");
+              setChannelOptions(null);
+            }}
+          >
+            <option value="">Tất cả nhóm được phép</option>
+            {groups.map((group) => (
+              <option value={group.id} key={group.id}>
+                {group.name} ({group.channelCount} kênh)
+              </option>
+            ))}
+          </select>
+          <span className="text-xs font-medium text-slate-500">
+            {groupsLoading
+              ? "Đang tải nhóm được cấp quyền…"
+              : groupsFailed
+                ? "Không tải được danh sách nhóm."
+                : `${groups.length} nhóm có thể xem`}
+          </span>
+        </label>
+
+        <label className="field-label" htmlFor="dashboard-channel-filter">
+          <span>Kênh cần xem</span>
+          <select
+            className="field-input"
+            id="dashboard-channel-filter"
+            value={selectedChannelId}
+            disabled={loading || channelOptions === null}
+            onChange={(event) => setSelectedChannelId(event.target.value)}
+          >
+            <option value="">
+              {selectedGroup ? "Tất cả kênh của nhóm này" : "Tất cả kênh được phép"}
+            </option>
+            {selectableChannels.map((channel) => (
+              <option value={channel.id} key={channel.id}>
+                {channel.title}
+                {channel.handle ? ` · ${channel.handle}` : ""}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs font-medium text-slate-500">
+            {loading
+              ? "Đang tải kênh trong phạm vi…"
+              : `${channelOptions?.total ?? 0} kênh có thể chọn`}
+          </span>
+        </label>
+
+        <div className="rounded-xl bg-slate-950 px-4 py-3 text-white md:col-span-2 xl:col-span-1">
+          <p className="text-[11px] font-black uppercase tracking-[0.16em] text-sky-300">
+            Đang xem
+          </p>
+          <p className="mt-1 max-w-xs truncate text-sm font-bold" title={scopeLabel}>
+            {scopeLabel}
+          </p>
+        </div>
+      </section>
 
       <section className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4" aria-label="Chỉ số tổng quan">
         {[
@@ -811,11 +1003,16 @@ export function DashboardScreen() {
                 Tình trạng hệ thống
               </h2>
             </div>
-            {health ? (
-              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
-                ADMIN live check
+            <div className="flex flex-wrap justify-end gap-2">
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+                Toàn hệ thống · Chỉ ADMIN
               </span>
-            ) : null}
+              {health ? (
+                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+                  ADMIN live check
+                </span>
+              ) : null}
+            </div>
           </div>
           {health ? (
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -930,11 +1127,23 @@ export function DashboardScreen() {
               <p className="eyebrow">Analysis layer</p>
               <h2 className="mt-1 text-xl font-black text-slate-950">Báo cáo AI</h2>
             </div>
-            <Link className="text-sm font-bold text-sky-700 underline" href="/settings/ai">
-              Cài đặt
-            </Link>
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+                Toàn hệ thống · Chỉ ADMIN
+              </span>
+              {isAdmin ? (
+                <Link className="text-sm font-bold text-sky-700 underline" href="/settings/ai">
+                  Cài đặt
+                </Link>
+              ) : null}
+            </div>
           </div>
           <div className="mt-5 space-y-3">
+            {!isAdmin ? (
+              <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">
+                Báo cáo AI toàn hệ thống chỉ dành cho ADMIN.
+              </p>
+            ) : null}
             {supplementalLoading ? (
               <p
                 className="rounded-xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-800"

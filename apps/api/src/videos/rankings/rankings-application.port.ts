@@ -1,6 +1,9 @@
 export const VIDEO_RANKINGS_APPLICATION_PORT = Symbol("VIDEO_RANKINGS_APPLICATION_PORT");
 
-import type { ChannelAccessSubject } from "../../channel-groups/channel-groups-application.port.js";
+import type {
+  ChannelAccessSubject,
+  ChannelSelection,
+} from "../../channel-groups/channel-groups-application.port.js";
 import type { PublicVideoSnapshot } from "../videos-application.port.js";
 
 export interface PublicRankedVideo {
@@ -64,30 +67,34 @@ export interface PublicVideoDetail {
 
 export interface VideoRankingsApplicationPort {
   get(input: { videoId: string; subject: ChannelAccessSubject }): Promise<PublicVideoDetail>;
-  recent(input: {
-    channelId?: string;
-    page: number;
-    pageSize: number;
-    subject: ChannelAccessSubject;
-  }): Promise<VideoRankingPage>;
-  weekly(input: {
-    channelId?: string;
-    page: number;
-    pageSize: number;
-    subject: ChannelAccessSubject;
-  }): Promise<VideoRankingPage>;
-  hot(input: {
-    channelId?: string;
-    page: number;
-    pageSize: number;
-    subject: ChannelAccessSubject;
-  }): Promise<VideoRankingPage>;
-  breakout(input: {
-    channelId?: string;
-    page: number;
-    pageSize: number;
-    subject: ChannelAccessSubject;
-  }): Promise<VideoRankingPage>;
+  recent(
+    input: {
+      page: number;
+      pageSize: number;
+      subject: ChannelAccessSubject;
+    } & ChannelSelection,
+  ): Promise<VideoRankingPage>;
+  weekly(
+    input: {
+      page: number;
+      pageSize: number;
+      subject: ChannelAccessSubject;
+    } & ChannelSelection,
+  ): Promise<VideoRankingPage>;
+  hot(
+    input: {
+      page: number;
+      pageSize: number;
+      subject: ChannelAccessSubject;
+    } & ChannelSelection,
+  ): Promise<VideoRankingPage>;
+  breakout(
+    input: {
+      page: number;
+      pageSize: number;
+      subject: ChannelAccessSubject;
+    } & ChannelSelection,
+  ): Promise<VideoRankingPage>;
   snapshots(input: {
     videoId: string;
     page: number;

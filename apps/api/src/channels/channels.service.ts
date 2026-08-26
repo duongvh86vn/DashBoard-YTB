@@ -31,13 +31,14 @@ import type {
   SyncRunsPage,
 } from "./channels-application.port.js";
 import type {
-  ChannelAccessResolverPort,
   ChannelAccessSubject,
+  ChannelSelection,
+  ChannelSelectionResolverPort,
 } from "../channel-groups/channel-groups-application.port.js";
 
 interface ChannelsServiceDependencies {
   unitOfWork: Pick<ChannelUnitOfWork, "transaction">;
-  access: ChannelAccessResolverPort;
+  access: ChannelSelectionResolverPort;
   provider: ChannelProviderPort;
   timeZone?: string;
   now?: () => Date;
@@ -388,13 +389,22 @@ export class ChannelsService implements ChannelsApplicationPort {
     if (visible !== null && !visible.includes(id)) throw ChannelApplicationError.notFound();
   }
 
-  async list(input: { page: number; pageSize: number; subject: ChannelAccessSubject }): Promise<{
+  async list(
+    input: {
+      page: number;
+      pageSize: number;
+      subject: ChannelAccessSubject;
+    } & ChannelSelection,
+  ): Promise<{
     items: PublicChannel[];
     page: number;
     pageSize: number;
     total: number;
   }> {
-    const channelIds = await this.visibleChannelIds(input.subject);
+    const channelIds = await this.dependencies.access.resolveSelectedChannelIds(input.subject, {
+      ...(input.groupId === undefined ? {} : { groupId: input.groupId }),
+      ...(input.channelId === undefined ? {} : { channelId: input.channelId }),
+    });
     const page = await this.dependencies.unitOfWork.transaction((repositories) =>
       repositories.channels.list({
         page: input.page,

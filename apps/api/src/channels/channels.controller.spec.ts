@@ -8,6 +8,7 @@ import { CHANNELS_APPLICATION_PORT } from "./channels-application.port.js";
 import { ChannelsController } from "./channels.controller.js";
 
 const channelId = "00000000-0000-4000-8000-000000000003";
+const groupId = "00000000-0000-4000-8000-000000000004";
 const viewer = {
   id: "00000000-0000-4000-8000-000000000002",
   email: "viewer@example.test",
@@ -75,6 +76,20 @@ describe("ChannelsController public intelligence", () => {
       id: channelId,
       page: 1,
       pageSize: 20,
+      subject: viewer,
+    });
+  });
+
+  it("forwards group and channel filters to the channel listing", async () => {
+    await request(app.getHttpServer())
+      .get(`/api/v1/channels?groupId=${groupId}&channelId=${channelId}`)
+      .expect(200);
+
+    expect(list).toHaveBeenLastCalledWith({
+      page: 1,
+      pageSize: 20,
+      groupId,
+      channelId,
       subject: viewer,
     });
   });

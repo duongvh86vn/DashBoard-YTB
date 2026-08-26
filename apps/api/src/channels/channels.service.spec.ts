@@ -43,6 +43,7 @@ const viewerSubject = {
 function access(visibleChannelIds: string[] | null = null) {
   return {
     resolveVisibleChannelIds: vi.fn(async () => visibleChannelIds),
+    resolveSelectedChannelIds: vi.fn(async () => visibleChannelIds),
   };
 }
 

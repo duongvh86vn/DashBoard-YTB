@@ -284,6 +284,14 @@ export function listChannelGroups(signal?: AbortSignal): Promise<ChannelGroupsRe
   });
 }
 
+export function listAccessibleChannelGroups(signal?: AbortSignal): Promise<ChannelGroupsResponse> {
+  return requestApi("/api/v1/channel-groups/accessible", {
+    method: "GET",
+    schema: ChannelGroupsResponseSchema,
+    ...(signal ? { signal } : {}),
+  });
+}
+
 export async function getChannelGroup(
   id: string,
   signal?: AbortSignal,
@@ -349,9 +357,13 @@ export async function replaceViewerChannelGroups(id: string, groupIds: string[])
 export async function listChannels(input: {
   page: number;
   pageSize: number;
+  groupId?: string;
+  channelId?: string;
   signal?: AbortSignal;
 }): Promise<ChannelsPage> {
   const query = new URLSearchParams({ page: String(input.page), pageSize: String(input.pageSize) });
+  if (input.groupId) query.set("groupId", input.groupId);
+  if (input.channelId) query.set("channelId", input.channelId);
   return requestApi(`/api/v1/channels?${query.toString()}`, {
     method: "GET",
     schema: ChannelsPageSchema,
@@ -463,11 +475,13 @@ async function listVideoRanking(
   input: {
     page: number;
     pageSize: number;
+    groupId?: string;
     channelId?: string;
     signal?: AbortSignal;
   },
 ): Promise<VideoRankingPage> {
   const query = new URLSearchParams({ page: String(input.page), pageSize: String(input.pageSize) });
+  if (input.groupId) query.set("groupId", input.groupId);
   if (input.channelId) query.set("channelId", input.channelId);
   return requestApi(`/api/v1/videos/${path}?${query.toString()}`, {
     method: "GET",
@@ -492,15 +506,19 @@ export function listBreakoutVideoRanking(input: Parameters<typeof listVideoRanki
   return listVideoRanking("rankings/breakout", input);
 }
 
-export function getDashboardTrends(
-  days: number,
-  signal?: AbortSignal,
-): Promise<DashboardTrendResponse> {
-  const query = new URLSearchParams({ days: String(days) });
+export function getDashboardTrends(input: {
+  days: number;
+  groupId?: string;
+  channelId?: string;
+  signal?: AbortSignal;
+}): Promise<DashboardTrendResponse> {
+  const query = new URLSearchParams({ days: String(input.days) });
+  if (input.groupId) query.set("groupId", input.groupId);
+  if (input.channelId) query.set("channelId", input.channelId);
   return requestApi(`/api/v1/dashboard/trends?${query.toString()}`, {
     method: "GET",
     schema: DashboardTrendResponseSchema,
-    ...(signal ? { signal } : {}),
+    ...(input.signal ? { signal: input.signal } : {}),
   });
 }
 

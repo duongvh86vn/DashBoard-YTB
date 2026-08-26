@@ -1,5 +1,8 @@
 import type { PublicChannelProvider, PublicIntelligenceResponse } from "@yt-monitor/shared";
-import type { ChannelAccessSubject } from "../channel-groups/channel-groups-application.port.js";
+import type {
+  ChannelAccessSubject,
+  ChannelSelection,
+} from "../channel-groups/channel-groups-application.port.js";
 
 export const CHANNELS_APPLICATION_PORT = Symbol("CHANNELS_APPLICATION_PORT");
 export const CHANNEL_PROVIDER = Symbol("CHANNEL_PROVIDER");
@@ -49,7 +52,13 @@ export interface PublicChannel {
 }
 
 export interface ChannelsApplicationPort {
-  list(input: { page: number; pageSize: number; subject: ChannelAccessSubject }): Promise<{
+  list(
+    input: {
+      page: number;
+      pageSize: number;
+      subject: ChannelAccessSubject;
+    } & ChannelSelection,
+  ): Promise<{
     items: PublicChannel[];
     page: number;
     pageSize: number;

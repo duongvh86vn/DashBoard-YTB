@@ -10,7 +10,53 @@ export function parseCreateChannelBody(value: unknown): { channelUrl: string } {
   return parsed.data;
 }
 
-export function parseListChannelsQuery(value: unknown): { page: number; pageSize: number } {
+export function parseListChannelsQuery(value: unknown): {
+  page: number;
+  pageSize: number;
+  groupId?: string;
+  channelId?: string;
+} {
+  const parsed = strictObject({
+    groupId: z.uuid().optional(),
+    channelId: z.uuid().optional(),
+    page: z
+      .string()
+      .regex(/^[1-9]\d*$/u)
+      .transform(Number)
+      .optional(),
+    pageSize: z
+      .string()
+      .regex(/^[1-9]\d*$/u)
+      .transform(Number)
+      .optional(),
+  }).safeParse(value);
+  if (!parsed.success) throw ChannelApplicationError.validation();
+  const page = parsed.data.page ?? 1;
+  const pageSize = parsed.data.pageSize ?? 20;
+  const offset = (page - 1) * pageSize;
+  if (
+    !Number.isSafeInteger(page) ||
+    !Number.isSafeInteger(pageSize) ||
+    pageSize > 100 ||
+    !Number.isSafeInteger(offset)
+  ) {
+    throw ChannelApplicationError.validation();
+  }
+  return {
+    page,
+    pageSize,
+    ...(parsed.data.groupId === undefined ? {} : { groupId: parsed.data.groupId }),
+    ...(parsed.data.channelId === undefined ? {} : { channelId: parsed.data.channelId }),
+  };
+}
+
+export function parseListHealthHistoryQuery(value: unknown): { page: number; pageSize: number } {
+  return parsePageQuery(value);
+}
+
+export const parseListSyncRunsQuery = parseListHealthHistoryQuery;
+
+function parsePageQuery(value: unknown): { page: number; pageSize: number } {
   const parsed = strictObject({
     page: z
       .string()
@@ -37,9 +83,6 @@ export function parseListChannelsQuery(value: unknown): { page: number; pageSize
   }
   return { page, pageSize };
 }
-
-export const parseListHealthHistoryQuery = parseListChannelsQuery;
-export const parseListSyncRunsQuery = parseListChannelsQuery;
 
 export function parsePublicIntelligenceQuery(value: unknown): { days: number } {
   const parsed = strictObject({

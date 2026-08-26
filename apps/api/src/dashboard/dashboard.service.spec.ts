@@ -83,6 +83,7 @@ function service(input: {
   stats: ReturnType<typeof stat>[];
   videos?: Array<{ channelId: string; publishedAt: Date | null }>;
   visibleChannelIds?: string[] | null;
+  selectedChannelIds?: string[] | null;
 }) {
   const listByChannelsAndDateRange = vi.fn(async (channelIds: string[]) =>
     input.stats.filter((item) => channelIds.includes(item.channelId)),
@@ -90,12 +91,23 @@ function service(input: {
   const listPublishedBetween = vi.fn(async (_start: Date, _end: Date, channelIds: string[]) =>
     (input.videos ?? []).filter((item) => channelIds.includes(item.channelId)),
   );
+  const resolveSelectedChannelIds = vi.fn(async (_subject, selection) => {
+    if ("selectedChannelIds" in input) return input.selectedChannelIds ?? null;
+    const visible = input.visibleChannelIds ?? null;
+    if (selection.channelId === undefined) return visible;
+    if (visible !== null && !visible.includes(selection.channelId)) {
+      throw new Error("not visible");
+    }
+    return [selection.channelId];
+  });
   return {
     listByChannelsAndDateRange,
     listPublishedBetween,
+    resolveSelectedChannelIds,
     value: new DashboardService({
       access: {
         resolveVisibleChannelIds: async () => input.visibleChannelIds ?? null,
+        resolveSelectedChannelIds,
       },
       timeZone: "Asia/Bangkok",
       now: () => new Date("2026-08-25T08:00:00.000Z"),
@@ -185,6 +197,52 @@ describe("DashboardService trends", () => {
       publishedVideos: 0,
     });
     expect(result.coverage.totalChannels).toBe(0);
+  });
+
+  it("aggregates every dashboard metric only across the resolved group and channel selection", async () => {
+    const selectedId = "00000000-0000-4000-8000-000000000102";
+    const groupId = "00000000-0000-4000-8000-000000000201";
+    const fixture = service({
+      channels: [channel(), channel({ id: selectedId })],
+      stats: [
+        stat("2026-08-24", {
+          subscriberCount: 13n,
+          lifetimeViewCount: 1_025n,
+          subscriberDelta: 2n,
+          viewDelta: 15n,
+        }),
+        stat("2026-08-24", {
+          channelId: selectedId,
+          subscriberCount: 20n,
+          lifetimeViewCount: 2_000n,
+          subscriberDelta: 3n,
+          viewDelta: 30n,
+        }),
+      ],
+      videos: [
+        { channelId, publishedAt: new Date("2026-08-24T02:00:00.000Z") },
+        { channelId: selectedId, publishedAt: new Date("2026-08-24T03:00:00.000Z") },
+      ],
+      selectedChannelIds: [selectedId],
+    });
+
+    const result = await fixture.value.trends({
+      days: 2,
+      groupId,
+      channelId: selectedId,
+      subject: viewerSubject,
+    });
+
+    expect(fixture.resolveSelectedChannelIds).toHaveBeenCalledWith(viewerSubject, {
+      groupId,
+      channelId: selectedId,
+    });
+    expect(result.coverage.totalChannels).toBe(1);
+    expect(result.series[0]).toMatchObject({
+      viewDelta: "30",
+      subscriberDelta: "3",
+      publishedVideos: 1,
+    });
   });
 
   it("returns real cumulative 28-day totals and real daily deltas without revenue", async () => {

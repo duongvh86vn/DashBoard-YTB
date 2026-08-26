@@ -14,7 +14,24 @@ export interface ChannelAccessResolverPort {
   resolveVisibleChannelIds(subject: ChannelAccessSubject): Promise<string[] | null>;
 }
 
-export interface ChannelGroupsApplicationPort extends ChannelAccessResolverPort {
+export interface ChannelSelection {
+  groupId?: string;
+  channelId?: string;
+}
+
+export interface ChannelSelectionResolverPort extends ChannelAccessResolverPort {
+  /**
+   * Resolves an optional group/channel selection against the actor's access scope.
+   * `null` is returned only for an unrestricted ADMIN selection with no filters.
+   * Invalid, archived, or inaccessible explicit selections use not-found semantics.
+   */
+  resolveSelectedChannelIds(
+    subject: ChannelAccessSubject,
+    selection: ChannelSelection,
+  ): Promise<string[] | null>;
+}
+
+export interface ChannelGroupsApplicationPort extends ChannelSelectionResolverPort {
   list(): Promise<{ items: ChannelGroupSummary[] }>;
   listAccessible(input: {
     subject: ChannelAccessSubject;

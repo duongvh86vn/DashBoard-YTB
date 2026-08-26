@@ -14,6 +14,11 @@ const ADMIN_ID = "00000000-0000-4000-8000-000000000003";
 const CHANNEL_ID = "00000000-0000-4000-8000-000000000004";
 const SECOND_CHANNEL_ID = "00000000-0000-4000-8000-000000000005";
 const NEW_GROUP_ID = "00000000-0000-4000-8000-000000000006";
+const EMPTY_GROUP_ID = "00000000-0000-4000-8000-000000000007";
+const ARCHIVED_GROUP_ID = "00000000-0000-4000-8000-000000000008";
+const MISSING_GROUP_ID = "00000000-0000-4000-8000-000000000009";
+const ARCHIVED_CHANNEL_ID = "00000000-0000-4000-8000-000000000010";
+const MISSING_CHANNEL_ID = "00000000-0000-4000-8000-000000000011";
 
 function group(overrides: Partial<ChannelGroupAggregateRecord> = {}): ChannelGroupAggregateRecord {
   return {
@@ -30,12 +35,16 @@ function group(overrides: Partial<ChannelGroupAggregateRecord> = {}): ChannelGro
   };
 }
 
-function serviceWith(channelGroups: Record<string, unknown>) {
+function serviceWith(
+  channelGroups: Record<string, unknown>,
+  channels: Record<string, unknown> = {},
+) {
   return new ChannelGroupsService({
     unitOfWork: {
       transaction: async <T>(work: (repositories: ChannelRepositories) => Promise<T>) =>
         work({
           channelGroups,
+          channels,
           audit: { append: async () => ({}) },
         } as unknown as ChannelRepositories),
     },
@@ -185,6 +194,126 @@ describe("ChannelGroupsService", () => {
       ],
     });
     expect(listAccessibleForUser).toHaveBeenCalledExactlyOnceWith(VIEWER_ID);
+  });
+
+  it.each([
+    ["ADMIN no filter", { id: ADMIN_ID, role: "ADMIN" as const }, {}, null],
+    [
+      "VIEWER no filter",
+      { id: VIEWER_ID, role: "VIEWER" as const },
+      {},
+      [CHANNEL_ID, SECOND_CHANNEL_ID],
+    ],
+    [
+      "ADMIN active direct channel",
+      { id: ADMIN_ID, role: "ADMIN" as const },
+      { channelId: CHANNEL_ID },
+      [CHANNEL_ID],
+    ],
+    [
+      "VIEWER active direct channel",
+      { id: VIEWER_ID, role: "VIEWER" as const },
+      { channelId: CHANNEL_ID },
+      [CHANNEL_ID],
+    ],
+    [
+      "VIEWER assigned empty group",
+      { id: VIEWER_ID, role: "VIEWER" as const },
+      { groupId: EMPTY_GROUP_ID },
+      [],
+    ],
+    [
+      "ADMIN active group",
+      { id: ADMIN_ID, role: "ADMIN" as const },
+      { groupId: GROUP_ID },
+      [CHANNEL_ID],
+    ],
+    [
+      "VIEWER assigned group",
+      { id: VIEWER_ID, role: "VIEWER" as const },
+      { groupId: GROUP_ID },
+      [CHANNEL_ID],
+    ],
+    [
+      "VIEWER matching group and channel",
+      { id: VIEWER_ID, role: "VIEWER" as const },
+      { groupId: GROUP_ID, channelId: CHANNEL_ID },
+      [CHANNEL_ID],
+    ],
+    [
+      "missing group",
+      { id: ADMIN_ID, role: "ADMIN" as const },
+      { groupId: MISSING_GROUP_ID },
+      "NOT_FOUND",
+    ],
+    [
+      "archived group",
+      { id: ADMIN_ID, role: "ADMIN" as const },
+      { groupId: ARCHIVED_GROUP_ID },
+      "NOT_FOUND",
+    ],
+    [
+      "unassigned group",
+      { id: VIEWER_ID, role: "VIEWER" as const },
+      { groupId: NEW_GROUP_ID },
+      "NOT_FOUND",
+    ],
+    [
+      "missing direct channel",
+      { id: ADMIN_ID, role: "ADMIN" as const },
+      { channelId: MISSING_CHANNEL_ID },
+      "NOT_FOUND",
+    ],
+    [
+      "archived direct channel",
+      { id: ADMIN_ID, role: "ADMIN" as const },
+      { channelId: ARCHIVED_CHANNEL_ID },
+      "NOT_FOUND",
+    ],
+    [
+      "unauthorized direct channel",
+      { id: VIEWER_ID, role: "VIEWER" as const },
+      { channelId: ARCHIVED_CHANNEL_ID },
+      "NOT_FOUND",
+    ],
+    [
+      "group and channel mismatch",
+      { id: VIEWER_ID, role: "VIEWER" as const },
+      { groupId: GROUP_ID, channelId: SECOND_CHANNEL_ID },
+      "NOT_FOUND",
+    ],
+  ])("resolves the selection matrix for %s", async (_name, subject, selection, expected) => {
+    const activeGroups = new Map([
+      [GROUP_ID, group({ channelIds: [CHANNEL_ID] })],
+      [EMPTY_GROUP_ID, group({ id: EMPTY_GROUP_ID, channelIds: [] })],
+      [NEW_GROUP_ID, group({ id: NEW_GROUP_ID, channelIds: [SECOND_CHANNEL_ID], viewerIds: [] })],
+    ]);
+    const viewerGroups = [activeGroups.get(GROUP_ID)!, activeGroups.get(EMPTY_GROUP_ID)!];
+    const service = serviceWith(
+      {
+        accessibleChannelIdsForUser: async () => [CHANNEL_ID, SECOND_CHANNEL_ID],
+        listAccessibleForUser: async () => viewerGroups,
+        findActiveById: async (id: string) => activeGroups.get(id) ?? null,
+      },
+      {
+        findById: async (id: string) => {
+          if (id === CHANNEL_ID || id === SECOND_CHANNEL_ID) return { id, archivedAt: null };
+          if (id === ARCHIVED_CHANNEL_ID) return { id, archivedAt: new Date() };
+          return null;
+        },
+      },
+    );
+
+    const resolution = service.resolveSelectedChannelIds(subject, selection);
+    if (expected === "NOT_FOUND") {
+      await expect(resolution).rejects.toMatchObject({
+        status: 404,
+        code: "CHANNEL_NOT_FOUND",
+        body: { error: { code: "CHANNEL_NOT_FOUND", message: "Channel not found" } },
+      });
+      return;
+    }
+    await expect(resolution).resolves.toEqual(expected);
   });
 
   it("replaces channel membership and reads the updated group in one transaction", async () => {

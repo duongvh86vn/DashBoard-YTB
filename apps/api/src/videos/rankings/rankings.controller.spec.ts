@@ -4,10 +4,13 @@ import type { RequestHandler } from "express";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { AuthApplicationExceptionFilter } from "../../auth/auth-application-exception.filter.js";
 import { VIDEO_RANKINGS_APPLICATION_PORT } from "./rankings-application.port.js";
 import { VideoRankingsController } from "./rankings.controller.js";
 
 const videoId = "00000000-0000-4000-8000-000000000030";
+const groupId = "00000000-0000-4000-8000-000000000031";
+const channelId = "00000000-0000-4000-8000-000000000032";
 const viewer = {
   id: "00000000-0000-4000-8000-000000000002",
   email: "viewer@example.test",
@@ -43,6 +46,7 @@ describe("VideoRankingsController subject propagation", () => {
       (request as typeof request & { user: typeof viewer }).user = viewer;
       next();
     }) as RequestHandler);
+    app.useGlobalFilters(new AuthApplicationExceptionFilter());
     app.setGlobalPrefix("api/v1");
     await app.init();
   });
@@ -67,6 +71,40 @@ describe("VideoRankingsController subject propagation", () => {
     await request(app.getHttpServer()).get(`/api/v1/videos/${videoId}`).expect(200);
 
     expect(get).toHaveBeenCalledWith({ videoId, subject: viewer });
+  });
+
+  it.each([
+    ["recent", "/api/v1/videos", recent],
+    ["weekly", "/api/v1/videos/rankings/weekly", weekly],
+  ])(
+    "forwards both selectors and the authenticated subject to %s",
+    async (_name, path, operation) => {
+      await request(app.getHttpServer())
+        .get(`${path}?groupId=${groupId}&channelId=${channelId}`)
+        .expect(200);
+
+      expect(operation).toHaveBeenLastCalledWith({
+        page: 1,
+        pageSize: 20,
+        groupId,
+        channelId,
+        subject: viewer,
+      });
+    },
+  );
+
+  it.each([
+    ["groupId", groupId],
+    ["channelId", channelId],
+  ])("rejects a %s selector on snapshot history with the validation shape", async (key, value) => {
+    const response = await request(app.getHttpServer()).get(
+      `/api/v1/videos/${videoId}/snapshots?${key}=${value}`,
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: { code: "CHANNEL_INPUT_INVALID", message: "Channel input is invalid" },
+    });
   });
 
   it("forwards the authenticated subject to ranking snapshots", async () => {

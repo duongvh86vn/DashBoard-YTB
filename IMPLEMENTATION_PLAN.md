@@ -1206,6 +1206,25 @@ verified cleanup.
 - [x] `pnpm typecheck`, `pnpm lint`, `pnpm test`, integration, Docker and browser
       acceptance pass before commit/push.
 
+### 17.5 Dashboard group/channel scope selectors
+
+- [x] Add one accessible group selector above the KPI cards. Its default scope is
+      every group visible to the current actor; VIEWER options come only from the
+      authenticated `/channel-groups/accessible` contract.
+- [x] Add one channel selector beside it. Its default is every channel in the
+      selected group (or every visible channel when no group is selected), and it
+      resets safely whenever the group changes.
+- [x] Apply the same server-authoritative `groupId` / `channelId` scope to channel
+      KPIs, the 28-day trend, recent videos and the rolling seven-day ranking.
+      Explicit missing, archived, unauthorized or group/channel-mismatched values
+      return not found; an empty group remains empty and never falls back globally.
+- [x] Abort or ignore stale requests after a scope change, preserve the selected
+      scope during refresh/warm-up polling, and distinguish global ADMIN health/AI
+      surfaces from scoped canonical metrics.
+- [x] Add API/controller/service and UI regressions for ADMIN, VIEWER, empty group,
+      reset/default behavior and rapid selection changes; rerun the full Phase 11
+      typecheck, lint, unit, integration, Docker and browser gates before push.
+
 **Exit:** ADMIN can manage groups and multi-group viewer assignments; every read
 surface honors the same effective scope; partial metrics are useful but never
 misrepresented as complete or as zero.

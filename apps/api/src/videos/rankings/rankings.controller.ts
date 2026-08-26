@@ -5,7 +5,7 @@ import {
   VIDEO_RANKINGS_APPLICATION_PORT,
   type VideoRankingsApplicationPort,
 } from "./rankings-application.port.js";
-import { parseRankingQuery, parseVideoId } from "./rankings.schemas.js";
+import { parseRankingQuery, parseSnapshotHistoryQuery, parseVideoId } from "./rankings.schemas.js";
 
 @Controller("videos")
 export class VideoRankingsController {
@@ -47,7 +47,7 @@ export class VideoRankingsController {
   ) {
     return this.rankings.snapshots({
       videoId: parseVideoId(id),
-      ...parseRankingQuery(query),
+      ...parseSnapshotHistoryQuery(query),
       subject: request.user,
     });
   }

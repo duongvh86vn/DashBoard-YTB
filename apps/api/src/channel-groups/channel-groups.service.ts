@@ -7,7 +7,9 @@ import {
 import type { ChannelGroupDetail, ChannelGroupSummary } from "@yt-monitor/shared";
 
 import { ChannelGroupApplicationError } from "./channel-group-application.error.js";
+import { ChannelApplicationError } from "../channels/channel-application.error.js";
 import type {
+  ChannelSelection,
   ChannelAccessSubject,
   ChannelGroupsApplicationPort,
 } from "./channel-groups-application.port.js";
@@ -229,5 +231,48 @@ export class ChannelGroupsService implements ChannelGroupsApplicationPort {
     return this.dependencies.unitOfWork.transaction((repositories) =>
       repositories.channelGroups.accessibleChannelIdsForUser(subject.id),
     );
+  }
+
+  resolveSelectedChannelIds(
+    subject: ChannelAccessSubject,
+    selection: ChannelSelection,
+  ): Promise<string[] | null> {
+    return this.dependencies.unitOfWork.transaction(async (repositories) => {
+      const visibleChannelIds =
+        subject.role === "ADMIN"
+          ? null
+          : await repositories.channelGroups.accessibleChannelIdsForUser(subject.id);
+      let selectedChannelIds = visibleChannelIds;
+
+      if (selection.groupId !== undefined) {
+        const group =
+          subject.role === "ADMIN"
+            ? await repositories.channelGroups.findActiveById(selection.groupId)
+            : ((await repositories.channelGroups.listAccessibleForUser(subject.id)).find(
+                (candidate) => candidate.id === selection.groupId,
+              ) ?? null);
+        if (group === null) throw ChannelApplicationError.notFound();
+
+        selectedChannelIds =
+          visibleChannelIds === null
+            ? group.channelIds
+            : group.channelIds.filter((channelId) => visibleChannelIds.includes(channelId));
+      }
+
+      if (selection.channelId === undefined) return selectedChannelIds;
+
+      if (selectedChannelIds !== null) {
+        if (!selectedChannelIds.includes(selection.channelId)) {
+          throw ChannelApplicationError.notFound();
+        }
+      } else {
+        const channel = await repositories.channels.findById(selection.channelId);
+        if (channel === null || channel.archivedAt !== null) {
+          throw ChannelApplicationError.notFound();
+        }
+      }
+
+      return [selection.channelId];
+    });
   }
 }

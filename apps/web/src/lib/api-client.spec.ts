@@ -9,7 +9,12 @@ import {
   deleteViewer,
   disableViewer,
   enableViewer,
+  getDashboardTrends,
   getCurrentUser,
+  listAccessibleChannelGroups,
+  listChannels,
+  listRecentVideos,
+  listWeeklyVideoRanking,
   listViewers,
   login,
   logout,
@@ -280,5 +285,90 @@ describe("same-origin API client", () => {
       "/api/v1/users/viewer%2Fid/channel-groups",
       { method: "PUT", body: JSON.stringify({ groupIds: [] }) },
     ]);
+  });
+
+  it("adds the authorized dashboard scope to every filtered read", async () => {
+    const groupId = "00000000-0000-4000-8000-000000000010";
+    const channelId = "00000000-0000-4000-8000-000000000020";
+    const controller = new AbortController();
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === "/api/v1/channel-groups/accessible") {
+        return jsonResponse({
+          items: [
+            {
+              id: groupId,
+              name: "Nhóm A",
+              slug: "nhom-a",
+              description: null,
+              channelCount: 1,
+              viewerCount: 1,
+              createdAt: "2026-08-26T00:00:00.000Z",
+              updatedAt: "2026-08-26T00:00:00.000Z",
+            },
+          ],
+        });
+      }
+      if (path.startsWith("/api/v1/channels?")) {
+        return jsonResponse({ items: [], page: 1, pageSize: 100, total: 0 });
+      }
+      if (path.startsWith("/api/v1/videos/recent?")) {
+        return jsonResponse({ items: [], page: 1, pageSize: 6, total: 0, warmingUpCount: 0 });
+      }
+      if (path.startsWith("/api/v1/videos/rankings/weekly?")) {
+        return jsonResponse({ items: [], page: 1, pageSize: 5, total: 0, warmingUpCount: 0 });
+      }
+      if (path.startsWith("/api/v1/dashboard/trends?")) {
+        return jsonResponse({
+          period: {
+            startDate: "2026-07-30",
+            endDate: "2026-08-26",
+            days: 28,
+            timeZone: "Asia/Bangkok",
+          },
+          totals: { viewDelta: null, subscriberDelta: null, publishedVideos: 0 },
+          coverage: {
+            totalChannels: 0,
+            channelsWithCurrentSnapshot: 0,
+            channelsWithBaseline: 0,
+            requestedDays: 28,
+            completeDays: 0,
+            partialDays: 0,
+            coveragePercent: 0,
+          },
+          series: [],
+        });
+      }
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listAccessibleChannelGroups(controller.signal);
+    await listChannels({ page: 1, pageSize: 100, groupId, channelId, signal: controller.signal });
+    await listRecentVideos({
+      page: 1,
+      pageSize: 6,
+      groupId,
+      channelId,
+      signal: controller.signal,
+    });
+    await listWeeklyVideoRanking({
+      page: 1,
+      pageSize: 5,
+      groupId,
+      channelId,
+      signal: controller.signal,
+    });
+    await getDashboardTrends({ days: 28, groupId, channelId, signal: controller.signal });
+
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      "/api/v1/channel-groups/accessible",
+      `/api/v1/channels?page=1&pageSize=100&groupId=${groupId}&channelId=${channelId}`,
+      `/api/v1/videos/recent?page=1&pageSize=6&groupId=${groupId}&channelId=${channelId}`,
+      `/api/v1/videos/rankings/weekly?page=1&pageSize=5&groupId=${groupId}&channelId=${channelId}`,
+      `/api/v1/dashboard/trends?days=28&groupId=${groupId}&channelId=${channelId}`,
+    ]);
+    for (const [, init] of fetchMock.mock.calls as unknown as Array<[string, RequestInit]>) {
+      expect(init.signal).toBe(controller.signal);
+    }
   });
 });

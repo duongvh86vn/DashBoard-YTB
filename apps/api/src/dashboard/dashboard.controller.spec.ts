@@ -16,6 +16,8 @@ const viewer = {
   updatedAt: "2026-08-21T00:00:00.000Z",
   disabledAt: null,
 };
+const groupId = "00000000-0000-4000-8000-000000000003";
+const channelId = "00000000-0000-4000-8000-000000000004";
 const trends = vi.fn(async (input: { days: number; subject: unknown }) => ({
   period: {
     startDate: "2026-07-29",
@@ -64,5 +66,18 @@ describe("DashboardController", () => {
     expect(response.headers["cache-control"]).toBe("no-store");
     expect(response.body).toMatchObject({ period: { days: 28, timeZone: "Asia/Bangkok" } });
     expect(trends).toHaveBeenCalledWith({ days: 28, subject: viewer });
+  });
+
+  it("forwards an exact group and channel selection", async () => {
+    await request(app.getHttpServer())
+      .get(`/api/v1/dashboard/trends?days=7&groupId=${groupId}&channelId=${channelId}`)
+      .expect(200);
+
+    expect(trends).toHaveBeenLastCalledWith({
+      days: 7,
+      groupId,
+      channelId,
+      subject: viewer,
+    });
   });
 });

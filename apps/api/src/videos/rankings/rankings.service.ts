@@ -20,13 +20,14 @@ import type {
   VideoRankingsApplicationPort,
 } from "./rankings-application.port.js";
 import type {
-  ChannelAccessResolverPort,
   ChannelAccessSubject,
+  ChannelSelection,
+  ChannelSelectionResolverPort,
 } from "../../channel-groups/channel-groups-application.port.js";
 
 interface RankingsServiceDependencies {
   unitOfWork: Pick<ChannelUnitOfWork, "transaction">;
-  access: ChannelAccessResolverPort;
+  access: ChannelSelectionResolverPort;
   now?: () => Date;
 }
 
@@ -201,14 +202,15 @@ export class VideoRankingsService implements VideoRankingsApplicationPort {
     return toDetail(match);
   }
 
-  private async load(input: {
-    channelId?: string;
-    subject: ChannelAccessSubject;
-  }): Promise<VideoRankingRecord[]> {
-    const visible = await this.dependencies.access.resolveVisibleChannelIds(input.subject);
-    if (input.channelId && visible !== null && !visible.includes(input.channelId)) {
-      throw ChannelApplicationError.notFound();
-    }
+  private async load(
+    input: {
+      subject: ChannelAccessSubject;
+    } & ChannelSelection,
+  ): Promise<VideoRankingRecord[]> {
+    const visible = await this.dependencies.access.resolveSelectedChannelIds(input.subject, {
+      ...(input.groupId === undefined ? {} : { groupId: input.groupId }),
+      ...(input.channelId === undefined ? {} : { channelId: input.channelId }),
+    });
     return this.dependencies.unitOfWork.transaction((repositories) =>
       repositories.videos.listForRanking({
         ...(input.channelId ? { channelId: input.channelId } : {}),
@@ -217,12 +219,13 @@ export class VideoRankingsService implements VideoRankingsApplicationPort {
     );
   }
 
-  async recent(input: {
-    channelId?: string;
-    page: number;
-    pageSize: number;
-    subject: ChannelAccessSubject;
-  }): Promise<VideoRankingPage> {
+  async recent(
+    input: {
+      page: number;
+      pageSize: number;
+      subject: ChannelAccessSubject;
+    } & ChannelSelection,
+  ): Promise<VideoRankingPage> {
     const videos = await this.load(input);
     const items = videos
       .sort((left, right) => {
@@ -233,12 +236,13 @@ export class VideoRankingsService implements VideoRankingsApplicationPort {
     return paginate(items, input.page, input.pageSize);
   }
 
-  async weekly(input: {
-    channelId?: string;
-    page: number;
-    pageSize: number;
-    subject: ChannelAccessSubject;
-  }): Promise<VideoRankingPage> {
+  async weekly(
+    input: {
+      page: number;
+      pageSize: number;
+      subject: ChannelAccessSubject;
+    } & ChannelSelection,
+  ): Promise<VideoRankingPage> {
     const now = (this.dependencies.now ?? (() => new Date()))();
     const videos = await this.load(input);
     const warmingUpCount = videos.filter(
@@ -262,12 +266,13 @@ export class VideoRankingsService implements VideoRankingsApplicationPort {
     return paginate(items, input.page, input.pageSize, warmingUpCount);
   }
 
-  async hot(input: {
-    channelId?: string;
-    page: number;
-    pageSize: number;
-    subject: ChannelAccessSubject;
-  }): Promise<VideoRankingPage> {
+  async hot(
+    input: {
+      page: number;
+      pageSize: number;
+      subject: ChannelAccessSubject;
+    } & ChannelSelection,
+  ): Promise<VideoRankingPage> {
     const now = (this.dependencies.now ?? (() => new Date()))();
     const videos = await this.load(input);
     const candidates = videos.map((video) => {
@@ -299,12 +304,13 @@ export class VideoRankingsService implements VideoRankingsApplicationPort {
     return paginate(items, input.page, input.pageSize);
   }
 
-  async breakout(input: {
-    channelId?: string;
-    page: number;
-    pageSize: number;
-    subject: ChannelAccessSubject;
-  }): Promise<VideoRankingPage> {
+  async breakout(
+    input: {
+      page: number;
+      pageSize: number;
+      subject: ChannelAccessSubject;
+    } & ChannelSelection,
+  ): Promise<VideoRankingPage> {
     const now = (this.dependencies.now ?? (() => new Date()))();
     const videos = await this.load(input);
     const candidates = videos.map((video) => ({

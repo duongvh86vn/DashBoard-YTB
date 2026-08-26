@@ -14,15 +14,16 @@ import {
 
 import type { DashboardApplicationPort } from "./dashboard-application.port.js";
 import type {
-  ChannelAccessResolverPort,
   ChannelAccessSubject,
+  ChannelSelection,
+  ChannelSelectionResolverPort,
 } from "../channel-groups/channel-groups-application.port.js";
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
 
 interface DashboardServiceDependencies {
   unitOfWork: Pick<ChannelUnitOfWork, "transaction">;
-  access: ChannelAccessResolverPort;
+  access: ChannelSelectionResolverPort;
   timeZone: string;
   now?: () => Date;
 }
@@ -209,10 +210,12 @@ function videoCountsByDate(
 export class DashboardService implements DashboardApplicationPort {
   constructor(private readonly dependencies: DashboardServiceDependencies) {}
 
-  async trends(input: {
-    days: number;
-    subject: ChannelAccessSubject;
-  }): Promise<DashboardTrendResponse> {
+  async trends(
+    input: {
+      days: number;
+      subject: ChannelAccessSubject;
+    } & ChannelSelection,
+  ): Promise<DashboardTrendResponse> {
     const now = (this.dependencies.now ?? (() => new Date()))();
     const endDate = localCalendarDate(now, this.dependencies.timeZone);
     const startDate = shiftCalendarDate(endDate, -(input.days - 1));
@@ -222,8 +225,12 @@ export class DashboardService implements DashboardApplicationPort {
     const publishedStart = new Date(databaseStart.getTime() - DAY_MS);
     const publishedEndExclusive = new Date(databaseEnd.getTime() + 2 * DAY_MS);
 
-    const visibleChannelIds = await this.dependencies.access.resolveVisibleChannelIds(
+    const visibleChannelIds = await this.dependencies.access.resolveSelectedChannelIds(
       input.subject,
+      {
+        ...(input.groupId === undefined ? {} : { groupId: input.groupId }),
+        ...(input.channelId === undefined ? {} : { channelId: input.channelId }),
+      },
     );
     const { channels, stats, videos } = await this.dependencies.unitOfWork.transaction(
       async (repositories) => {
