@@ -1016,6 +1016,50 @@ Live isolated Docker/browser QA collected 14,400 subscribers, 638 videos and
 2,408,026 lifetime views for `@miumiutruyenaudio`; desktop and 390×844 mobile
 rendering passed with mobile `scrollWidth === clientWidth`.
 
+### Phase 8 public-intelligence and grounded-AI completion — 2026-08-26
+
+- Added the authenticated `GET /api/v1/channels/:id/public-intelligence?days=30`
+  contract. Every metric declares status, class, precision, source, observation
+  time and reason; missing baselines stay warming/unavailable instead of becoming
+  zero or inferred history.
+- Kept actual videos observed as published during the selected window separate
+  from the signed public inventory delta. Removed/private content and public-data
+  corrections therefore cannot be mislabeled as publishing behavior.
+- Added deterministic average-duration/upload-frequency aggregates from locally
+  observed public metadata. Video-catalog coverage remains explicit and partial
+  until a complete reconciliation watermark exists.
+- Grounded daily/weekly AI reports in stable evidence IDs. Every prose claim must
+  cite evidence, every numeric token must occur verbatim in its cited evidence,
+  public text is treated as untrusted input, and insufficient coverage skips the
+  provider call entirely. AI results remain confined to AI tables.
+- Wired scheduled daily/weekly Worker runs with database-first encrypted provider
+  settings and Gemini→NVIDIA fallback. The dashboard reads the latest available
+  weekly report on or before the requested date instead of hiding Monday reports
+  later in the week.
+- Scheduled report occurrences now carry a fixed timezone-resolved cutoff end to end,
+  catch up the most recent missed weekly occurrence and use occurrence-keyed
+  fingerprints so restart/retry cannot overwrite a successful report after
+  post-cutoff metadata drift. Nonexistent DST wall times resolve to the first valid
+  later local minute rather than running early.
+- Added the channel intelligence panel, detailed channel table, visible grounded
+  AI report/evidence content, classification result card and a data-source legend.
+  The UI never presents AI text as a metric source and does not depend on vidIQ,
+  browser cookies, Google login or a private Analytics scope.
+- PARTIAL reports are rejected unless a limitation cites canonical coverage evidence,
+  and the UI renders a deterministic PARTIAL banner. Current channel totals come from
+  typed public-intelligence metrics with complete provenance; stale header counters
+  are never substituted when intelligence is unavailable.
+
+Targeted acceptance covered public-intelligence, grounding, scheduler, API and Web
+contracts. Final review regressions additionally cover the real 08:00 Asia/Bangkok
+occurrence boundary, restart-stable fingerprints, weekly catch-up, DST gaps,
+baseline-aware precision, same-target numeric grounding, PARTIAL coverage,
+evidence/provider/model provenance and a 12-hour stale-current threshold. Workspace
+`pnpm verify` passed with 109 files / 584 unit tests plus every
+production build. Clean Compose acceptance passed all six
+migrations, 8 integration files / 37 tests, API/Worker/Web recovery and containerized
+Playwright; isolated resources were removed afterward.
+
 **Exit:** All specified dashboard routes/user workflows work against real authenticated APIs.
 
 ## 15. Phase 9 — LAN, Caddy, Cloudflare Tunnel và security

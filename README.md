@@ -8,6 +8,11 @@ authenticated Vietnamese dashboard, canonical public-channel monitoring, health
 and deletion safety, video snapshots/rankings, structured Gemini/NVIDIA AI with
 fallback, sync history and collector/runtime settings.
 
+The channel detail view includes a public-intelligence panel with metric-level
+source, precision and coverage. Daily/weekly AI reports are an optional explanation
+layer over cited local evidence; they never replace public metrics or invent missing
+history. The application does not require vidIQ, browser cookies or Google login.
+
 ## Runtime baseline
 
 - Node.js 24 LTS

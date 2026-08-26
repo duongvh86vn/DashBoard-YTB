@@ -100,14 +100,23 @@ describe("collectPublicChannelCurrentStats", () => {
         subscriberCount: {
           source: "YOUTUBE_PUBLIC_ABOUT_RENDER",
           capturedAt: "2026-08-25T01:02:03.000Z",
+          metricClass: "PUBLIC_CURRENT",
+          precision: "ROUNDED_3_SIGNIFICANT_DIGITS",
+          scope: "PUBLIC_ONLY",
         },
         videoCount: {
           source: "YOUTUBE_PUBLIC_ABOUT_RENDER",
           capturedAt: "2026-08-25T01:02:03.000Z",
+          metricClass: "PUBLIC_CURRENT",
+          precision: "ROUNDED_PUBLIC_DISPLAY",
+          scope: "PUBLIC_ONLY",
         },
         lifetimeViewCount: {
           source: "YOUTUBE_PUBLIC_ABOUT_RENDER",
           capturedAt: "2026-08-25T01:02:03.000Z",
+          metricClass: "PUBLIC_CURRENT",
+          precision: "ROUNDED_PUBLIC_DISPLAY",
+          scope: "PUBLIC_ONLY",
         },
       },
     });

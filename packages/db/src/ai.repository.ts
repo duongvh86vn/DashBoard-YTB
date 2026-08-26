@@ -163,6 +163,13 @@ export class AiRepository {
     return this.client.aiReport.findUnique({ where: { kind_reportDate: { kind, reportDate } } });
   }
 
+  findLatestReport(kind: AiReportKindValue, onOrBefore: Date): Promise<AiReportRecord | null> {
+    return this.client.aiReport.findFirst({
+      where: { kind, reportDate: { lte: onOrBefore } },
+      orderBy: [{ reportDate: "desc" }, { createdAt: "desc" }],
+    });
+  }
+
   upsertReport(input: UpsertAiReportInput): Promise<AiReportRecord> {
     return this.client.aiReport.upsert({
       where: { kind_reportDate: { kind: input.kind, reportDate: input.reportDate } },

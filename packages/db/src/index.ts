@@ -49,6 +49,7 @@ export type {
 export { SyncRunRepository, type CreateSyncRunInput } from "./sync-run.repository.js";
 export {
   VideoRepository,
+  type ChannelPublicVideoSummary,
   type ListRankingVideosInput,
   type ListVideosInput,
   type UpsertVideoInput,

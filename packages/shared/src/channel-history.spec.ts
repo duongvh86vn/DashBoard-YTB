@@ -5,6 +5,7 @@ import {
   deriveCoverageStatus,
   deriveMetricDeltas,
   localCalendarDate,
+  localCalendarDateStart,
   previousCalendarDate,
 } from "./channel-history.js";
 
@@ -45,5 +46,11 @@ describe("channel history rules", () => {
       "2026-08-22",
     );
     expect(previousCalendarDate("2026-08-22")).toBe("2026-08-21");
+    expect(localCalendarDateStart("2026-08-22", "Asia/Bangkok").toISOString()).toBe(
+      "2026-08-21T17:00:00.000Z",
+    );
+    expect(localCalendarDateStart("2026-03-08", "America/New_York").toISOString()).toBe(
+      "2026-03-08T05:00:00.000Z",
+    );
   });
 });

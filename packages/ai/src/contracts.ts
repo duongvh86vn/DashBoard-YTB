@@ -48,6 +48,10 @@ export interface TextAIRequest {
 
 export interface AIProvider {
   readonly id: AIProviderId;
+  /** Model configured as this provider's implicit default, when one exists. */
+  readonly defaultModelId?: string | null;
+  /** Effective model used by the most recent attempted request. */
+  readonly lastModelId?: string | null;
   structured<T>(request: StructuredAIRequest<T>): Promise<T>;
   text(request: TextAIRequest): Promise<string>;
   health(): Promise<AIProviderHealth>;

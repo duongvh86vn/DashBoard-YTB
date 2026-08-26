@@ -72,7 +72,16 @@ export interface ChannelCurrentStats {
   handle: string | null;
   thumbnail: string | null;
   source: z.infer<typeof ChannelSnapshotSourceSchema>;
-  sourceDetails: Record<string, { source: string; capturedAt: string }> | null;
+  sourceDetails: Record<
+    string,
+    {
+      source: string;
+      capturedAt: string;
+      metricClass?: "PUBLIC_CURRENT";
+      precision?: "EXACT_AS_PUBLISHED" | "ROUNDED_3_SIGNIFICANT_DIGITS" | "ROUNDED_PUBLIC_DISPLAY";
+      scope?: "PUBLIC_ONLY";
+    }
+  > | null;
 }
 
 export interface ProviderVideo {

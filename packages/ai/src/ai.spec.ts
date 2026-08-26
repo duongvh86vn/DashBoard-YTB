@@ -134,12 +134,34 @@ describe("structured AI boundary", () => {
       expect.objectContaining({ model: "nvidia-fallback" }),
     );
     expect(router.id).toBe("NVIDIA");
+    expect(router.lastModelId).toBe("nvidia-fallback");
+  });
+
+  it("records the provider default as the effective model when a request omits model", async () => {
+    const provider = {
+      id: "GEMINI",
+      defaultModelId: "gemini-default",
+      health: vi.fn().mockResolvedValue({ provider: "GEMINI", status: "HEALTHY" }),
+      structured: vi.fn().mockResolvedValue({ primaryNiche: "test" }),
+      text: vi.fn(),
+    } as unknown as NoopAIProvider;
+    const router = new AIProviderRouter(provider);
+
+    await router.structured({
+      taskType: "CHANNEL_CLASSIFICATION",
+      prompt: "x",
+      schema: channelClassificationSchema,
+    });
+
+    expect(router.id).toBe("GEMINI");
+    expect(router.lastModelId).toBe("gemini-default");
   });
 
   it("surfaces unavailable when both configured providers fail", async () => {
     const failed = (id: "GEMINI" | "NVIDIA") =>
       ({
         id,
+        defaultModelId: `${id.toLowerCase()}-default`,
         health: vi.fn().mockResolvedValue({ provider: id, status: "UNAVAILABLE" }),
         structured: vi.fn().mockRejectedValue(new AIProviderError("AI_UNAVAILABLE", "down", true)),
         text: vi.fn().mockRejectedValue(new AIProviderError("AI_UNAVAILABLE", "down", true)),
@@ -148,6 +170,8 @@ describe("structured AI boundary", () => {
     await expect(router.text({ taskType: "report", prompt: "x" })).rejects.toMatchObject({
       code: "AI_UNAVAILABLE",
     });
+    expect(router.id).toBe("NVIDIA");
+    expect(router.lastModelId).toBe("nvidia-default");
   });
 
   it("reports no-AI mode explicitly", async () => {

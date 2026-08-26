@@ -60,6 +60,46 @@ export function localCalendarDate(now: Date, timeZone: string): string {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+/** Returns the UTC instant at which a configured local calendar day begins. */
+export function localCalendarDateStart(date: string, timeZone: string): Date {
+  const targetUtc = Date.parse(`${date}T00:00:00.000Z`);
+  let candidate = targetUtc;
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+
+  // Two passes normally suffice; four also covers an offset transition close to midnight.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const values = Object.fromEntries(
+      formatter.formatToParts(new Date(candidate)).map((part) => [part.type, part.value]),
+    );
+    const representedAsUtc = Date.UTC(
+      Number(values.year),
+      Number(values.month) - 1,
+      Number(values.day),
+      Number(values.hour),
+      Number(values.minute),
+      Number(values.second),
+    );
+    const correction = targetUtc - representedAsUtc;
+    candidate += correction;
+    if (correction === 0) break;
+  }
+
+  const result = new Date(candidate);
+  if (localCalendarDate(result, timeZone) !== date) {
+    throw new RangeError(`Unable to resolve local calendar date ${date}`);
+  }
+  return result;
+}
+
 export function previousCalendarDate(date: string): string {
   const parsed = new Date(`${date}T00:00:00.000Z`);
   parsed.setUTCDate(parsed.getUTCDate() - 1);

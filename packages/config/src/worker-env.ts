@@ -22,6 +22,12 @@ const workerEnvSchema = baseEnvSchema
     YTDLP_CONCURRENCY: z.coerce.number().int().positive().default(2),
     AI_DAILY_REPORT_ENABLED: booleanEnvSchema.default(true),
     AI_WEEKLY_REPORT_ENABLED: booleanEnvSchema.default(true),
+    AI_DAILY_REPORT_HOUR: z.coerce.number().int().min(0).max(23).default(8),
+    AI_DAILY_REPORT_MINUTE: z.coerce.number().int().min(0).max(59).default(0),
+    AI_WEEKLY_REPORT_DAY: z.coerce.number().int().min(0).max(6).default(1),
+    AI_WEEKLY_REPORT_HOUR: z.coerce.number().int().min(0).max(23).default(8),
+    AI_WEEKLY_REPORT_MINUTE: z.coerce.number().int().min(0).max(59).default(15),
+    AI_REPORT_RETRY_MINUTES: z.coerce.number().int().positive().default(30),
   })
   .superRefine((value, context) => {
     if (value.WORKER_HEARTBEAT_STALE_SECONDS <= value.WORKER_HEARTBEAT_INTERVAL_SECONDS) {

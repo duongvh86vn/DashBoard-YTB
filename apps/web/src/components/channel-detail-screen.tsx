@@ -3,8 +3,15 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { classifyChannel, getChannel, getVietnameseApiMessage } from "../lib/api-client";
+import {
+  classifyChannel,
+  getChannel,
+  getChannelPublicIntelligence,
+  getVietnameseApiMessage,
+} from "../lib/api-client";
 import { useAuth } from "../lib/auth-context";
+import { ChannelClassificationCard } from "./channel-classification-card";
+import { PublicIntelligencePanel } from "./public-intelligence-panel";
 
 export function ChannelDetailScreen({ channelId }: { channelId: string }) {
   const auth = useAuth();
@@ -12,6 +19,11 @@ export function ChannelDetailScreen({ channelId }: { channelId: string }) {
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [classification, setClassification] = useState<unknown>(null);
+  const [intelligence, setIntelligence] = useState<Awaited<
+    ReturnType<typeof getChannelPublicIntelligence>
+  > | null>(null);
+  const [intelligenceFailed, setIntelligenceFailed] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -23,6 +35,13 @@ export function ChannelDetailScreen({ channelId }: { channelId: string }) {
         setMessage(getVietnameseApiMessage(reason, "channels"));
       })
       .finally(() => setLoading(false));
+    void getChannelPublicIntelligence(channelId, 30, controller.signal)
+      .then((result) => setIntelligence(result))
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted) return;
+        if (auth.handleApiError(reason)) return;
+        setIntelligenceFailed(true);
+      });
     return () => controller.abort();
   }, [auth, channelId]);
 
@@ -30,7 +49,8 @@ export function ChannelDetailScreen({ channelId }: { channelId: string }) {
     setPending(true);
     setMessage(null);
     try {
-      await classifyChannel(channelId);
+      const result = await classifyChannel(channelId);
+      setClassification(result);
       setMessage(
         "Đã hoàn tất phân tích có cấu trúc cho kênh; kết quả không thay đổi metric canonical.",
       );
@@ -90,19 +110,25 @@ export function ChannelDetailScreen({ channelId }: { channelId: string }) {
           {message}
         </p>
       ) : null}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="Thông tin kênh">
-        {[
-          ["Subscribers", channel.subscriberCount],
-          ["Videos", channel.videoCount],
-          ["Lifetime views", channel.lifetimeViewCount],
-          ["Hoạt động", channel.activityStatus],
-        ].map(([label, value]) => (
-          <article className="surface-card" key={label}>
-            <p className="text-sm font-semibold text-slate-500">{label}</p>
-            <p className="mt-2 text-2xl font-black text-slate-950">{value ?? "—"}</p>
-          </article>
-        ))}
+      <section className="surface-card" aria-label="Thông tin kênh">
+        <p className="text-sm font-semibold text-slate-500">Trạng thái hoạt động</p>
+        <p className="mt-2 text-2xl font-black text-slate-950">{channel.activityStatus ?? "—"}</p>
       </section>
+      {intelligence ? (
+        <PublicIntelligencePanel data={intelligence} />
+      ) : (
+        <section className="surface-card" aria-labelledby="public-current-unavailable-title">
+          <h2 id="public-current-unavailable-title" className="text-xl font-bold text-slate-950">
+            Số liệu công khai hiện tại
+          </h2>
+          <p className="mt-3 text-sm leading-6 text-amber-800">
+            {intelligenceFailed
+              ? "Số liệu công khai hiện tại chưa khả dụng; không dùng bộ đếm cũ của hồ sơ kênh để thay thế."
+              : "Đang tải số liệu công khai hiện tại có trạng thái và nguồn rõ ràng…"}
+          </p>
+        </section>
+      )}
+      {classification ? <ChannelClassificationCard result={classification} /> : null}
       <section className="surface-card">
         <h2 className="text-xl font-bold text-slate-950">Freshness & provenance</h2>
         <dl className="mt-4 grid gap-4 sm:grid-cols-3 text-sm">

@@ -1,4 +1,4 @@
-import type { PublicChannelProvider } from "@yt-monitor/shared";
+import type { PublicChannelProvider, PublicIntelligenceResponse } from "@yt-monitor/shared";
 
 export const CHANNELS_APPLICATION_PORT = Symbol("CHANNELS_APPLICATION_PORT");
 export const CHANNEL_PROVIDER = Symbol("CHANNEL_PROVIDER");
@@ -55,6 +55,7 @@ export interface ChannelsApplicationPort {
     total: number;
   }>;
   get(id: string): Promise<PublicChannel>;
+  publicIntelligence(input: { id: string; days: number }): Promise<PublicIntelligenceResponse>;
   create(input: { originalInput: string }): Promise<PublicChannel>;
   archive(input: { id: string }): Promise<void>;
   requestHealthCheck(input: { id: string }): Promise<{ syncRunId: string; status: "QUEUED" }>;

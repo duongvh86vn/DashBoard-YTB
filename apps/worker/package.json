@@ -17,6 +17,7 @@
     "@yt-monitor/collector-youtube-public": "workspace:*",
     "@yt-monitor/collector-youtube-rss": "workspace:*",
     "@yt-monitor/config": "workspace:*",
+    "@yt-monitor/crypto": "workspace:*",
     "@yt-monitor/db": "workspace:*",
     "@yt-monitor/shared": "workspace:*",
     "pino": "10.3.1",

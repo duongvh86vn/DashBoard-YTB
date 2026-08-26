@@ -325,6 +325,8 @@ describe("Phase 8 dashboard", () => {
 
     expect(await screen.findByRole("heading", { name: "So sánh các kênh" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Hiệu suất video" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Bảng chỉ số kênh" })).toBeInTheDocument();
+    expect(await screen.findAllByRole("link", { name: "Phân tích 30 ngày" })).toHaveLength(2);
     expect(await screen.findByRole("img", { name: "Kênh Mẫu: 1.250" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Video mới nhất: 2.500" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Video tăng trưởng: +500" })).toBeInTheDocument();

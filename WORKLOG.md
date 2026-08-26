@@ -603,3 +603,81 @@
   warms up from canonical daily snapshots and cannot be shown immediately on a new
   installation.
 - AI remains optional and cannot write canonical YouTube metrics.
+
+## 2026-08-26 — Public intelligence and evidence-grounded AI
+
+### Defects fixed
+
+- Added a typed per-channel public-intelligence API and UI panel for current public
+  totals, observed 30-day deltas, actual discovered publications, signed inventory
+  change, average public video duration and observed upload frequency.
+- Added metric-level provenance/precision/coverage. Rounded subscribers, partial
+  catalog coverage, a missing baseline and negative public corrections are labeled
+  explicitly; they are never silently converted into exact private Analytics data.
+- Replaced badge-only AI output with schema-validated reports whose prose claims
+  cite stable deterministic evidence IDs. Unknown IDs and unsupported numeric claims
+  fail validation; insufficient aggregates skip AI generation.
+- Required channel/video inspection reasons to cite evidence for that same entity,
+  rejected stale or reused snapshot boundaries, and anchored video windows to the
+  configured local calendar. Missing six-hour boundary observations remain null and
+  downgrade coverage instead of producing a synthetic zero.
+- Final review remediation pins each scheduled report to its configured local
+  occurrence cutoff and carries that cutoff through scheduler, pipeline, aggregate
+  and fingerprint caching. Retry/restart cannot consume later snapshots or overwrite
+  a successful occurrence after metadata drift; weekly reports catch up the latest
+  missed occurrence. DST gaps run at the first valid later local minute, never before
+  the configured wall time. Public deltas now require exact precision from both the current and
+  baseline counters before they may be labeled exact; legacy baseline rows remain
+  conservatively rounded, and a current snapshot older than two six-hour collection
+  windows is explicitly partial.
+- Target-specific AI reasons now reject evidence belonging to another channel/video
+  and revalidate numeric tokens only against same-target or portfolio evidence.
+  Every persisted evidence item carries precision/status/reason, while the UI keeps
+  entity, provider and effective model provenance visible.
+- Connected daily and weekly report scheduling to the Worker lifecycle, reloads
+  encrypted database provider settings for each report run and preserves the
+  Gemini/NVIDIA fallback router. Weekly reads now return the latest persisted Monday
+  report on or before the requested date.
+- Added visible channel-classification results and a detailed dashboard table so an
+  analysis action no longer completes without showing its result.
+- Displayed every cited evidence value, source, observation time and coverage/
+  precision state in the report UI. Provider/model audit rows now record the actual
+  routed default or fallback model; public classification metadata is explicitly
+  untrusted and cannot override its prompt.
+- Enforced PARTIAL coverage in code: a report must cite canonical coverage evidence
+  in a limitation, and the UI always shows a deterministic PARTIAL banner. Channel
+  current-total cards now use typed public-intelligence metrics with status,
+  precision, captured time, reason, source and method; unavailable intelligence is
+  not replaced by stale channel-header counters.
+
+### Acceptance evidence
+
+- Targeted public-intelligence, repository, API, grounding, scheduler and Web suites
+  — PASS, including stale-boundary, cross-entity, prompt-injection, routed-model,
+  fixed occurrence, weekly catch-up, PARTIAL coverage and DST regressions.
+- Workspace `pnpm verify` — PASS: Prisma validate/generate, all typechecks, ESLint
+  with zero warnings, Prettier, 109 files / 584 unit tests and every production
+  build/route.
+- Clean `pnpm test:integration` — PASS: all six migrations applied and replay-safe,
+  8 PostgreSQL/auth integration files / 37 tests, API/Worker/Web health, outage and
+  restart recovery, containerized Playwright acceptance and isolated cleanup.
+- `pnpm audit --audit-level high` — PASS: no known vulnerabilities.
+- Deliberate mutation checks reproduced all three review defects (future-window,
+  baseline-precision promotion and cross-entity numeric laundering); their focused
+  tests failed for the expected reason, then the restored implementation passed 7
+  files / 45 tests.
+- Final scoped-review regressions also failed first for post-cutoff fingerprint drift
+  and a nonexistent DST wall time, then passed after occurrence-keyed caching and
+  timezone-safe resolution were implemented.
+- Windows PowerShell parser/environment-isolation and both Compose configuration
+  contracts — PASS without exposing LOCAL secrets. Ambient AI schedule variables are
+  cleared around Compose and restored afterward.
+
+### Boundaries preserved
+
+- No vidIQ endpoint, package, cookie, browser session or scraper was introduced.
+- No Google login, YouTube Analytics private scope, revenue or watch-time estimate
+  was added. Public-only metrics and locally observed snapshots remain the source of
+  truth.
+- AI cannot collect, overwrite, interpolate or rank canonical metrics. Collected
+  titles/descriptions/tags are untrusted data and cannot instruct the model.

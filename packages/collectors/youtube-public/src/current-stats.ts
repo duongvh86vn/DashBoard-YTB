@@ -178,13 +178,30 @@ export async function collectPublicChannelCurrentStats(
   if (!hasMetric(metrics)) return null;
 
   const sourceDetails: NonNullable<ChannelCurrentStats["sourceDetails"]> = {};
-  const provenance = {
+  const exactProvenance = {
     source: provenanceSource,
     capturedAt: capturedAt.toISOString(),
+    metricClass: "PUBLIC_CURRENT" as const,
+    precision: "EXACT_AS_PUBLISHED" as const,
+    scope: "PUBLIC_ONLY" as const,
   };
-  if (metrics.subscriberCount !== null) sourceDetails.subscriberCount = provenance;
-  if (metrics.videoCount !== null) sourceDetails.videoCount = provenance;
-  if (metrics.lifetimeViewCount !== null) sourceDetails.lifetimeViewCount = provenance;
+  const publicDisplayProvenance = {
+    ...exactProvenance,
+    precision:
+      provenanceSource === "YOUTUBE_PUBLIC_ABOUT_RENDER"
+        ? ("ROUNDED_PUBLIC_DISPLAY" as const)
+        : exactProvenance.precision,
+  };
+  if (metrics.subscriberCount !== null) {
+    sourceDetails.subscriberCount = {
+      ...exactProvenance,
+      precision: "ROUNDED_3_SIGNIFICANT_DIGITS",
+    };
+  }
+  if (metrics.videoCount !== null) sourceDetails.videoCount = publicDisplayProvenance;
+  if (metrics.lifetimeViewCount !== null) {
+    sourceDetails.lifetimeViewCount = publicDisplayProvenance;
+  }
 
   return {
     subscriberCount: metrics.subscriberCount,

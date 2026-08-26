@@ -40,22 +40,33 @@ export class NvidiaProvider implements AIProvider {
   readonly id = "NVIDIA" as const;
   private readonly requestFetch: typeof globalThis.fetch;
   private readonly baseUrl: string;
+  private lastUsedModelId: string | null = null;
 
   constructor(private readonly options: NvidiaProviderOptions) {
     this.requestFetch = options.fetch ?? globalThis.fetch;
     this.baseUrl = rootUrl(options.baseUrl ?? "https://integrate.api.nvidia.com/v1");
   }
 
+  get defaultModelId(): string | null {
+    return this.options.model ?? null;
+  }
+
+  get lastModelId(): string | null {
+    return this.lastUsedModelId;
+  }
+
   async structured<T>(request: StructuredAIRequest<T>): Promise<T> {
-    const raw = await this.generate(request.prompt, request.model ?? this.options.model, request);
+    const model = request.model ?? this.options.model;
+    this.lastUsedModelId = model ?? null;
+    const raw = await this.generate(request.prompt, model, request);
     const parsed = this.parseAndValidate(raw, request);
     if (parsed.success) return parsed.data;
     if (!(request.repairOnSchemaError ?? this.options.repairOnSchemaError ?? true)) {
       throw new AIProviderError("AI_SCHEMA_INVALID", "NVIDIA response failed the required schema");
     }
     const repaired = await this.generate(
-      `Return ONLY valid JSON matching the requested schema. Fix this invalid response:\n${raw}`,
-      request.model ?? this.options.model,
+      `Return ONLY valid JSON matching the requested schema and all grounding rules.\nOriginal request:\n${request.prompt}\nInvalid response to repair:\n${raw}`,
+      model,
       request,
     );
     const repairedResult = this.parseAndValidate(repaired, request);
@@ -66,7 +77,9 @@ export class NvidiaProvider implements AIProvider {
   }
 
   text(request: TextAIRequest): Promise<string> {
-    return this.generate(request.prompt, request.model ?? this.options.model, request);
+    const model = request.model ?? this.options.model;
+    this.lastUsedModelId = model ?? null;
+    return this.generate(request.prompt, model, request);
   }
 
   async health(): Promise<AIProviderHealth> {

@@ -211,6 +211,9 @@ importers:
       '@yt-monitor/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@yt-monitor/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
       '@yt-monitor/db':
         specifier: workspace:*
         version: link:../../packages/db

@@ -13,6 +13,7 @@ import {
   listWeeklyVideoRanking,
 } from "../lib/api-client";
 import { useAuth } from "../lib/auth-context";
+import { AiReportContent } from "./ai-report-content";
 import { DashboardTrendPanel } from "./dashboard-trend-panel";
 
 const compactNumberFormatter = new Intl.NumberFormat("vi-VN", {
@@ -550,6 +551,26 @@ export function DashboardScreen() {
         ))}
       </section>
 
+      <section
+        className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 xl:grid-cols-4"
+        aria-label="Nguồn và độ chính xác dữ liệu"
+      >
+        {[
+          ["Công khai hiện tại", "Views và số video tại lần thu thập gần nhất.", "bg-emerald-500"],
+          ["Công khai làm tròn", "Subscriber có thể được YouTube làm tròn.", "bg-violet-500"],
+          ["Snapshot suy ra", "Tăng trưởng chỉ tính khi có đủ baseline thật.", "bg-sky-500"],
+          ["AI diễn giải", "AI giải thích dữ liệu; không tạo hoặc sửa metric.", "bg-amber-500"],
+        ].map(([label, description, tone]) => (
+          <div className="flex gap-3 rounded-xl bg-slate-50 p-3" key={label}>
+            <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${tone}`} aria-hidden="true" />
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-slate-700">{label}</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+            </div>
+          </div>
+        ))}
+      </section>
+
       <DashboardTrendPanel data={trends} loading={loading} failed={trendsFailed} />
 
       <section aria-labelledby="channel-insights-title">
@@ -585,6 +606,87 @@ export function DashboardScreen() {
             tone="rose"
             loading={loading}
           />
+        </div>
+        <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+          <div className="flex flex-col justify-between gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center">
+            <div>
+              <h3 className="font-black text-slate-950">Bảng chỉ số kênh</h3>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Subscriber là số công khai có thể bị làm tròn; video chỉ tính nội dung đang công
+                khai.
+              </p>
+            </div>
+            <span className="text-xs font-bold text-slate-500">{channelItems.length} kênh</span>
+          </div>
+          {channelItems.length > 0 ? (
+            <div className="max-w-full overflow-x-auto">
+              <table className="w-full min-w-[760px] text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3 font-black" scope="col">
+                      Kênh
+                    </th>
+                    <th className="px-4 py-3 text-right font-black" scope="col">
+                      Subscriber
+                    </th>
+                    <th className="px-4 py-3 text-right font-black" scope="col">
+                      Lifetime views
+                    </th>
+                    <th className="px-4 py-3 text-right font-black" scope="col">
+                      Video công khai
+                    </th>
+                    <th className="px-4 py-3 font-black" scope="col">
+                      Snapshot
+                    </th>
+                    <th className="px-5 py-3 text-right font-black" scope="col">
+                      Chi tiết
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {channelItems.map((channel) => (
+                    <tr className="text-slate-700" key={channel.id}>
+                      <td className="px-5 py-4">
+                        <p
+                          className="max-w-xs truncate font-bold text-slate-950"
+                          title={channel.title}
+                        >
+                          {channel.title}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {channel.handle ?? channel.youtubeChannelId}
+                        </p>
+                      </td>
+                      <td className="px-4 py-4 text-right font-black tabular-nums">
+                        {formatNumber(channel.subscriberCount)}
+                      </td>
+                      <td className="px-4 py-4 text-right font-black tabular-nums">
+                        {formatNumber(channel.lifetimeViewCount)}
+                      </td>
+                      <td className="px-4 py-4 text-right font-black tabular-nums">
+                        {formatNumber(channel.videoCount)}
+                      </td>
+                      <td className="px-4 py-4 text-xs text-slate-500">
+                        {freshness(channel.lastChannelScanAt)}
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        <Link
+                          className="font-bold text-sky-700 underline"
+                          href={`/channels/${channel.id}`}
+                        >
+                          Phân tích 30 ngày
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="px-5 py-8 text-center text-sm text-slate-500">
+              Chưa có kênh để tạo bảng chỉ số.
+            </p>
+          )}
         </div>
       </section>
 
@@ -831,6 +933,18 @@ export function DashboardScreen() {
                   </span>
                 </div>
                 <p className="mt-2 text-xs text-slate-500">{report.reportDate}</p>
+                {report.available ? (
+                  <AiReportContent kind={report.kind} report={report.report} />
+                ) : (
+                  <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2.5">
+                    <p className="text-sm font-semibold text-slate-600">
+                      Chưa có báo cáo an toàn cho kỳ này.
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Worker sẽ tạo báo cáo sau khi metric có đủ nguồn và độ phủ.
+                    </p>
+                  </div>
+                )}
               </article>
             ))}
             {reportsUnavailable ? (

@@ -158,6 +158,9 @@ const denyAllChannelsApplication: ChannelsApplicationPort = {
   async get(): Promise<never> {
     throw ChannelApplicationError.notFound();
   },
+  async publicIntelligence(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
   async create(): Promise<never> {
     throw ChannelApplicationError.resolveFailed();
   },
@@ -350,6 +353,7 @@ export class AppModule {
     const channelsApplication = new ChannelsService({
       unitOfWork: channelUnitOfWork,
       provider: channelProvider,
+      timeZone: options.env.APP_TIMEZONE,
     });
     const videosApplication = new VideosService({ unitOfWork: channelUnitOfWork });
     const videoRankingsApplication = new VideoRankingsService({ unitOfWork: channelUnitOfWork });

@@ -32,8 +32,10 @@ import {
 import {
   DashboardTrendResponseSchema,
   HealthResponseSchema,
+  PublicIntelligenceResponseSchema,
   type DashboardTrendResponse,
   type HealthResponse,
+  type PublicIntelligenceResponse,
 } from "@yt-monitor/shared";
 
 type ApiMethod = "GET" | "POST" | "PATCH" | "DELETE";
@@ -420,6 +422,22 @@ export function getDashboardTrends(
     schema: DashboardTrendResponseSchema,
     ...(signal ? { signal } : {}),
   });
+}
+
+export function getChannelPublicIntelligence(
+  id: string,
+  days = 30,
+  signal?: AbortSignal,
+): Promise<PublicIntelligenceResponse> {
+  const query = new URLSearchParams({ days: String(days) });
+  return requestApi(
+    `/api/v1/channels/${encodeURIComponent(id)}/public-intelligence?${query.toString()}`,
+    {
+      method: "GET",
+      schema: PublicIntelligenceResponseSchema,
+      ...(signal ? { signal } : {}),
+    },
+  );
 }
 
 export function getHealth(): Promise<HealthResponse> {

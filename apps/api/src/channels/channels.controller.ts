@@ -21,6 +21,7 @@ import {
   parseCreateChannelBody,
   parseListHealthHistoryQuery,
   parseListChannelsQuery,
+  parsePublicIntelligenceQuery,
   parseListSyncRunsQuery,
 } from "./channels.schemas.js";
 
@@ -57,6 +58,15 @@ export class ChannelsController {
   @Header("Cache-Control", "no-store")
   requestHealthCheck(@Param("id") id: string) {
     return this.channels.requestHealthCheck({ id: parseChannelId(id) });
+  }
+
+  @Get(":id/public-intelligence")
+  @Header("Cache-Control", "no-store")
+  publicIntelligence(@Param("id") id: string, @Query() query: unknown) {
+    return this.channels.publicIntelligence({
+      id: parseChannelId(id),
+      ...parsePublicIntelligenceQuery(query),
+    });
   }
 
   @Get(":id")

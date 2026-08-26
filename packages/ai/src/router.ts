@@ -61,6 +61,7 @@ export class AIProviderRouter implements AIProvider {
 
   async structured<T>(request: StructuredAIRequest<T>): Promise<T> {
     const selected = this.selectProvider(request);
+    this.recordAttempt(selected.provider, selected.request.model);
     try {
       const result = await selected.provider.structured(selected.request);
       this.recordUse(selected.provider, selected.request.model);
@@ -75,6 +76,7 @@ export class AIProviderRouter implements AIProvider {
 
   async text(request: TextAIRequest): Promise<string> {
     const selected = this.selectProvider(request);
+    this.recordAttempt(selected.provider, selected.request.model);
     try {
       const result = await selected.provider.text(selected.request);
       this.recordUse(selected.provider, selected.request.model);
@@ -147,6 +149,7 @@ export class AIProviderRouter implements AIProvider {
               Object.entries(request).filter(([key]) => key !== "model"),
             ) as T;
           })();
+      this.recordAttempt(candidate, fallbackRequest.model);
       try {
         const result = await operation(candidate, fallbackRequest);
         this.recordUse(candidate, fallbackRequest.model);
@@ -161,6 +164,11 @@ export class AIProviderRouter implements AIProvider {
 
   private recordUse(provider: AIProvider, model: string | undefined): void {
     this.lastUsedProviderId = provider.id;
-    this.lastUsedModelId = model ?? null;
+    this.lastUsedModelId = provider.lastModelId ?? model ?? provider.defaultModelId ?? null;
+  }
+
+  private recordAttempt(provider: AIProvider, model: string | undefined): void {
+    this.lastUsedProviderId = provider.id;
+    this.lastUsedModelId = model ?? provider.defaultModelId ?? null;
   }
 }

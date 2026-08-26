@@ -14,7 +14,11 @@ import {
 import { createPinoOptions } from "@yt-monitor/shared";
 import pino from "pino";
 
+import { loadWorkerAiRuntime } from "./ai/runtime.js";
 import { HeartbeatService } from "./heartbeat/heartbeat.service.js";
+import { AiReportAggregateBuilder } from "./jobs/ai-report.aggregate.js";
+import { AiReportPipeline } from "./jobs/ai-report.pipeline.js";
+import { AiReportScheduler } from "./jobs/ai-report.scheduler.js";
 import { ChannelHealthJob } from "./jobs/channel-health.job.js";
 import { ChannelDataScheduler, localCalendarDate } from "./jobs/channel-data.scheduler.js";
 import { createChannelHealthProviders } from "./jobs/channel-health-provider.js";
@@ -105,6 +109,35 @@ const videoMonitorScheduler = new VideoMonitorScheduler({
   snapshotIntervalMs: 60 * 60 * 1000,
   jitterMs: 15_000,
 });
+const aiReportAggregateBuilder = new AiReportAggregateBuilder({
+  unitOfWork: channelUnitOfWork,
+  timeZone: workerEnv.APP_TIMEZONE,
+});
+const aiReportPipeline = new AiReportPipeline({
+  unitOfWork: channelUnitOfWork,
+  aggregateBuilder: aiReportAggregateBuilder,
+  loadRuntime: () =>
+    loadWorkerAiRuntime({
+      unitOfWork: channelUnitOfWork,
+      environment: workerEnv,
+    }),
+  logger: workerLogger,
+});
+const aiReportScheduler = new AiReportScheduler({
+  runner: aiReportPipeline,
+  logger: workerLogger,
+  timeZone: workerEnv.APP_TIMEZONE,
+  schedule: {
+    dailyEnabled: workerEnv.AI_DAILY_REPORT_ENABLED,
+    dailyHour: workerEnv.AI_DAILY_REPORT_HOUR,
+    dailyMinute: workerEnv.AI_DAILY_REPORT_MINUTE,
+    weeklyEnabled: workerEnv.AI_WEEKLY_REPORT_ENABLED,
+    weeklyDay: workerEnv.AI_WEEKLY_REPORT_DAY,
+    weeklyHour: workerEnv.AI_WEEKLY_REPORT_HOUR,
+    weeklyMinute: workerEnv.AI_WEEKLY_REPORT_MINUTE,
+  },
+  retryMs: workerEnv.AI_REPORT_RETRY_MINUTES * 60_000,
+});
 
 export const WORKER_ENV = Symbol("WORKER_ENV");
 export const DATABASE_CLIENT = Symbol("DATABASE_CLIENT");
@@ -143,6 +176,17 @@ class VideoMonitorSchedulerLifecycle implements OnModuleInit, OnModuleDestroy {
   }
 }
 
+@Injectable()
+class AiReportSchedulerLifecycle implements OnModuleInit, OnModuleDestroy {
+  onModuleInit(): void {
+    aiReportScheduler.start();
+  }
+
+  onModuleDestroy(): void {
+    aiReportScheduler.stop();
+  }
+}
+
 @Module({
   providers: [
     { provide: WORKER_ENV, useValue: workerEnv },
@@ -164,6 +208,10 @@ class VideoMonitorSchedulerLifecycle implements OnModuleInit, OnModuleDestroy {
     { provide: VideoSnapshotJob, useValue: videoSnapshotJob },
     { provide: VideoMonitorScheduler, useValue: videoMonitorScheduler },
     VideoMonitorSchedulerLifecycle,
+    { provide: AiReportAggregateBuilder, useValue: aiReportAggregateBuilder },
+    { provide: AiReportPipeline, useValue: aiReportPipeline },
+    { provide: AiReportScheduler, useValue: aiReportScheduler },
+    AiReportSchedulerLifecycle,
     { provide: HeartbeatRepository, useValue: heartbeatRepository },
     {
       provide: HeartbeatService,

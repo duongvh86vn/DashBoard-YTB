@@ -4,6 +4,7 @@ export * from "./contracts.js";
 export * from "./errors.js";
 export * from "./fingerprint.js";
 export * from "./gemini.js";
+export * from "./grounding.js";
 export * from "./noop.js";
 export * from "./nvidia.js";
 export * from "./router.js";

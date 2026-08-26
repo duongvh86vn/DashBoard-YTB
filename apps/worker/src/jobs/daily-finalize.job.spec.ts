@@ -33,6 +33,7 @@ describe("DailyFinalizeJob", () => {
       unitOfWork: {
         transaction: async (work) =>
           work({
+            channels: { latestSnapshot: async () => null },
             dailyStats: {
               findByChannelAndDate: async () => null,
               upsert: async (value: unknown) => {
@@ -58,6 +59,61 @@ describe("DailyFinalizeJob", () => {
       videoDelta: null,
       viewDelta: null,
       coverageStatus: "COMPLETE",
+      sourceSummary: {
+        subscriberCount: { precision: "ROUNDED_3_SIGNIFICANT_DIGITS" },
+        videoCount: { precision: "ROUNDED_PUBLIC_DISPLAY" },
+        lifetimeViewCount: { precision: "ROUNDED_PUBLIC_DISPLAY" },
+      },
+    });
+  });
+
+  it("persists field precision only from the matching freshly collected snapshot", async () => {
+    let input: Record<string, unknown> | undefined;
+    const capturedAt = new Date("2026-08-22T00:05:00.000Z");
+    const current = {
+      id: "channel-id",
+      subscriberCount: 10n,
+      videoCount: 2n,
+      lifetimeViewCount: 100n,
+      lastChannelScanAt: capturedAt,
+    };
+    const job = new DailyFinalizeJob({
+      timeZone: "Asia/Bangkok",
+      currentDate: () => "2026-08-22",
+      unitOfWork: {
+        transaction: async (work) =>
+          work({
+            channels: {
+              latestSnapshot: async () => ({
+                ...current,
+                channelId: current.id,
+                capturedAt,
+                sourceDetails: {
+                  subscriberCount: { precision: "ROUNDED_3_SIGNIFICANT_DIGITS" },
+                  videoCount: { precision: "EXACT_AS_PUBLISHED" },
+                  lifetimeViewCount: { precision: "EXACT_AS_PUBLISHED" },
+                },
+              }),
+            },
+            dailyStats: {
+              findByChannelAndDate: async () => null,
+              upsert: async (value: unknown) => {
+                input = value as Record<string, unknown>;
+                return value as never;
+              },
+            },
+          } as never),
+      },
+    });
+
+    await job.run(current as never, { freshCollectionSucceeded: true });
+
+    expect(input).toMatchObject({
+      sourceSummary: {
+        subscriberCount: { precision: "ROUNDED_3_SIGNIFICANT_DIGITS" },
+        videoCount: { precision: "EXACT_AS_PUBLISHED" },
+        lifetimeViewCount: { precision: "EXACT_AS_PUBLISHED" },
+      },
     });
   });
 

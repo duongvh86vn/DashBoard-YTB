@@ -48,6 +48,14 @@ export interface VideoRankingRecord extends VideoRecord {
 
 export type PublishedVideoRecord = Pick<VideoRecord, "channelId" | "publishedAt">;
 
+export interface ChannelPublicVideoSummary {
+  knownPublicVideos: number;
+  durationKnownVideos: number;
+  durationSecondsTotal: number;
+  publishedVideos: number;
+  catalogObservedAt: Date | null;
+}
+
 export class VideoRepository {
   constructor(private readonly client: VideoClient) {}
 
@@ -107,6 +115,38 @@ export class VideoRepository {
       orderBy: [{ publishedAt: "asc" }, { id: "asc" }],
       select: { channelId: true, publishedAt: true },
     });
+  }
+
+  async summarizePublicCatalog(
+    channelId: string,
+    start: Date,
+    endExclusive: Date,
+  ): Promise<ChannelPublicVideoSummary> {
+    const publicCatalog = { channelId, isAvailable: true } as const;
+    const [catalog, observedCatalog, publishedVideos] = await Promise.all([
+      this.client.video.aggregate({
+        where: publicCatalog,
+        _count: { _all: true, durationSeconds: true },
+        _sum: { durationSeconds: true },
+      }),
+      this.client.video.aggregate({
+        where: { channelId },
+        _max: { lastSeenAt: true },
+      }),
+      this.client.video.count({
+        where: {
+          channelId,
+          publishedAt: { gte: start, lt: endExclusive },
+        },
+      }),
+    ]);
+    return {
+      knownPublicVideos: catalog._count._all,
+      durationKnownVideos: catalog._count.durationSeconds,
+      durationSecondsTotal: catalog._sum.durationSeconds ?? 0,
+      publishedVideos,
+      catalogObservedAt: observedCatalog._max.lastSeenAt,
+    };
   }
 
   listForRanking(input: ListRankingVideosInput = {}): Promise<VideoRankingRecord[]> {
