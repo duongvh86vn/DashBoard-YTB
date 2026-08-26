@@ -8,15 +8,25 @@ delete monitoring data.
 
 ## First image download or application update
 
-The supported update path is `start.bat`. It derives the immutable
-`sha-<full-git-commit>` image tag from the checked-out revision, downloads that
-complete version, and then starts it. This avoids mixing services from two
-commits while a moving branch tag is being promoted.
-
-For manual operation, keep the existing `.env` created by the supported local
-setup. Pin the checked-out revision before pulling:
+Update Git first, then run `start.bat`:
 
 ```powershell
+git switch phase/0-foundation
+git pull --ff-only origin phase/0-foundation
+.\start.bat
+```
+
+`start.bat` derives the immutable `sha-<full-git-commit>` image tag from the
+checked-out revision, downloads that complete version, and then starts it. It
+does not run `git pull`. This avoids mixing services from two commits while a
+moving branch tag is being promoted.
+
+For manual operation, keep the existing `.env` created by the supported local
+setup. Update the checkout, then pin that revision before pulling images:
+
+```powershell
+git switch phase/0-foundation
+git pull --ff-only origin phase/0-foundation
 $revision = (git rev-parse HEAD).Trim().ToLowerInvariant()
 $env:DASHBOARD_IMAGE_TAG = "sha-$revision"
 docker compose -f docker-compose.prebuilt.yml pull
@@ -28,9 +38,14 @@ full runtime. This path never invokes `docker compose build`.
 
 After the first successful start, Docker Desktop shows one Compose application
 named `dashboard-ytb`. Its Stop/Play buttons stop and restart the existing
-containers without rebuilding them. Use the commands above again when a new
-application version has been published, or simply run `start.bat` after a Git
-update.
+containers without rebuilding them. Play does not update Git or install a newer
+version. Use the commands above again when a new application version has been
+published, or run `start.bat` after updating Git.
+
+`start.bat -ForcePull` re-downloads images for the checked-out commit; it still
+does not update Git. If the immutable images for a just-pushed commit have not
+finished publishing, the script may safely fall back to a local build, which is
+slower than a normal restart.
 
 Open <http://127.0.0.1:3000/login> after all services are healthy.
 

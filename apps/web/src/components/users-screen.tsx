@@ -1,6 +1,7 @@
 "use client";
 
 import type { PublicUser, UsersPage } from "@yt-monitor/shared/browser-auth";
+import type { ChannelGroupDetail, ChannelGroupSummary } from "@yt-monitor/shared";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import {
@@ -9,9 +10,12 @@ import {
   disableViewer,
   enableViewer,
   getVietnameseApiMessage,
+  getChannelGroup,
+  listChannelGroups,
   listViewers,
   resetViewerPassword,
   revokeViewerSessions,
+  replaceViewerChannelGroups,
   updateViewerEmail,
 } from "../lib/api-client";
 import { useAuth } from "../lib/auth-context";
@@ -24,7 +28,8 @@ type DialogAction =
   | { kind: "reset"; user: PublicUser }
   | { kind: "revoke"; user: PublicUser }
   | { kind: "disable"; user: PublicUser }
-  | { kind: "delete"; user: PublicUser };
+  | { kind: "delete"; user: PublicUser }
+  | { kind: "groups"; user: PublicUser };
 
 const dialogCopy = {
   edit: {
@@ -52,22 +57,47 @@ const dialogCopy = {
     confirmation: "Xác nhận vô hiệu hóa",
     description: "Thao tác này không xóa dữ liệu; tài khoản sẽ được vô hiệu hóa an toàn.",
   },
+  groups: {
+    title: "Phân quyền nhóm kênh",
+    confirmation: "Lưu phân quyền",
+    description:
+      "Chọn đầy đủ các nhóm VIEWER được phép xem. Không chọn nhóm nào nghĩa là không có quyền xem kênh.",
+  },
 } as const;
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium" }).format(new Date(value));
 }
 
-export function UsersScreen() {
+async function loadGroupDetails(
+  signal: AbortSignal,
+): Promise<{ summaries: ChannelGroupSummary[]; details: ChannelGroupDetail[] }> {
+  const response = await listChannelGroups(signal);
+  const details: ChannelGroupDetail[] = [];
+  for (let offset = 0; offset < response.items.length; offset += 5) {
+    const batch = response.items.slice(offset, offset + 5);
+    details.push(...(await Promise.all(batch.map((group) => getChannelGroup(group.id, signal)))));
+  }
+  return { summaries: response.items, details };
+}
+
+export function UsersScreen({ groupAccessEnabled = true }: { groupAccessEnabled?: boolean } = {}) {
   const auth = useAuth();
   const [page, setPage] = useState(1);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [data, setData] = useState<UsersPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [recoveryWarning, setRecoveryWarning] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [createEmail, setCreateEmail] = useState("");
   const [createPassword, setCreatePassword] = useState("");
+  const [groups, setGroups] = useState<ChannelGroupSummary[]>([]);
+  const [groupDetails, setGroupDetails] = useState<ChannelGroupDetail[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(groupAccessEnabled);
+  const [groupsError, setGroupsError] = useState<string | null>(null);
+  const [createGroupIds, setCreateGroupIds] = useState<string[]>([]);
+  const [dialogGroupIds, setDialogGroupIds] = useState<string[]>([]);
   const [dialog, setDialog] = useState<DialogAction | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [dialogValue, setDialogValue] = useState("");
@@ -101,6 +131,30 @@ export function UsersScreen() {
     return () => controller.abort();
   }, [auth.handleApiError, page, refreshVersion]);
 
+  useEffect(() => {
+    if (!groupAccessEnabled) {
+      setGroupsLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setGroupsLoading(true);
+    setGroupsError(null);
+    void loadGroupDetails(controller.signal)
+      .then(({ summaries, details }) => {
+        if (controller.signal.aborted) return;
+        setGroups(summaries);
+        setGroupDetails(details);
+      })
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted) return;
+        if (!auth.handleApiError(reason)) setGroupsError(getVietnameseApiMessage(reason));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setGroupsLoading(false);
+      });
+    return () => controller.abort();
+  }, [auth.handleApiError, groupAccessEnabled, refreshVersion]);
+
   function refresh() {
     setRefreshVersion((version) => version + 1);
   }
@@ -111,6 +165,13 @@ export function UsersScreen() {
     setDialogError(null);
     setNotice(null);
     setDialogValue(next.kind === "edit" ? next.user.email : "");
+    setDialogGroupIds(
+      next.kind === "groups"
+        ? groupDetails
+            .filter((group) => group.viewerIds.includes(next.user.id))
+            .map((group) => group.id)
+        : [],
+    );
     setDialog(next);
   }
 
@@ -136,6 +197,7 @@ export function UsersScreen() {
       await work();
       setDialogValue("");
       setDialog(null);
+      setRecoveryWarning(null);
       setNotice(successMessage);
       refresh();
       return true;
@@ -157,6 +219,44 @@ export function UsersScreen() {
 
   async function submitCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (groupAccessEnabled) {
+      if (pendingRef.current) return;
+      pendingRef.current = true;
+      setPending(true);
+      setError(null);
+      setRecoveryWarning(null);
+      setNotice(null);
+      let createdUser: PublicUser | null = null;
+      try {
+        createdUser = await createViewer({ email: createEmail, password: createPassword });
+        await replaceViewerChannelGroups(createdUser.id, createGroupIds);
+        setNotice(
+          createGroupIds.length === 0
+            ? "Đã tạo VIEWER không có quyền xem kênh."
+            : "Đã tạo VIEWER và cấp nhóm kênh.",
+        );
+        setCreateEmail("");
+        setCreatePassword("");
+        setCreateGroupIds([]);
+        refresh();
+      } catch (reason) {
+        if (createdUser) {
+          setCreateEmail("");
+          setCreatePassword("");
+          setCreateGroupIds([]);
+          setRecoveryWarning(
+            "Tài khoản đã được tạo nhưng hiện chưa có quyền xem kênh. Hãy mở Phân quyền nhóm ở dòng người dùng để thử lại.",
+          );
+          refresh();
+        } else if (!auth.handleApiError(reason)) {
+          setError(getVietnameseApiMessage(reason, "users"));
+        }
+      } finally {
+        pendingRef.current = false;
+        setPending(false);
+      }
+      return;
+    }
     const succeeded = await runMutation(
       () => createViewer({ email: createEmail, password: createPassword }),
       "Đã tạo tài khoản VIEWER.",
@@ -204,6 +304,15 @@ export function UsersScreen() {
         await runMutation(
           () => deleteViewer(dialog.user.id),
           "Đã vô hiệu hóa tài khoản qua thao tác xóa.",
+          "dialog",
+        );
+        return;
+      case "groups":
+        await runMutation(
+          () => replaceViewerChannelGroups(dialog.user.id, dialogGroupIds),
+          dialogGroupIds.length === 0
+            ? "Đã gỡ toàn bộ nhóm; VIEWER hiện không có quyền xem kênh."
+            : "Đã cập nhật đầy đủ phân quyền nhóm kênh.",
           "dialog",
         );
     }
@@ -254,7 +363,62 @@ export function UsersScreen() {
               onChange={(event) => setCreatePassword(event.target.value)}
             />
           </label>
-          <button className="button-primary" type="submit" disabled={pending}>
+          {groupAccessEnabled ? (
+            <fieldset className="md:col-span-3">
+              <legend className="text-sm font-semibold text-slate-800">Nhóm kênh được xem</legend>
+              <p className="mt-1 text-sm text-slate-600">
+                Có thể chọn nhiều nhóm. Không chọn nhóm nào nghĩa là VIEWER không được xem kênh.
+              </p>
+              {groupsLoading ? (
+                <p className="mt-3 text-sm" role="status">
+                  Đang tải nhóm kênh…
+                </p>
+              ) : null}
+              {groupsError ? (
+                <div
+                  className="alert-error mt-3 flex flex-wrap items-center justify-between gap-3"
+                  role="alert"
+                >
+                  <span>{groupsError}</span>
+                  <button className="button-secondary" type="button" onClick={refresh}>
+                    Thử tải lại nhóm
+                  </button>
+                </div>
+              ) : null}
+              {!groupsLoading && !groupsError && groups.length === 0 ? (
+                <p className="mt-3 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+                  Chưa có nhóm kênh. VIEWER mới sẽ không có quyền xem kênh.
+                </p>
+              ) : null}
+              <div className="mt-3 flex flex-wrap gap-3">
+                {groups.map((group) => (
+                  <label
+                    className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2"
+                    key={group.id}
+                  >
+                    <input
+                      type="checkbox"
+                      aria-label={`${group.name} cho VIEWER mới`}
+                      checked={createGroupIds.includes(group.id)}
+                      onChange={(event) =>
+                        setCreateGroupIds((ids) =>
+                          event.target.checked
+                            ? [...ids, group.id]
+                            : ids.filter((id) => id !== group.id),
+                        )
+                      }
+                    />
+                    <span>{group.name}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          ) : null}
+          <button
+            className="button-primary"
+            type="submit"
+            disabled={pending || (groupAccessEnabled && (groupsLoading || groupsError !== null))}
+          >
             {pending ? "Đang xử lý…" : "Tạo VIEWER"}
           </button>
         </form>
@@ -271,6 +435,11 @@ export function UsersScreen() {
             Thử tải lại danh sách
           </button>
         </div>
+      ) : null}
+      {recoveryWarning ? (
+        <p className="alert-error" role="alert" aria-live="assertive">
+          {recoveryWarning}
+        </p>
       ) : null}
       {notice ? (
         <p className="alert-success" role="status" aria-live="polite">
@@ -297,98 +466,139 @@ export function UsersScreen() {
                 <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
                   <th className="table-cell">Email</th>
                   <th className="table-cell">Trạng thái</th>
+                  {groupAccessEnabled ? <th className="table-cell">Nhóm kênh</th> : null}
                   <th className="table-cell">Ngày tạo</th>
                   <th className="table-cell">Thao tác</th>
                 </tr>
               </thead>
               <tbody>
-                {data.items.map((user) => (
-                  <tr key={user.id} className="border-t border-slate-100 align-top">
-                    <td className="table-cell font-medium text-slate-950">{user.email}</td>
-                    <td className="table-cell">
-                      <span className={user.isEnabled ? "status-enabled" : "status-disabled"}>
-                        {user.isEnabled ? "Đang hoạt động" : "Đã vô hiệu hóa"}
-                      </span>
-                    </td>
-                    <td className="table-cell text-slate-600">{formatDate(user.createdAt)}</td>
-                    <td className="table-cell">
-                      <div className="flex min-w-[28rem] flex-wrap gap-2">
-                        <button
-                          className="button-table"
-                          type="button"
-                          onClick={(event) =>
-                            openDialog({ kind: "edit", user }, event.currentTarget)
-                          }
-                          disabled={pending}
-                        >
-                          <span aria-hidden="true">Đổi email</span>
-                          <span className="sr-only">Đổi email của {user.email}</span>
-                        </button>
-                        <button
-                          className="button-table"
-                          type="button"
-                          onClick={(event) =>
-                            openDialog({ kind: "reset", user }, event.currentTarget)
-                          }
-                          disabled={pending}
-                          aria-label={`Đặt lại mật khẩu của ${user.email}`}
-                        >
-                          Đặt lại mật khẩu
-                        </button>
-                        <button
-                          className="button-table"
-                          type="button"
-                          onClick={(event) =>
-                            openDialog({ kind: "revoke", user }, event.currentTarget)
-                          }
-                          disabled={pending}
-                          aria-label={`Thu hồi phiên của ${user.email}`}
-                        >
-                          Thu hồi phiên
-                        </button>
-                        {user.isEnabled ? (
+                {data.items.map((user) => {
+                  const assignedGroups = groupDetails.filter((group) =>
+                    group.viewerIds.includes(user.id),
+                  );
+                  return (
+                    <tr key={user.id} className="border-t border-slate-100 align-top">
+                      <td className="table-cell font-medium text-slate-950">{user.email}</td>
+                      <td className="table-cell">
+                        <span className={user.isEnabled ? "status-enabled" : "status-disabled"}>
+                          {user.isEnabled ? "Đang hoạt động" : "Đã vô hiệu hóa"}
+                        </span>
+                      </td>
+                      {groupAccessEnabled ? (
+                        <td className="table-cell">
+                          {groupsLoading ? (
+                            <span className="text-sm text-slate-500">Đang tải…</span>
+                          ) : assignedGroups.length > 0 ? (
+                            <div className="flex min-w-48 flex-wrap gap-2">
+                              {assignedGroups.map((group) => (
+                                <span
+                                  className="rounded-full bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-800"
+                                  key={group.id}
+                                >
+                                  {group.name}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-sm font-semibold text-amber-700">
+                              Không có quyền xem kênh
+                            </span>
+                          )}
+                        </td>
+                      ) : null}
+                      <td className="table-cell text-slate-600">{formatDate(user.createdAt)}</td>
+                      <td className="table-cell">
+                        <div className="flex min-w-[28rem] flex-wrap gap-2">
+                          {groupAccessEnabled ? (
+                            <button
+                              className="button-table"
+                              type="button"
+                              onClick={(event) =>
+                                openDialog({ kind: "groups", user }, event.currentTarget)
+                              }
+                              disabled={pending || groupsLoading || groupsError !== null}
+                              aria-label={`Phân quyền nhóm của ${user.email}`}
+                            >
+                              Phân quyền nhóm
+                            </button>
+                          ) : null}
+                          <button
+                            className="button-table"
+                            type="button"
+                            onClick={(event) =>
+                              openDialog({ kind: "edit", user }, event.currentTarget)
+                            }
+                            disabled={pending}
+                          >
+                            <span aria-hidden="true">Đổi email</span>
+                            <span className="sr-only">Đổi email của {user.email}</span>
+                          </button>
+                          <button
+                            className="button-table"
+                            type="button"
+                            onClick={(event) =>
+                              openDialog({ kind: "reset", user }, event.currentTarget)
+                            }
+                            disabled={pending}
+                            aria-label={`Đặt lại mật khẩu của ${user.email}`}
+                          >
+                            Đặt lại mật khẩu
+                          </button>
+                          <button
+                            className="button-table"
+                            type="button"
+                            onClick={(event) =>
+                              openDialog({ kind: "revoke", user }, event.currentTarget)
+                            }
+                            disabled={pending}
+                            aria-label={`Thu hồi phiên của ${user.email}`}
+                          >
+                            Thu hồi phiên
+                          </button>
+                          {user.isEnabled ? (
+                            <button
+                              className="button-table-danger"
+                              type="button"
+                              onClick={(event) =>
+                                openDialog({ kind: "disable", user }, event.currentTarget)
+                              }
+                              disabled={pending}
+                              aria-label={`Vô hiệu hóa ${user.email}`}
+                            >
+                              Vô hiệu hóa
+                            </button>
+                          ) : (
+                            <button
+                              className="button-table"
+                              type="button"
+                              disabled={pending}
+                              onClick={() =>
+                                void runMutation(
+                                  () => enableViewer(user.id),
+                                  "Đã kích hoạt lại tài khoản VIEWER.",
+                                )
+                              }
+                              aria-label={`Kích hoạt ${user.email}`}
+                            >
+                              Kích hoạt
+                            </button>
+                          )}
                           <button
                             className="button-table-danger"
                             type="button"
                             onClick={(event) =>
-                              openDialog({ kind: "disable", user }, event.currentTarget)
+                              openDialog({ kind: "delete", user }, event.currentTarget)
                             }
                             disabled={pending}
-                            aria-label={`Vô hiệu hóa ${user.email}`}
+                            aria-label={`Xóa (vô hiệu hóa) ${user.email}`}
                           >
-                            Vô hiệu hóa
+                            Xóa
                           </button>
-                        ) : (
-                          <button
-                            className="button-table"
-                            type="button"
-                            disabled={pending}
-                            onClick={() =>
-                              void runMutation(
-                                () => enableViewer(user.id),
-                                "Đã kích hoạt lại tài khoản VIEWER.",
-                              )
-                            }
-                            aria-label={`Kích hoạt ${user.email}`}
-                          >
-                            Kích hoạt
-                          </button>
-                        )}
-                        <button
-                          className="button-table-danger"
-                          type="button"
-                          onClick={(event) =>
-                            openDialog({ kind: "delete", user }, event.currentTarget)
-                          }
-                          disabled={pending}
-                          aria-label={`Xóa (vô hiệu hóa) ${user.email}`}
-                        >
-                          Xóa
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -455,6 +665,40 @@ export function UsersScreen() {
                   onChange={(event) => setDialogValue(event.target.value)}
                 />
               </label>
+            ) : null}
+            {dialog.kind === "groups" ? (
+              <fieldset>
+                <legend className="font-semibold text-slate-900">Nhóm được phép xem</legend>
+                <p className="mt-1 text-sm text-slate-600">
+                  Bỏ chọn tất cả để thu hồi toàn bộ quyền xem kênh.
+                </p>
+                {groups.length === 0 ? (
+                  <p className="mt-3 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+                    Chưa có nhóm kênh; lưu trạng thái này sẽ không cấp quyền xem kênh.
+                  </p>
+                ) : null}
+                <div className="mt-3 space-y-2">
+                  {groups.map((group) => (
+                    <label
+                      className="flex items-center gap-3 rounded-xl border border-slate-200 p-3"
+                      key={group.id}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={dialogGroupIds.includes(group.id)}
+                        onChange={(event) =>
+                          setDialogGroupIds((ids) =>
+                            event.target.checked
+                              ? [...ids, group.id]
+                              : ids.filter((id) => id !== group.id),
+                          )
+                        }
+                      />
+                      <span>{group.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
             ) : null}
             {dialogError ? (
               <p className="alert-error" role="alert" aria-live="assertive">

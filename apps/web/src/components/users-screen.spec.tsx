@@ -46,11 +46,11 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function renderUsers() {
+function renderUsers(groupAccessEnabled = false) {
   return render(
     <AuthProvider>
       <AdminGate>
-        <UsersScreen />
+        <UsersScreen groupAccessEnabled={groupAccessEnabled} />
       </AdminGate>
     </AuthProvider>,
   );
@@ -63,6 +63,23 @@ afterEach(() => {
 });
 
 describe("UsersScreen", () => {
+  const groupA = {
+    id: "00000000-0000-4000-8000-000000000010",
+    name: "Nhóm A",
+    slug: "nhom-a",
+    description: null,
+    channelCount: 2,
+    viewerCount: 0,
+    createdAt: "2026-08-26T00:00:00.000Z",
+    updatedAt: "2026-08-26T00:00:00.000Z",
+  };
+  const groupB = {
+    ...groupA,
+    id: "00000000-0000-4000-8000-000000000011",
+    name: "Nhóm B",
+    slug: "nhom-b",
+  };
+
   it("never calls the Users API for a direct VIEWER visit", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ user: { ...viewer, role: "VIEWER" } }));
     vi.stubGlobal("fetch", fetchMock);
@@ -163,6 +180,168 @@ describe("UsersScreen", () => {
       JSON.stringify({ email: viewer.email, password: "password-long-enough" }),
     );
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("creates a VIEWER with the complete multi-group selection and renders assignment chips", async () => {
+    let created = false;
+    let assigned = false;
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/v1/auth/me") return jsonResponse({ user: admin });
+      if (path === "/api/v1/channel-groups") return jsonResponse({ items: [groupA, groupB] });
+      if (path === `/api/v1/channel-groups/${groupA.id}`) {
+        return jsonResponse({
+          group: { ...groupA, channelIds: [], viewerIds: assigned ? [viewer.id] : [] },
+        });
+      }
+      if (path === `/api/v1/channel-groups/${groupB.id}`) {
+        return jsonResponse({
+          group: { ...groupB, channelIds: [], viewerIds: assigned ? [viewer.id] : [] },
+        });
+      }
+      if (path === "/api/v1/users?page=1&pageSize=20") {
+        return jsonResponse({
+          items: created ? [viewer] : [],
+          page: 1,
+          pageSize: 20,
+          total: created ? 1 : 0,
+        });
+      }
+      if (path === "/api/v1/users" && init?.method === "POST") {
+        created = true;
+        return jsonResponse({ user: viewer }, 201);
+      }
+      if (path === `/api/v1/users/${viewer.id}/channel-groups`) {
+        assigned = true;
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderUsers(true);
+
+    fireEvent.change(await screen.findByRole("textbox", { name: "Email VIEWER mới" }), {
+      target: { value: viewer.email },
+    });
+    fireEvent.change(screen.getByLabelText("Mật khẩu VIEWER mới"), {
+      target: { value: "password-long-enough" },
+    });
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Nhóm A cho VIEWER mới" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Nhóm B cho VIEWER mới" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tạo VIEWER" }));
+
+    await waitFor(() => {
+      const assignment = fetchMock.mock.calls.find(
+        ([path]) => path === `/api/v1/users/${viewer.id}/channel-groups`,
+      );
+      expect(assignment?.[1]?.body).toBe(JSON.stringify({ groupIds: [groupA.id, groupB.id] }));
+    });
+    const row = (await screen.findByText(viewer.email)).closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText("Nhóm A")).toBeInTheDocument();
+    expect(within(row as HTMLElement).getByText("Nhóm B")).toBeInTheDocument();
+  });
+
+  it("replaces a VIEWER assignment with an explicit empty set that visibly means no access", async () => {
+    let assigned = true;
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === "/api/v1/auth/me") return jsonResponse({ user: admin });
+      if (path === "/api/v1/users?page=1&pageSize=20")
+        return jsonResponse({ items: [viewer], page: 1, pageSize: 20, total: 1 });
+      if (path === "/api/v1/channel-groups") return jsonResponse({ items: [groupA, groupB] });
+      if (path === `/api/v1/channel-groups/${groupA.id}`)
+        return jsonResponse({
+          group: { ...groupA, channelIds: [], viewerIds: assigned ? [viewer.id] : [] },
+        });
+      if (path === `/api/v1/channel-groups/${groupB.id}`)
+        return jsonResponse({ group: { ...groupB, channelIds: [], viewerIds: [] } });
+      if (path === `/api/v1/users/${viewer.id}/channel-groups`) {
+        assigned = false;
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderUsers(true);
+
+    const row = (await screen.findByText(viewer.email)).closest("tr") as HTMLElement;
+    expect(await within(row).findByText("Nhóm A")).toBeInTheDocument();
+    fireEvent.click(
+      within(row).getByRole("button", { name: `Phân quyền nhóm của ${viewer.email}` }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Phân quyền nhóm kênh" });
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "Nhóm A" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu phân quyền" }));
+
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit | undefined]>;
+      const call = calls.find(([path]) => path === `/api/v1/users/${viewer.id}/channel-groups`);
+      expect(call?.[1]?.body).toBe(JSON.stringify({ groupIds: [] }));
+    });
+    expect(await within(row).findByText("Không có quyền xem kênh")).toBeInTheDocument();
+  });
+
+  it("reports the recoverable no-access state when account creation succeeds but assignment fails", async () => {
+    let created = false;
+    let assignmentAttempts = 0;
+    let assigned = false;
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/v1/auth/me") return jsonResponse({ user: admin });
+      if (path === "/api/v1/channel-groups") return jsonResponse({ items: [groupA] });
+      if (path === `/api/v1/channel-groups/${groupA.id}`)
+        return jsonResponse({
+          group: { ...groupA, channelIds: [], viewerIds: assigned ? [viewer.id] : [] },
+        });
+      if (path === "/api/v1/users?page=1&pageSize=20")
+        return jsonResponse({
+          items: created ? [viewer] : [],
+          page: 1,
+          pageSize: 20,
+          total: created ? 1 : 0,
+        });
+      if (path === "/api/v1/users" && init?.method === "POST") {
+        created = true;
+        return jsonResponse({ user: viewer }, 201);
+      }
+      if (path === `/api/v1/users/${viewer.id}/channel-groups`) {
+        assignmentAttempts += 1;
+        if (assignmentAttempts > 1) {
+          assigned = true;
+          return new Response(null, { status: 204 });
+        }
+        return jsonResponse(
+          { error: { code: "CHANNEL_GROUP_MEMBERSHIP_INVALID", message: "planted" } },
+          400,
+        );
+      }
+      throw new Error(`Unexpected ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderUsers(true);
+
+    fireEvent.change(await screen.findByRole("textbox", { name: "Email VIEWER mới" }), {
+      target: { value: viewer.email },
+    });
+    fireEvent.change(screen.getByLabelText("Mật khẩu VIEWER mới"), {
+      target: { value: "password-long-enough" },
+    });
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Nhóm A cho VIEWER mới" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tạo VIEWER" }));
+
+    expect(await screen.findByText(viewer.email)).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Tài khoản đã được tạo nhưng hiện chưa có quyền xem kênh",
+    );
+    expect(screen.getByLabelText("Mật khẩu VIEWER mới")).toHaveValue("");
+
+    fireEvent.click(screen.getByRole("button", { name: `Phân quyền nhóm của ${viewer.email}` }));
+    const dialog = screen.getByRole("dialog", { name: "Phân quyền nhóm kênh" });
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "Nhóm A" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu phân quyền" }));
+
+    await waitFor(() => expect(assignmentAttempts).toBe(2));
+    expect(screen.queryByText(/Tài khoản đã được tạo nhưng/u)).toBeNull();
+    const repairedRow = screen.getByText(viewer.email).closest("tr") as HTMLElement;
+    expect(await within(repairedRow).findByText("Nhóm A")).toBeInTheDocument();
   });
 
   it("still clears creation credentials when a retry succeeds after an earlier conflict", async () => {

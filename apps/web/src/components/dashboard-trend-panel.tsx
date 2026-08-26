@@ -138,17 +138,14 @@ function partialDayCoverage(
   const partial = data.series
     .map((point) => pointMetric(point, metric, data.coverage.totalChannels))
     .filter(
-      (
-        point,
-      ): point is MetricPresentation & { coveredChannels: number; totalChannels: number } =>
+      (point): point is MetricPresentation & { coveredChannels: number; totalChannels: number } =>
         point.status === "PARTIAL" &&
         point.coveredChannels !== null &&
         point.totalChannels !== null,
     );
   if (partial.length === 0) return null;
   const lowestCoverage = partial.reduce((lowest, point) =>
-    point.coveredChannels * lowest.totalChannels <
-    lowest.coveredChannels * point.totalChannels
+    point.coveredChannels * lowest.totalChannels < lowest.coveredChannels * point.totalChannels
       ? point
       : lowest,
   );

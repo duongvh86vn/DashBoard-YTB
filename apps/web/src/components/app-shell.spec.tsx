@@ -74,6 +74,7 @@ describe("AppShell", () => {
 
     expect(await screen.findByText(baseUser.email)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Người dùng" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Nhóm kênh" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /trạng thái hệ thống/i })).not.toBeInTheDocument();
     unmount();
 
@@ -91,6 +92,10 @@ describe("AppShell", () => {
     expect(await screen.findByRole("link", { name: "Người dùng" })).toHaveAttribute(
       "href",
       "/users",
+    );
+    expect(screen.getByRole("link", { name: "Nhóm kênh" })).toHaveAttribute(
+      "href",
+      "/channel-groups",
     );
   });
 

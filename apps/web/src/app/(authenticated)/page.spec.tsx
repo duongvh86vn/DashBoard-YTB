@@ -342,7 +342,9 @@ describe("Phase 8 dashboard", () => {
     const subscribers = screen.getByText("Người đăng ký đã ghi nhận").closest("article");
     expect(subscribers).not.toBeNull();
     expect(within(subscribers!).getByText("≥ 1.250")).toBeInTheDocument();
-    expect(within(subscribers!).getByText("1/2 kênh có số liệu · 1 chưa xác minh")).toBeInTheDocument();
+    expect(
+      within(subscribers!).getByText("1/2 kênh có số liệu · 1 chưa xác minh"),
+    ).toBeInTheDocument();
     expect(screen.getByText("0*")).toBeInTheDocument();
     expect(screen.getByText("chưa xác minh")).toBeInTheDocument();
   });

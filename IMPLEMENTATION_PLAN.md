@@ -200,6 +200,7 @@ db -> generated Prisma client + PostgreSQL adapter
 | 8     | J001–J023 completion; server pagination APIs                                                                         | Dashboard tiếng Việt đầy đủ, freshness/coverage/UX states      |
 | 9     | L001–L012 production completion                                                                                      | LAN + Caddy + Cloudflare Tunnel + public security              |
 | 10    | L013–L016; final B015/B016 audit; retention/performance/security hardening                                           | Full acceptance, backup/restore và final verification          |
+| 11    | Group schema/API/UI; access-scope remediation; partial metric contracts                                              | Multi-group VIEWER scope và honest partial dashboard           |
 
 Migrations và indexes được thêm cùng owning phase; không thiết kế toàn bộ schema sớm rồi để các cột không có semantics.
 
@@ -1149,52 +1150,60 @@ Target load: <=100 channels, <=100.000 known videos, <=5.000 active candidates; 
 optional after the original MVP. This phase adds them without weakening the
 canonical metric invariants.
 
+**Execution result (2026-08-26):** the group schema/API/UI, multi-group access
+scope, explicit subscriber-zero parsing and observed partial timeline shipped on
+`phase/0-foundation`. `pnpm verify` passed 117 test files / 654 tests and all
+production builds. A fresh isolated `pnpm test:integration` applied all eight
+migrations, passed 11 PostgreSQL integration files / 45 tests, exercised
+API/Worker/Web outage recovery and the updated group-scoped Playwright flow, then
+verified cleanup.
+
 ### 17.1 Group model and administration
 
-- [ ] Add `ChannelGroup`, `ChannelGroupChannel` and `UserChannelGroup` with
+- [x] Add `ChannelGroup`, `ChannelGroupChannel` and `UserChannelGroup` with
       many-to-many membership, unique constraints and indexes.
-- [ ] Backfill one compatibility group for existing non-archived channels and
+- [x] Backfill one compatibility group for existing non-archived channels and
       existing VIEWER accounts during upgrade; fresh channels remain explicitly
       assigned by ADMIN.
-- [ ] Add authenticated group read APIs and ADMIN-only create/update/archive,
+- [x] Add authenticated group read APIs and ADMIN-only create/update/archive,
       atomic channel membership replacement and atomic VIEWER assignment.
-- [ ] Add an ADMIN screen to create groups, assign channels, and assign one or
+- [x] Add an ADMIN screen to create groups, assign channels, and assign one or
       many groups to each VIEWER.
 
 ### 17.2 Server-authoritative access scope
 
-- [ ] ADMIN remains unrestricted. VIEWER scope is the union of channels in all
+- [x] ADMIN remains unrestricted. VIEWER scope is the union of channels in all
       assigned, non-archived groups; a VIEWER with no groups sees zero channels.
-- [ ] Apply scope at the API/service/repository boundary to channel lists and
+- [x] Apply scope at the API/service/repository boundary to channel lists and
       details, public intelligence, health history, videos, snapshots, rankings
       and dashboard trends. Unauthorized direct resource access returns not found.
-- [ ] Keep sync-run inspection and global AI reports ADMIN-only until those
+- [x] Keep sync-run inspection and global AI reports ADMIN-only until those
       artifacts have a group-scoped generation fingerprint; UI hiding alone is
       not an authorization boundary.
 
 ### 17.3 Honest partial timeline and subscriber display
 
-- [ ] Keep strict totals/deltas `NULL` unless every visible channel is comparable,
+- [x] Keep strict totals/deltas `NULL` unless every visible channel is comparable,
       and add observed aggregates with explicit covered/total channel counts.
-- [ ] Render partial timeline values and coverage instead of blanking the whole
+- [x] Render partial timeline values and coverage instead of blanking the whole
       portfolio because one channel lacks a public counter. Never fabricate a
       missing day, baseline, subscriber count or historical value.
-- [ ] Parse canonical YouTube `No subscribers` as explicit public zero, enrich
+- [x] Parse canonical YouTube `No subscribers` as explicit public zero, enrich
       missing HTML fields from the canonical rendered About surface, and preserve
       ambiguous/missing counters as `NULL`.
-- [ ] Dashboard uses an explicitly labelled lower bound for known subscriber
+- [x] Dashboard uses an explicitly labelled lower bound for known subscriber
       values. Per-channel missing subscriber UI may show `0*` only with the visible
       qualifier `chưa xác minh`; it must not serialize or aggregate that display
       fallback as canonical zero.
 
 ### 17.4 Gates
 
-- [ ] Prisma validate/generate and clean migration replay/upgrade.
-- [ ] Unit tests for zero-group deny-all, multi-group union/dedup, archived group,
+- [x] Prisma validate/generate and clean migration replay/upgrade.
+- [x] Unit tests for zero-group deny-all, multi-group union/dedup, archived group,
       explicit zero versus missing, partial observed timeline and negative deltas.
-- [ ] API/E2E tests prove an assigned resource is readable, an unassigned resource
+- [x] API/E2E tests prove an assigned resource is readable, an unassigned resource
       is absent/404, and membership changes affect an existing session immediately.
-- [ ] `pnpm typecheck`, `pnpm lint`, `pnpm test`, integration, Docker and browser
+- [x] `pnpm typecheck`, `pnpm lint`, `pnpm test`, integration, Docker and browser
       acceptance pass before commit/push.
 
 **Exit:** ADMIN can manage groups and multi-group viewer assignments; every read

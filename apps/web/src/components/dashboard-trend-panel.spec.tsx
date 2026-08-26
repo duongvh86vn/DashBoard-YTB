@@ -227,7 +227,9 @@ describe("DashboardTrendPanel", () => {
     fireEvent.click(subscriberButton);
     expect(subscriberButton).toHaveAttribute("aria-pressed", "true");
     expect(within(subscriberButton).getByText("-3")).toBeVisible();
-    expect(within(screen.getByRole("table", { name: /Chi tiết theo ngày/ })).getByText("-3")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("table", { name: /Chi tiết theo ngày/ })).getByText("-3"),
+    ).toBeInTheDocument();
   });
 
   it("shows a visible partial-day legend even when the selected aggregate is complete", () => {

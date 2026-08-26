@@ -1,17 +1,17 @@
-# Kiến trúc Phase 2
+# Kiến trúc hiện hành (Phase 0–11)
 
-Tài liệu này mô tả foundation đang được xây dựng theo
-`YOUTUBE_HOME_MONITOR_AI_SPEC.md` và `IMPLEMENTATION_PLAN.md`. Nó không phải bằng
-chứng rằng Phase 0 đã vượt quality gate; kết quả chạy thực tế phải được ghi riêng.
+Tài liệu này mô tả kiến trúc đã triển khai theo
+`YOUTUBE_HOME_MONITOR_AI_SPEC.md` và `IMPLEMENTATION_PLAN.md`. Bằng chứng chạy
+thực tế vẫn được ghi riêng trong `WORKLOG.md`.
 
 ## Phạm vi
 
-Phase 2 giữ toàn bộ foundation/auth của Phase 1 và thêm canonical channel
-resolution, RSS discovery, metadata-only yt-dlp/public-page fallback,
-Channel/ChannelSnapshot/ChannelDailyStat/SyncRun persistence, daily delta
-derivation và add-channel UI tiếng Việt. Video discovery, Playwright health và
-deletion safety, monitoring rankings, Gemini/NVIDIA và deployment LAN/public
-vẫn thuộc các phase sau.
+Hệ thống gồm auth/session, dashboard tiếng Việt, canonical channel
+resolution, RSS/public metadata collectors, channel/video snapshots, daily
+history, health/deletion safety, deterministic rankings, Gemini/NVIDIA AI tùy
+chọn, sync history, settings và Docker/LAN hosting. Phase 11 thêm nhóm kênh,
+phạm vi VIEWER nhiều-nhóm do server cưỡng chế, và observed partial
+metrics mà không làm yếu quy tắc missing=`NULL`.
 
 ```text
 Host 127.0.0.1:WEB_PORT
@@ -35,16 +35,18 @@ services vẫn phục vụ và ADMIN health phản ánh đúng HTTP 503.
 
 ## Ranh giới dịch vụ
 
-- **Web** là Next.js UI tiếng Việt cho login, dashboard shell và users. Không có
-  anonymous HTTP health route. Rewrite `/api/v1/:path*` chuyển request cùng
-  origin đến API; Web không kết nối trực tiếp PostgreSQL hoặc Worker.
+- **Web** là Next.js UI tiếng Việt cho login, dashboard, users, groups,
+  channels, health, videos/rankings, sync và settings. Không có anonymous HTTP
+  health route. Rewrite `/api/v1/:path*` chuyển request cùng origin đến API;
+  Web không kết nối trực tiếp PostgreSQL hoặc Worker.
 - **API** là NestJS REST service với prefix `/api/v1`. API sở hữu auth/session,
   user authorization và dependency health aggregation, nhưng không có host port.
 - **Worker** là NestJS application context không gọi `listen()` và không mở port.
   Worker ghi heartbeat định kỳ, dừng timer và ngắt Prisma khi shutdown.
 - **PostgreSQL** là nguồn sự thật phía server cho users, sessions, throttle,
-  audit logs và worker heartbeats. Prisma migration được chạy bởi service
-  one-shot **db-migrate**; **db-seed** chỉ chạy trong profile seed.
+  audit logs, groups/memberships, canonical metrics, AI reports và worker
+  heartbeats. Prisma migration được chạy bởi service one-shot
+  **db-migrate**; **db-seed** chỉ chạy trong profile seed.
 
 Package boundaries chính:
 
@@ -90,14 +92,14 @@ ok | degraded | unavailable | disabled
 - Component có toàn bộ check chưa bật trả `disabled`; HTTP 200.
 - Mọi `/api/v1/health*` yêu cầu authenticated ADMIN; anonymous nhận 401 và
   VIEWER nhận 403. Aggregate `/api/v1/health` yêu cầu DB và Worker.
-  Collector/AI là optional và `disabled` trong Phase 1, nên không làm aggregate
-  thất bại.
+  Collector/AI là optional/configurable; `disabled` hoặc unavailable chỉ làm
+  aggregate `degraded`, không biến AI thành startup dependency bắt buộc.
 - Mọi health response dùng `Cache-Control: no-store` và không lộ exception text,
   SQL, connection string, secret hoặc filesystem path.
 - Container readiness của API dùng endpoint DB chuyên biệt, không dùng aggregate,
   để Worker unavailable không biến thành startup dependency vòng ngoài ý muốn.
 
-Các endpoint Phase 1:
+Các endpoint core (rút gọn):
 
 ```text
 GET /api/v1/health
@@ -118,13 +120,18 @@ POST /api/v1/users/:id/enable
 DELETE /api/v1/users/:id
 ```
 
-Các endpoint Phase 2:
+Các endpoint channel và group:
 
 ```text
 GET /api/v1/channels?page=1&pageSize=20
 GET /api/v1/channels/:id
 POST /api/v1/channels                 (ADMIN, canonical resolution bắt buộc)
 DELETE /api/v1/channels/:id           (ADMIN, archive alias)
+GET /api/v1/channel-groups/accessible (ADMIN hoặc VIEWER, đã scope)
+GET|POST /api/v1/channel-groups       (ADMIN)
+GET|PATCH|DELETE /api/v1/channel-groups/:id (ADMIN)
+PUT /api/v1/channel-groups/:id/channels     (ADMIN, atomic full replacement)
+PUT /api/v1/users/:id/channel-groups        (ADMIN, atomic full replacement)
 ```
 
 Session là opaque token trong HttpOnly SameSite=Lax cookie; PostgreSQL chỉ lưu
@@ -132,6 +139,13 @@ keyed token hash. LOCAL dùng host-only cookie không `Secure`; PUBLIC dùng
 `__Host-yhm_session` với `Secure` và chỉ được bật cùng HTTPS/trusted proxy.
 `DELETE /users/:id` là disable alias,
 không hard-delete. Không có signup/OAuth.
+
+ADMIN có phạm vi kênh không giới hạn. VIEWER nhìn thấy union có dedup của
+các kênh trong những group đang hoạt động được gán cho họ; không có
+group nghĩa là zero channel. API/service/repository cùng áp dụng scope cho
+list, aggregate và direct ID; tài nguyên ngoài scope trả not-found. Sync-run
+inspection và global AI reports vẫn ADMIN-only cho đến khi artifact có
+group-scoped fingerprint.
 
 ## Same-origin và cô lập mạng
 
@@ -166,20 +180,21 @@ production; Cloudflare Tunnel vẫn là external owner-managed state:
 ## Invariants
 
 - Server/PostgreSQL là source of truth; scheduled writes phải idempotent.
-- `AI != DATA SOURCE`; AI optional và chưa chạy ở Phase 0.
+- `AI != DATA SOURCE`; AI optional, chỉ giải thích evidence cục bộ và không
+  được ghi đè canonical metrics.
 - `VIDIQ BASIC != BACKEND API`; không có MCP, OAuth hoặc private YouTube path.
-- Missing data giữ `NULL`; không backfill lịch sử giả.
+- Missing data giữ `NULL`; không backfill lịch sử giả. Strict timeline
+  totals chỉ có khi coverage complete; observed partial luôn kèm covered/total.
+  `0* · chưa xác minh` chỉ là UI fallback, không phải canonical zero.
 - PostgreSQL và Worker không public; secret luôn được validate/redact.
-- Các invariant tương lai vẫn giữ nguyên: canonical Channel ID, no false delete,
+- Các invariant xếp hạng vẫn giữ nguyên: canonical Channel ID, no false delete,
   Top Week bằng rolling 7-day gain, Hot Now bằng local velocity và Breakout bằng
   same-channel baseline.
 
-## Phần được hoãn
+## External operator checks còn phụ thuộc môi trường
 
-- Phase 2: channel resolution, RSS, yt-dlp, snapshots và daily history (đã có).
-- Phase 3: Playwright public health và deletion safety.
-- Phase 4–5: video monitoring và deterministic rankings.
-- Phase 6–7: Gemini, NVIDIA, schema validation, cache và fallback router.
-- Phase 8: dashboard tiếng Việt hoàn chỉnh.
-- Phase 9: Caddy, LAN, Cloudflare Tunnel và public-security smoke tests.
-- Phase 10: backup/restore, retention, performance và host-reboot verification.
+- Public HTTPS/Cloudflare Tunnel smoke cần domain và credential do owner quản lý.
+- Host reboot và backup/restore production phải được owner chạy trên máy
+  đích; isolated Docker acceptance không thay thế cho kiểm tra này.
+- Live YouTube upstream smoke có thể bị rate-limit và không phải điều kiện
+  để isolated test gate đạt.

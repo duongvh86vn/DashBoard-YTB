@@ -87,9 +87,8 @@ function service(input: {
   const listByChannelsAndDateRange = vi.fn(async (channelIds: string[]) =>
     input.stats.filter((item) => channelIds.includes(item.channelId)),
   );
-  const listPublishedBetween = vi.fn(
-    async (_start: Date, _end: Date, channelIds: string[]) =>
-      (input.videos ?? []).filter((item) => channelIds.includes(item.channelId)),
+  const listPublishedBetween = vi.fn(async (_start: Date, _end: Date, channelIds: string[]) =>
+    (input.videos ?? []).filter((item) => channelIds.includes(item.channelId)),
   );
   return {
     listByChannelsAndDateRange,

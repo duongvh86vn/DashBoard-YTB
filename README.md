@@ -3,10 +3,11 @@
 Private dashboard for deterministic monitoring of public YouTube channels.
 
 The project is built phase by phase from
-[`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md). Phases 0–10 provide the
+[`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md). Phases 0–11 provide the
 authenticated Vietnamese dashboard, canonical public-channel monitoring, health
 and deletion safety, video snapshots/rankings, structured Gemini/NVIDIA AI with
-fallback, sync history and collector/runtime settings.
+fallback, sync history, collector/runtime settings, channel groups and
+server-authoritative VIEWER access scopes.
 
 The channel detail view includes a public-intelligence panel with metric-level
 source, precision and coverage. Daily/weekly AI reports are an optional explanation
@@ -30,6 +31,14 @@ git clone --branch phase/0-foundation --single-branch https://github.com/duongvh
 cd DashBoard-YTB
 ```
 
+Update an existing clone before starting the new version:
+
+```powershell
+git switch phase/0-foundation
+git pull --ff-only origin phase/0-foundation
+.\start.bat
+```
+
 ## Fastest local startup
 
 The supported clone startup is Docker-only. Host Node.js, pnpm, Corepack,
@@ -37,8 +46,9 @@ The supported clone startup is Docker-only. Host Node.js, pnpm, Corepack,
 Docker Desktop must be running Linux containers.
 
 Windows (cách nhanh nhất): nhấp đúp vào `start.bat` ở thư mục gốc dự án.
-Script tải image dựng sẵn từ GHCR khi có bản cập nhật rồi chỉ chạy
-`docker compose up` ở những lần sau; nó không build lại ứng dụng mỗi lần mở.
+Script tải image dựng sẵn từ GHCR cho **commit đang checkout** rồi chỉ
+chạy `docker compose up` ở những lần sau; nó không tự chạy `git pull`
+và không build lại ứng dụng mỗi lần mở.
 Tệp giữ cửa sổ khi lỗi và tự in log API đã che bí mật.
 
 PowerShell:
@@ -63,7 +73,8 @@ if published images are temporarily unavailable it safely falls back to one
 local build without deleting the database.
 
 After one successful start, Docker Desktop displays the `dashboard-ytb`
-Compose application. Its Play button restarts the existing containers directly.
+Compose application. Its Play button restarts the already-installed containers
+directly; it does not update Git or install a newer application version.
 See [`docs/PREBUILT_DOCKER.md`](./docs/PREBUILT_DOCKER.md) for update, pinned-tag
 and rollback commands.
 
@@ -85,6 +96,18 @@ PostgreSQL private. After login, open
 snapshot is nullable until a collector succeeds, and no historical values are
 fabricated.
 
+ADMIN then creates a group and assigns channels at
+`http://127.0.0.1:3000/channel-groups`, and assigns one or more groups to each
+VIEWER at `http://127.0.0.1:3000/users`. ADMIN always sees all channels. A VIEWER
+sees the union of channels in their active groups; a VIEWER with no group sees
+no channels.
+
+Metric labels remain intentionally conservative: `≥ X` is a known subscriber
+lower bound, while `0* · chưa xác minh` is only a per-channel display fallback
+for a missing public counter (the stored value remains `NULL`). A `PARTIAL`
+timeline always shows its covered/total channel count and never invents missing
+history.
+
 ## Install and verify
 
 ```powershell
@@ -95,7 +118,8 @@ pwsh -NoProfile -File .\scripts\assert-hosting-security.ps1
 
 The integration gate creates an isolated Compose project, random
 credentials and an unused loopback Web port. It exercises real PostgreSQL
-migrations, seed idempotency, auth/users/channel authorization, collector
+migrations, seed idempotency, auth/users/channel-group authorization, group
+membership changes, scoped channel reads, partial metric contracts, collector
 fixtures, health-state transitions, worker and database recovery, the
 containerized Playwright browser flow, secret-safe surfaces, and cleanup.
 

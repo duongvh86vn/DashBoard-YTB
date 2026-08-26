@@ -681,3 +681,53 @@
   truth.
 - AI cannot collect, overwrite, interpolate or rank canonical metrics. Collected
   titles/descriptions/tags are untrusted data and cannot instruct the model.
+
+## 2026-08-26 — Phase 11 groups, scoped VIEWER access and honest partial metrics
+
+### Delivered behavior
+
+- Added `ChannelGroup`, `ChannelGroupChannel` and `UserChannelGroup` with indexed
+  many-to-many membership, atomic replacement repositories and upgrade-safe
+  compatibility-group backfill for existing VIEWER accounts and active channels.
+- Added audited ADMIN APIs and UI for group create/edit/archive, complete channel
+  replacement, and complete one-or-many group assignment for each VIEWER. An
+  explicit empty assignment is deny-all and is shown as `Không có quyền xem kênh`.
+- Applied the effective channel scope at server/service/repository boundaries for
+  channel list/detail, public intelligence, health, dashboard, videos, snapshots
+  and rankings. ADMIN remains unrestricted; out-of-scope direct IDs return 404.
+  Global AI reports and sync-run inspection remain ADMIN-only.
+- Kept strict totals and per-day values `NULL` until coverage is complete, while
+  adding typed observed values with covered/total/status so partial timelines are
+  useful and visibly qualified. Negative public corrections remain signed.
+- Distinguished exact public YouTube `No subscribers`/`0 subscribers` from a
+  missing counter. Dashboard totals use a labelled known lower bound; per-channel
+  `0* · chưa xác minh` is presentation-only and never becomes canonical zero.
+- Updated the Windows/Docker documentation: `git pull --ff-only` updates source,
+  `start.bat` starts the checked-out commit, and Docker Desktop Play only restarts
+  the already-installed version.
+
+### Acceptance evidence
+
+- Focused group UI gate — PASS: 4 files / 34 tests covering typed full-array PUTs
+  (including `[]`), ADMIN-only navigation, group CRUD/channel replacement,
+  multi-group VIEWER creation/editing and assignment-failure recovery.
+- Workspace `pnpm verify` — PASS: Prisma validate/generate, all typechecks, ESLint
+  with zero warnings, Prettier, 117 files / 654 unit tests and every production
+  build, including `/channel-groups`.
+- Fresh `pnpm test:integration` — PASS: eight migrations clean/replay-safe, 11
+  PostgreSQL integration files / 45 tests, real union/dedup and zero-group scope,
+  same-session membership changes, API/Worker/Web/PostgreSQL outage recovery,
+  updated group-scoped Playwright acceptance and isolated resource cleanup.
+- The first browser run correctly exposed a stale pre-Phase-11 success-message
+  assertion. The E2E flow was updated to prove ADMIN group navigation, explicit
+  empty assignment and hidden VIEWER group controls; the clean rerun passed.
+
+### Boundaries preserved
+
+- Missing canonical counters remain `NULL`; no history, subscriber count or daily
+  baseline is fabricated.
+- AI remains an optional evidence explanation layer and cannot write canonical
+  metrics. No vidIQ endpoint, package, cookie, Google login, revenue or private
+  Analytics scope was introduced.
+- UI hiding is not an authorization boundary; all scoped reads and group writes are
+  enforced by authenticated server code and covered by PostgreSQL tests.

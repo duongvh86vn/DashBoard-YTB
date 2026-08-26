@@ -14,6 +14,8 @@ import {
   login,
   logout,
   resetViewerPassword,
+  replaceChannelGroupChannels,
+  replaceViewerChannelGroups,
   revokeViewerSessions,
   updateViewerEmail,
 } from "./api-client.js";
@@ -197,5 +199,86 @@ describe("same-origin API client", () => {
     expect(calls[3]?.[1].body).toBe(JSON.stringify({ password: "replacement-password" }));
     expect(calls.slice(4, 8).map(([, init]) => init.body)).toEqual(["{}", "{}", "{}", "{}"]);
     expect(calls[7]?.[1]).toMatchObject({ method: "DELETE" });
+  });
+
+  it("sends complete channel and viewer group replacement arrays, including an explicit empty set", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          group: {
+            id: "00000000-0000-4000-8000-000000000010",
+            name: "Nhóm A",
+            slug: "nhom-a",
+            description: null,
+            channelCount: 2,
+            viewerCount: 0,
+            channelIds: [
+              "00000000-0000-4000-8000-000000000020",
+              "00000000-0000-4000-8000-000000000021",
+            ],
+            viewerIds: [],
+            createdAt: "2026-08-26T00:00:00.000Z",
+            updatedAt: "2026-08-26T00:00:00.000Z",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          group: {
+            id: "00000000-0000-4000-8000-000000000010",
+            name: "Nhóm A",
+            slug: "nhom-a",
+            description: null,
+            channelCount: 0,
+            viewerCount: 0,
+            channelIds: [],
+            viewerIds: [],
+            createdAt: "2026-08-26T00:00:00.000Z",
+            updatedAt: "2026-08-26T00:00:00.000Z",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const channelIds = [
+      "00000000-0000-4000-8000-000000000020",
+      "00000000-0000-4000-8000-000000000021",
+    ];
+    await replaceChannelGroupChannels("group/id", channelIds);
+    await replaceChannelGroupChannels("group/empty", []);
+    await replaceViewerChannelGroups("viewer/multi", [
+      "00000000-0000-4000-8000-000000000010",
+      "00000000-0000-4000-8000-000000000011",
+    ]);
+    await replaceViewerChannelGroups("viewer/id", []);
+
+    expect(fetchMock.mock.calls).toHaveLength(4);
+    expect(fetchMock.mock.calls[0]).toMatchObject([
+      "/api/v1/channel-groups/group%2Fid/channels",
+      { method: "PUT", body: JSON.stringify({ channelIds }) },
+    ]);
+    expect(fetchMock.mock.calls[1]).toMatchObject([
+      "/api/v1/channel-groups/group%2Fempty/channels",
+      { method: "PUT", body: JSON.stringify({ channelIds: [] }) },
+    ]);
+    expect(fetchMock.mock.calls[2]).toMatchObject([
+      "/api/v1/users/viewer%2Fmulti/channel-groups",
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          groupIds: [
+            "00000000-0000-4000-8000-000000000010",
+            "00000000-0000-4000-8000-000000000011",
+          ],
+        }),
+      },
+    ]);
+    expect(fetchMock.mock.calls[3]).toMatchObject([
+      "/api/v1/users/viewer%2Fid/channel-groups",
+      { method: "PUT", body: JSON.stringify({ groupIds: [] }) },
+    ]);
   });
 });

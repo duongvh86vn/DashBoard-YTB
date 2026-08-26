@@ -62,12 +62,22 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
             Tổng quan
           </Link>
           {user.role === "ADMIN" ? (
-            <Link
-              className={pathname === "/users" ? "nav-link nav-link-active" : "nav-link"}
-              href="/users"
-            >
-              Người dùng
-            </Link>
+            <>
+              <Link
+                className={pathname === "/users" ? "nav-link nav-link-active" : "nav-link"}
+                href="/users"
+              >
+                Người dùng
+              </Link>
+              <Link
+                className={
+                  pathname.startsWith("/channel-groups") ? "nav-link nav-link-active" : "nav-link"
+                }
+                href="/channel-groups"
+              >
+                Nhóm kênh
+              </Link>
+            </>
           ) : null}
           <Link
             className={pathname.startsWith("/channels") ? "nav-link nav-link-active" : "nav-link"}

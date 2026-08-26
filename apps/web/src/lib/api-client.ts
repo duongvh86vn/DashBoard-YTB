@@ -30,6 +30,10 @@ import {
   type AiReportResponse,
 } from "@yt-monitor/shared/browser-auth";
 import {
+  ChannelGroupResponseSchema,
+  ChannelGroupsResponseSchema,
+  type ChannelGroupDetail,
+  type ChannelGroupsResponse,
   DashboardTrendResponseSchema,
   HealthResponseSchema,
   PublicIntelligenceResponseSchema,
@@ -38,7 +42,7 @@ import {
   type PublicIntelligenceResponse,
 } from "@yt-monitor/shared";
 
-type ApiMethod = "GET" | "POST" | "PATCH" | "DELETE";
+type ApiMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 interface ResponseSchema<T> {
   safeParse(input: unknown): { success: true; data: T } | { success: false };
@@ -104,6 +108,12 @@ export function getVietnameseApiMessage(
       return "Kênh này đã có trong danh sách theo dõi.";
     case "CHANNEL_RESOLVE_FAILED":
       return "Không thể xác minh kênh công khai lúc này. Vui lòng thử lại sau.";
+    case "CHANNEL_GROUP_NOT_FOUND":
+      return "Không tìm thấy nhóm kênh.";
+    case "CHANNEL_GROUP_ALREADY_EXISTS":
+      return "Tên nhóm kênh này đã được sử dụng.";
+    case "CHANNEL_GROUP_MEMBERSHIP_INVALID":
+      return "Danh sách kênh hoặc người dùng được gán vào nhóm không hợp lệ.";
     case null:
       return "Dịch vụ đang tạm thời không khả dụng. Vui lòng thử lại.";
   }
@@ -263,6 +273,76 @@ export async function deleteViewer(id: string): Promise<void> {
   await requestApi<void>(`/api/v1/users/${encodeURIComponent(id)}`, {
     method: "DELETE",
     body: {},
+  });
+}
+
+export function listChannelGroups(signal?: AbortSignal): Promise<ChannelGroupsResponse> {
+  return requestApi("/api/v1/channel-groups", {
+    method: "GET",
+    schema: ChannelGroupsResponseSchema,
+    ...(signal ? { signal } : {}),
+  });
+}
+
+export async function getChannelGroup(
+  id: string,
+  signal?: AbortSignal,
+): Promise<ChannelGroupDetail> {
+  const response = await requestApi(`/api/v1/channel-groups/${encodeURIComponent(id)}`, {
+    method: "GET",
+    schema: ChannelGroupResponseSchema,
+    ...(signal ? { signal } : {}),
+  });
+  return response.group;
+}
+
+export async function createChannelGroup(input: {
+  name: string;
+  description: string | null;
+}): Promise<ChannelGroupDetail> {
+  const response = await requestApi("/api/v1/channel-groups", {
+    method: "POST",
+    body: input,
+    schema: ChannelGroupResponseSchema,
+  });
+  return response.group;
+}
+
+export async function updateChannelGroup(
+  id: string,
+  input: { name?: string; description?: string | null },
+): Promise<ChannelGroupDetail> {
+  const response = await requestApi(`/api/v1/channel-groups/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: input,
+    schema: ChannelGroupResponseSchema,
+  });
+  return response.group;
+}
+
+export async function archiveChannelGroup(id: string): Promise<void> {
+  await requestApi<void>(`/api/v1/channel-groups/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    body: {},
+  });
+}
+
+export async function replaceChannelGroupChannels(
+  id: string,
+  channelIds: string[],
+): Promise<ChannelGroupDetail> {
+  const response = await requestApi(`/api/v1/channel-groups/${encodeURIComponent(id)}/channels`, {
+    method: "PUT",
+    body: { channelIds },
+    schema: ChannelGroupResponseSchema,
+  });
+  return response.group;
+}
+
+export async function replaceViewerChannelGroups(id: string, groupIds: string[]): Promise<void> {
+  await requestApi<void>(`/api/v1/users/${encodeURIComponent(id)}/channel-groups`, {
+    method: "PUT",
+    body: { groupIds },
   });
 }
 

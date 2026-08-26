@@ -222,7 +222,9 @@ export class DashboardService implements DashboardApplicationPort {
     const publishedStart = new Date(databaseStart.getTime() - DAY_MS);
     const publishedEndExclusive = new Date(databaseEnd.getTime() + 2 * DAY_MS);
 
-    const visibleChannelIds = await this.dependencies.access.resolveVisibleChannelIds(input.subject);
+    const visibleChannelIds = await this.dependencies.access.resolveVisibleChannelIds(
+      input.subject,
+    );
     const { channels, stats, videos } = await this.dependencies.unitOfWork.transaction(
       async (repositories) => {
         const channels = await repositories.channels.listEnabled(

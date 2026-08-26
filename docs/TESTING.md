@@ -1,8 +1,8 @@
-# Kiểm thử Phase 2
+# Kiểm thử hiện hành (Phase 0–11)
 
-Phase 2 có bốn lớp kiểm thử: quality gates cục bộ, collector fixtures, auth-DB
-integration và full-stack Docker/browser acceptance. Chỉ ghi trạng thái đạt khi command thật
-đã exit code 0.
+Hệ thống có bốn lớp kiểm thử: quality gates cục bộ, collector
+fixtures, PostgreSQL/auth/access-scope integration và full-stack Docker/browser
+acceptance. Chỉ ghi trạng thái đạt khi command thật đã exit code 0.
 
 ## Điều kiện tiên quyết
 
@@ -50,9 +50,10 @@ corepack pnpm test:auth:integration
 
 Script tạo Compose project và credential cô lập, chạy PostgreSQL thật,
 migration sạch/lặp lại, seed `CREATED` rồi `UNCHANGED`, và chạy repository
-integration trong schema riêng, gồm Channel/Snapshot/DailyStat/SyncRun. Nó
-không gọi wrapper full-stack lồng nhau, không in raw logs có thể chứa bí mật,
-và luôn kiểm tra ownership trước cleanup.
+integration trong schema riêng, gồm Channel/Snapshot/DailyStat/SyncRun,
+`ChannelGroup`, `ChannelGroupChannel`, `UserChannelGroup`, audit và access scope.
+Nó không gọi wrapper full-stack lồng nhau, không in raw logs có thể chứa
+bí mật, và luôn kiểm tra ownership trước cleanup.
 
 ## Full-stack Docker/browser acceptance
 
@@ -73,6 +74,13 @@ của nó. Nó kiểm tra:
 - ADMIN login, health contracts, tạo/sửa/reset/revoke/disable/enable VIEWER;
   list channel, invalid add-channel input và VIEWER channel read-only;
   logout, đổi mật khẩu và disabled/revoked session invalidation.
+- Group authorization: VIEWER không có nhóm thì deny-all; nhiều nhóm lấy
+  union có dedup; group bị archive thu hồi quyền; tài nguyên được gán
+  đọc được, tài nguyên ngoài scope trả 404, và thay membership có hiệu
+  lực ngay trên session hiện tại.
+- Metric contracts: public subscriber zero được phân biệt với missing;
+  observed partial timeline giữ coverage và negative public corrections thay
+  vì ép về zero.
 - Worker stop/recovery, PostgreSQL stop/recovery, API/Web cold start và bounded
   process health.
 - Containerized `mcr.microsoft.com/playwright:v1.62.1-noble` với Node 24,
@@ -94,10 +102,19 @@ cd DashBoard-YTB
 start.bat
 ```
 
+Với clone đã có sẵn, cập nhật source trước khi khởi động:
+
+```powershell
+git switch phase/0-foundation
+git pull --ff-only origin phase/0-foundation
+.\start.bat
+```
+
 PowerShell dùng `powershell -NoProfile -ExecutionPolicy Bypass -File
 .\\scripts\\start-fast.ps1`; `-NoOpen` dành cho automation. Script tạo `.env`
 LOCAL lần đầu, giữ secret/volume ổn định, hỏi ADMIN password ẩn chỉ khi database
-chưa có user, tải image dựng sẵn rồi mở `http://127.0.0.1:3000/login`. Nó dừng
+chưa có user (6–128 ký tự), tải image dựng sẵn rồi mở
+`http://127.0.0.1:3000/login`. Nó dừng
 an toàn nếu `.env` hiện hữu không khớp contract LOCAL; không tự rotate secret
 hay xóa volume. `setup.bat` là đường sửa chữa/build đầy đủ, không phải lệnh cần
 chạy ở mỗi lần mở ứng dụng.

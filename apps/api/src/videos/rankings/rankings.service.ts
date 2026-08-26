@@ -184,10 +184,7 @@ function toPublicSnapshot(snapshot: VideoSnapshotRecord): PublicVideoSnapshot {
 export class VideoRankingsService implements VideoRankingsApplicationPort {
   constructor(private readonly dependencies: RankingsServiceDependencies) {}
 
-  async get(input: {
-    videoId: string;
-    subject: ChannelAccessSubject;
-  }): Promise<PublicVideoDetail> {
+  async get(input: { videoId: string; subject: ChannelAccessSubject }): Promise<PublicVideoDetail> {
     const visible = await this.dependencies.access.resolveVisibleChannelIds(input.subject);
     const video = await this.dependencies.unitOfWork.transaction((repositories) =>
       repositories.videos.findById(input.videoId),

@@ -388,11 +388,7 @@ export class ChannelsService implements ChannelsApplicationPort {
     if (visible !== null && !visible.includes(id)) throw ChannelApplicationError.notFound();
   }
 
-  async list(input: {
-    page: number;
-    pageSize: number;
-    subject: ChannelAccessSubject;
-  }): Promise<{
+  async list(input: { page: number; pageSize: number; subject: ChannelAccessSubject }): Promise<{
     items: PublicChannel[];
     page: number;
     pageSize: number;

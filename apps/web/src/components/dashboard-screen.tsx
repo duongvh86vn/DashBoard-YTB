@@ -235,14 +235,12 @@ export function DashboardScreen() {
     const isAdminUser = auth.state.user.role === "ADMIN";
     const reportDate = calendarDateInTimeZone(new Date(), APPLICATION_TIME_ZONE);
     const healthRequest = isAdminUser ? getHealth() : Promise.resolve(null);
-    const dailyReportRequest =
-      isAdminUser
-        ? getAiReport("daily", reportDate)
-        : Promise.resolve(null);
-    const weeklyReportRequest =
-      isAdminUser
-        ? getAiReport("weekly", reportDate)
-        : Promise.resolve(null);
+    const dailyReportRequest = isAdminUser
+      ? getAiReport("daily", reportDate)
+      : Promise.resolve(null);
+    const weeklyReportRequest = isAdminUser
+      ? getAiReport("weekly", reportDate)
+      : Promise.resolve(null);
     void Promise.allSettled([
       listChannels({ page: 1, pageSize: 100, signal: controller.signal }),
       listRecentVideos({ page: 1, pageSize: 6, signal: controller.signal }),
@@ -340,11 +338,7 @@ export function DashboardScreen() {
       });
     }, 10_000);
 
-    void Promise.allSettled([
-      healthRequest,
-      dailyReportRequest,
-      weeklyReportRequest,
-    ])
+    void Promise.allSettled([healthRequest, dailyReportRequest, weeklyReportRequest])
       .then(([healthResult, dailyResult, weeklyReportResult]) => {
         if (!mounted.current || controller.signal.aborted) return;
         const failures = [healthResult, dailyResult, weeklyReportResult].flatMap((result) =>
@@ -389,7 +383,7 @@ export function DashboardScreen() {
   const subscriberCoverageComplete =
     hasCompleteChannelCoverage && subscriberSummary.known === channelItems.length;
   const displayedSubscriberTotal = hasCompleteChannelCoverage
-    ? subscriberSummary.total ?? 0n
+    ? (subscriberSummary.total ?? 0n)
     : null;
   const totalLifetimeViews =
     hasCompleteChannelCoverage && lifetimeViewSummary.known === channelItems.length
@@ -529,9 +523,7 @@ export function DashboardScreen() {
             accent: "bg-sky-500",
           },
           {
-            label: subscriberCoverageComplete
-              ? "Tổng người đăng ký"
-              : "Người đăng ký đã ghi nhận",
+            label: subscriberCoverageComplete ? "Tổng người đăng ký" : "Người đăng ký đã ghi nhận",
             value:
               displayedSubscriberTotal === null
                 ? "—"

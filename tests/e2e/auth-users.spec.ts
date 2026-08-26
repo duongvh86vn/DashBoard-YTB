@@ -564,7 +564,7 @@ test.describe.serial("Phase 1 Auth + Users real-stack acceptance", () => {
     }
   });
 
-  test("proves the Vietnamese browser flow is authenticated and VIEWER-only", async ({
+  test("proves the Vietnamese browser flow is authenticated and group-scoped", async ({
     browser,
   }) => {
     const adminContext = await browser.newContext({ baseURL: baseUrl });
@@ -572,6 +572,9 @@ test.describe.serial("Phase 1 Auth + Users real-stack acceptance", () => {
 
     try {
       const adminPage = await loginPage(adminContext, adminEmail, adminPassword);
+      await adminPage.getByRole("link", { name: "Nhóm kênh" }).click();
+      await expect(adminPage).toHaveURL(`${baseUrl}/channel-groups`);
+      await expect(adminPage.getByRole("heading", { name: "Nhóm kênh" })).toBeVisible();
       await adminPage.getByRole("link", { name: "Kênh theo dõi" }).click();
       await expect(adminPage).toHaveURL(`${baseUrl}/channels`);
       await expect(adminPage.getByRole("heading", { name: "Kênh theo dõi" })).toBeVisible();
@@ -585,11 +588,14 @@ test.describe.serial("Phase 1 Auth + Users real-stack acceptance", () => {
       await adminPage.getByLabel("Email VIEWER mới").fill(browserViewerEmail);
       await adminPage.getByLabel("Mật khẩu VIEWER mới").fill(browserViewerPassword);
       await adminPage.getByRole("button", { name: "Tạo VIEWER" }).click();
-      await expect(adminPage.getByText("Đã tạo tài khoản VIEWER.")).toBeVisible();
+      await expect(adminPage.getByText("Đã tạo VIEWER không có quyền xem kênh.")).toBeVisible();
       await expect(adminPage.getByText(browserViewerEmail, { exact: true })).toBeVisible();
+      const createdViewerRow = adminPage.getByRole("row").filter({ hasText: browserViewerEmail });
+      await expect(createdViewerRow.getByText("Không có quyền xem kênh")).toBeVisible();
 
       const viewerPage = await loginPage(viewerContext, browserViewerEmail, browserViewerPassword);
       await expect(viewerPage.getByRole("link", { name: "Người dùng" })).toHaveCount(0);
+      await expect(viewerPage.getByRole("link", { name: "Nhóm kênh" })).toHaveCount(0);
       await expect(viewerPage.getByRole("heading", { name: "Tổng quan giám sát" })).toBeVisible();
       await expect(viewerPage.getByText("Kênh đang theo dõi", { exact: true })).toBeVisible();
       await expect(viewerPage.getByText("Chưa có video snapshot thật.")).toBeVisible();
