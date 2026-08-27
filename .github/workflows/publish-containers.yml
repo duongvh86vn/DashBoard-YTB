@@ -105,6 +105,19 @@ jobs:
           provenance: mode=max
           sbom: true
 
+      - name: Verify API runtime exports
+        if: matrix.service == 'api'
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${IMAGE_PREFIX}-api:sha-${GITHUB_SHA}"
+          docker run --rm --pull always \
+            --workdir /app/apps/api \
+            --entrypoint node \
+            "$image" \
+            --input-type=module \
+            --eval 'const auth = await import("@yt-monitor/auth"); if (typeof auth.assertPasswordPolicy !== "function") { throw new Error("Missing assertPasswordPolicy runtime export"); }'
+
   promote:
     name: Promote complete image set
     needs: build

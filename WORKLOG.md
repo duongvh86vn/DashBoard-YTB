@@ -846,3 +846,18 @@ xuất bản` so it cannot be confused with the new daily view-attribution feed.
   video, infer RPM, calculate revenue or mutate canonical metrics.
 - Missing counters remain `NULL`, signed public corrections remain signed, and no
   baseline, daily point or total is fabricated.
+
+## 2026-08-27 — Fast-start stale-container hotfix
+
+- Diagnosed clone startup failure where `-ForcePull` downloaded the correct
+  immutable image but Compose restarted an older stopped API container. The
+  registry image itself was verified to export `assertPasswordPolicy` correctly.
+- Fast startup and prebuilt full setup now add `--force-recreate` after image pulls.
+  Application containers are replaced while named PostgreSQL volumes and user data
+  remain intact.
+- Added a startup contract regression and a publish-workflow runtime smoke that
+  imports `assertPasswordPolicy` from inside the pushed API image before the image
+  set can be promoted.
+- Verification — PASS: PowerShell syntax parse, focused 3-test startup contract,
+  published-image runtime import, and workspace `pnpm verify` with 128 test files /
+  773 unit tests plus all typechecks, lint, formatting and production builds.

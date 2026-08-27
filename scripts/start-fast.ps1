@@ -197,8 +197,26 @@ try {
   }
 
   Write-Output 'Đang bật stack Docker...'
+  $startupArguments = @(
+    'compose',
+    '-p',
+    $localProjectName,
+    '-f',
+    $composePath,
+    'up',
+    '--detach',
+    '--wait',
+    '--wait-timeout',
+    '180'
+  )
+  if ($mustPull) {
+    # A pulled tag does not guarantee that Compose replaces an existing stopped
+    # container. Recreate containers so the process cannot keep an older image
+    # filesystem while preserving named volumes such as PostgreSQL data.
+    $startupArguments += '--force-recreate'
+  }
   $startup = Invoke-NativeCapture {
-    & docker compose -p $localProjectName -f $composePath up --detach --wait --wait-timeout 180
+    & docker @startupArguments
   }
   if ($startup.ExitCode -ne 0) {
     Write-Output 'Chi tiết Docker an toàn:'

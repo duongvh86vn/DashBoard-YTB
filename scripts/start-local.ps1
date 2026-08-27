@@ -671,7 +671,13 @@ WORKER_HEARTBEAT_STALE_SECONDS=45
   foreach ($service in @('worker', 'api', 'web')) {
     Invoke-LocalBuild $service
   }
-  Invoke-Compose up --detach --wait --wait-timeout 300
+  $finalUpArguments = @('up', '--detach', '--wait', '--wait-timeout', '300')
+  if ($UsePrebuilt) {
+    # A previous failed setup can leave stopped containers bound to an older
+    # image filesystem. Recreate them after pulls without deleting named data.
+    $finalUpArguments += '--force-recreate'
+  }
+  Invoke-Compose @finalUpArguments
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
     (Join-Path $PSScriptRoot 'health-check.ps1')
   if ($LASTEXITCODE -ne 0) {
