@@ -45,10 +45,20 @@ export interface PublicChannel {
   lastChannelScanAt: string | null;
   lastHealthCheckAt: string | null;
   lastSeenAliveAt: string | null;
+  monetization: PublicChannelMonetization;
   isEnabled: boolean;
   createdAt: string;
   updatedAt: string;
   archivedAt: string | null;
+}
+
+export interface PublicChannelMonetization {
+  status: "UNCONFIGURED" | "DISABLED" | "ENABLED";
+  isMonetized: boolean | null;
+  rpmUsd: string | null;
+  currency: "USD" | null;
+  effectiveDate: string | null;
+  reviewedAt: string | null;
 }
 
 export interface ChannelsApplicationPort {
@@ -72,6 +82,13 @@ export interface ChannelsApplicationPort {
   }): Promise<PublicIntelligenceResponse>;
   create(input: { originalInput: string }): Promise<PublicChannel>;
   archive(input: { id: string }): Promise<void>;
+  updateMonetization(input: {
+    id: string;
+    actorUserId: string;
+    isMonetized: boolean;
+    rpmUsd: string | null;
+    effectiveDate: string;
+  }): Promise<PublicChannel>;
   requestHealthCheck(input: { id: string }): Promise<{ syncRunId: string; status: "QUEUED" }>;
   healthHistory(input: {
     id: string;

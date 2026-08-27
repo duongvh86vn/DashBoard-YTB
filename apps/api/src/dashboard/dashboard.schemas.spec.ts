@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseDashboardTrendsQuery } from "./dashboard.schemas.js";
+import {
+  parseDailyVideoLeadersQuery,
+  parseDashboardRevenueQuery,
+  parseDashboardTrendsQuery,
+} from "./dashboard.schemas.js";
 
 const groupId = "00000000-0000-4000-8000-000000000001";
 const channelId = "00000000-0000-4000-8000-000000000002";
@@ -26,5 +30,27 @@ describe("dashboard trend query", () => {
     expect(() => parseDashboardTrendsQuery({ groupId: "not-a-uuid" })).toThrow();
     expect(() => parseDashboardTrendsQuery({ channelId: "not-a-uuid" })).toThrow();
     expect(() => parseDashboardTrendsQuery({ days: "28", revenue: "true" })).toThrow();
+  });
+});
+
+describe("dashboard revenue query", () => {
+  it("uses the same bounded period and exact scope contract as trends", () => {
+    expect(parseDashboardRevenueQuery({})).toEqual({ days: 28 });
+    expect(parseDashboardRevenueQuery({ days: "7", groupId, channelId })).toEqual({
+      days: 7,
+      groupId,
+      channelId,
+    });
+    expect(() => parseDashboardRevenueQuery({ days: "91" })).toThrow();
+    expect(() => parseDashboardRevenueQuery({ days: "7", currency: "VND" })).toThrow();
+  });
+});
+
+describe("daily video leaders query", () => {
+  it("accepts only the optional group and channel scope", () => {
+    expect(parseDailyVideoLeadersQuery({})).toEqual({});
+    expect(parseDailyVideoLeadersQuery({ groupId, channelId })).toEqual({ groupId, channelId });
+    expect(() => parseDailyVideoLeadersQuery({ days: "28" })).toThrow();
+    expect(() => parseDailyVideoLeadersQuery({ groupId: "not-a-uuid" })).toThrow();
   });
 });

@@ -9,6 +9,7 @@ import {
   createChannel,
   getVietnameseApiMessage,
   listChannels,
+  updateChannelMonetization,
 } from "../lib/api-client";
 import { useAuth } from "../lib/auth-context";
 
@@ -18,6 +19,164 @@ function subscriberLabel(channel: {
 }): string {
   if (channel.subscriberCount !== null) return channel.subscriberCount;
   return channel.lastChannelScanAt === null ? "Chưa thu thập" : "Không đọc được công khai";
+}
+
+type ChannelItem = Awaited<ReturnType<typeof listChannels>>["items"][number];
+
+function monetizationLabel(channel: ChannelItem): string {
+  switch (channel.monetization?.status) {
+    case "ENABLED":
+      return "Đã bật kiếm tiền";
+    case "DISABLED":
+      return "Chưa bật kiếm tiền";
+    default:
+      return "Chưa cấu hình kiếm tiền";
+  }
+}
+
+function todayInApplicationTimeZone(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function ChannelMonetization({
+  channel,
+  isAdmin,
+  onSaved,
+  onError,
+}: {
+  channel: ChannelItem;
+  isAdmin: boolean;
+  onSaved: (channel: ChannelItem) => void;
+  onError: (error: unknown) => void;
+}) {
+  const today = todayInApplicationTimeZone();
+  const [status, setStatus] = useState<"UNCONFIGURED" | "DISABLED" | "ENABLED">(
+    channel.monetization?.status ?? "UNCONFIGURED",
+  );
+  const [rpmUsd, setRpmUsd] = useState(channel.monetization?.rpmUsd ?? "");
+  // A review should create this week's effective-dated row by default instead
+  // of silently overwriting the date of the previous review.
+  const [effectiveDate, setEffectiveDate] = useState(today);
+  const [pending, setPending] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (status === "UNCONFIGURED") return;
+    setPending(true);
+    setSaved(false);
+    try {
+      const updated = await updateChannelMonetization(channel.id, {
+        isMonetized: status === "ENABLED",
+        rpmUsd: status === "ENABLED" ? rpmUsd : null,
+        effectiveDate,
+      });
+      onSaved(updated);
+      setStatus(updated.monetization?.status ?? "UNCONFIGURED");
+      setRpmUsd(updated.monetization?.rpmUsd ?? "");
+      setEffectiveDate(updated.monetization?.effectiveDate ?? effectiveDate);
+      setSaved(true);
+    } catch (reason) {
+      onError(reason);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <section className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-black text-slate-800">{monetizationLabel(channel)}</p>
+        {channel.monetization?.status === "ENABLED" ? (
+          <p className="text-sm font-bold tabular-nums text-emerald-700">
+            RPM hiện tại: {channel.monetization.rpmUsd} USD
+          </p>
+        ) : null}
+      </div>
+      <p className="mt-1 text-xs leading-5 text-slate-500">
+        {channel.monetization?.effectiveDate
+          ? `Hiệu lực từ ${channel.monetization.effectiveDate} · cập nhật thủ công`
+          : "Chưa có quyết định quản lý; dashboard giữ doanh thu ở trạng thái chưa biết."}
+      </p>
+      {isAdmin ? (
+        <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={(event) => void submit(event)}>
+          <label className="text-xs font-bold text-slate-600">
+            Trạng thái
+            <select
+              className="input mt-1"
+              aria-label={`Trạng thái kiếm tiền của ${channel.title}`}
+              value={status}
+              onChange={(event) => {
+                setStatus(event.target.value as typeof status);
+                setSaved(false);
+              }}
+            >
+              <option value="UNCONFIGURED" disabled>
+                Chưa cấu hình
+              </option>
+              <option value="DISABLED">Chưa bật kiếm tiền</option>
+              <option value="ENABLED">Đã bật kiếm tiền</option>
+            </select>
+          </label>
+          <label className="text-xs font-bold text-slate-600">
+            Ngày hiệu lực
+            <input
+              className="input mt-1"
+              type="date"
+              max={today}
+              value={effectiveDate}
+              onChange={(event) => {
+                setEffectiveDate(event.target.value);
+                setSaved(false);
+              }}
+              required
+            />
+          </label>
+          {status === "ENABLED" ? (
+            <label className="text-xs font-bold text-slate-600 sm:col-span-2">
+              RPM USD
+              <input
+                className="input mt-1"
+                type="number"
+                min="0"
+                step="0.000001"
+                value={rpmUsd}
+                onChange={(event) => {
+                  setRpmUsd(event.target.value);
+                  setSaved(false);
+                }}
+                required
+              />
+            </label>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
+            <button
+              className="button-primary"
+              type="submit"
+              disabled={
+                pending ||
+                status === "UNCONFIGURED" ||
+                effectiveDate === "" ||
+                (status === "ENABLED" && rpmUsd === "")
+              }
+            >
+              {pending ? "Đang lưu…" : "Lưu kiếm tiền"}
+            </button>
+            {saved ? (
+              <span className="text-xs font-bold text-emerald-700" role="status">
+                Đã cập nhật RPM thủ công.
+              </span>
+            ) : null}
+          </div>
+        </form>
+      ) : null}
+    </section>
+  );
 }
 
 export function ChannelsScreen() {
@@ -74,6 +233,16 @@ export function ChannelsScreen() {
     } finally {
       setPending(false);
     }
+  }
+
+  function updateSavedChannel(channel: ChannelItem) {
+    setItems((current) => current.map((item) => (item.id === channel.id ? channel : item)));
+    setError(null);
+  }
+
+  function handleMonetizationError(reason: unknown) {
+    if (auth.handleApiError(reason)) return;
+    setError(getVietnameseApiMessage(reason, "channels"));
   }
 
   return (
@@ -152,6 +321,12 @@ export function ChannelsScreen() {
                 <dd className="mt-1 font-semibold text-slate-900">{channel.activityStatus}</dd>
               </div>
             </dl>
+            <ChannelMonetization
+              channel={channel}
+              isAdmin={auth.state.status === "authenticated" && auth.state.user.role === "ADMIN"}
+              onSaved={updateSavedChannel}
+              onError={handleMonetizationError}
+            />
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <Link className="button-secondary" href={`/channels/${channel.id}`}>
                 Chi tiết

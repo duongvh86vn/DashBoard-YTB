@@ -1,4 +1,4 @@
-# Kiểm thử hiện hành (Phase 0–11)
+# Kiểm thử hiện hành (Phase 0–12)
 
 Hệ thống có bốn lớp kiểm thử: quality gates cục bộ, collector
 fixtures, PostgreSQL/auth/access-scope integration và full-stack Docker/browser
@@ -39,6 +39,22 @@ Collector/channel job fixtures:
 corepack pnpm test:phase2:collectors
 ```
 
+Phase 12 cần giữ test-first coverage cho các contract sau trong gate unit chung:
+
+- Full-upload catalog không bị cap theo recent limit, không tải media và giữ
+  public view/like/comment counter thiếu là `NULL`.
+- Một scan idempotent cho mỗi channel/local-day; coverage `COMPLETE` chỉ khi mọi
+  upload được liệt kê đều có public view evidence.
+- Daily leader dùng hai catalog bucket canonical, tối đa một winner mỗi kênh,
+  tie deterministic; video mới thiếu baseline không được coi là bắt đầu từ zero.
+- RPM parse/format chính xác đến sáu chữ số thập phân, lưu micro-USD, chọn row
+  hiệu lực theo ngày và reject future/malformed/non-monetized RPM writes.
+- Revenue giữ signed public correction, làm tròn half-away-from-zero, phân biệt
+  explicitly disabled zero với unconfigured/missing `NULL`, và không xuất strict
+  total khi coverage chỉ partial.
+- Group/channel selectors truyền cùng scope vào KPI, timeline, revenue và daily
+  leader feed; VIEWER UI read-only, ADMIN mới có monetization controls.
+
 Gate tổng hợp tương đương là `corepack pnpm verify`. Root typecheck bao gồm
 Playwright config/tests; Vitest loại trừ `tests/e2e/**`.
 
@@ -51,7 +67,10 @@ corepack pnpm test:auth:integration
 Script tạo Compose project và credential cô lập, chạy PostgreSQL thật,
 migration sạch/lặp lại, seed `CREATED` rồi `UNCHANGED`, và chạy repository
 integration trong schema riêng, gồm Channel/Snapshot/DailyStat/SyncRun,
-`ChannelGroup`, `ChannelGroupChannel`, `UserChannelGroup`, audit và access scope.
+`ChannelGroup`, `ChannelGroupChannel`, `UserChannelGroup`, `VideoCatalogScan`,
+effective-dated `ChannelMonetizationSetting`, audit và access scope. Integration
+phải chứng minh catalog upsert idempotent, RPM history không bị overwrite, và
+các endpoint revenue/daily-video-leaders chỉ trả cohort do server cho phép.
 Nó không gọi wrapper full-stack lồng nhau, không in raw logs có thể chứa
 bí mật, và luôn kiểm tra ownership trước cleanup.
 
@@ -81,6 +100,15 @@ của nó. Nó kiểm tra:
 - Metric contracts: public subscriber zero được phân biệt với missing;
   observed partial timeline giữ coverage và negative public corrections thay
   vì ép về zero.
+- Phase 12 metric contracts: full-catalog warm-up/partial/unavailable không giả
+  winner; daily feed trả video tăng view cao nhất theo từng channel-day thay vì
+  video mới; revenue phân biệt strict total, observed partial và unknown `NULL`.
+- Authorization/UI: group/channel selector áp dụng nhất quán cho trends,
+  daily-video-leaders và revenue; VIEWER chỉ đọc trong assigned-group union,
+  ADMIN write RPM được audit, out-of-scope/mismatched selection trả 404.
+- Wording: revenue luôn hiện là ước tính từ RPM thủ công; AI không tính metric,
+  và không surface nào yêu cầu Google login, private YouTube Analytics, vidIQ
+  backend/extension hoặc browser cookie.
 - Worker stop/recovery, PostgreSQL stop/recovery, API/Web cold start và bounded
   process health.
 - Containerized `mcr.microsoft.com/playwright:v1.62.1-noble` với Node 24,
@@ -91,6 +119,22 @@ của nó. Nó kiểm tra:
 
 `test:e2e` chỉ chạy trong container acceptance với `E2E_BASE_URL=http://web:3000`;
 không tự khởi động server trên host.
+
+## Public yt-dlp runtime smoke
+
+Đây là probe tùy chọn có truy cập YouTube công khai, không nằm trong gate unit ổn
+định và không dùng Google login, cookie hay private Analytics. Sau khi build image
+Worker, chạy:
+
+```powershell
+docker build --target worker --tag ytmonitor-ytdlp-probe:local --file docker/Dockerfile .
+pwsh -NoProfile -File scripts/test-ytdlp-public.ps1 -ImageRef ytmonitor-ytdlp-probe:local
+```
+
+Probe dùng đúng uploads playlist và đúng tham số metadata-only của production. Nó
+thất bại nếu playlist khai báo dữ liệu nhưng runtime phát ra rỗng, nếu entry sai
+canonical channel ID, hoặc nếu toàn bộ public view counter đều thiếu. Output chỉ
+ghi version và số lượng, không ghi title hay dữ liệu nhạy cảm.
 
 ## Local startup smoke
 

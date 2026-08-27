@@ -80,6 +80,135 @@ const populatedDashboardTrend = {
   ],
 };
 
+const emptyDashboardRevenue = {
+  period: {
+    startDate: "2026-08-01",
+    endDate: "2026-08-28",
+    days: 28,
+    timeZone: "Asia/Bangkok",
+  },
+  currency: "USD",
+  method: "PUBLIC_VIEW_DELTA_X_MANUAL_RPM",
+  metric: {
+    totalEstimatedRevenueUsd: null,
+    observedEstimatedRevenueUsd: null,
+    status: "UNAVAILABLE",
+    coveredChannelDays: 0,
+    totalChannelDays: 0,
+  },
+  configuredChannels: 0,
+  monetizedChannels: 0,
+  totalChannels: 0,
+  series: Array.from({ length: 28 }, (_, index) => ({
+    date: `2026-08-${String(index + 1).padStart(2, "0")}`,
+    totalEstimatedRevenueUsd: null,
+    observedEstimatedRevenueUsd: null,
+    status: "UNAVAILABLE",
+    coveredChannels: 0,
+    totalChannels: 0,
+  })),
+  channels: [],
+};
+
+const emptyDailyVideoLeaders = {
+  date: "2026-08-27",
+  previousDate: "2026-08-26",
+  timeZone: "Asia/Bangkok",
+  source: "YTDLP_CATALOG_SNAPSHOTS",
+  coverageStatus: "WARMING_UP",
+  totalChannels: 0,
+  channelsWithDailyGain: 0,
+  channelsWithComparableCatalog: 0,
+  warnings: ["CATALOG_BASELINE_REQUIRED"],
+  items: [],
+};
+
+const populatedDashboardRevenue = {
+  ...emptyDashboardRevenue,
+  metric: {
+    totalEstimatedRevenueUsd: "42",
+    observedEstimatedRevenueUsd: "42",
+    status: "COMPLETE",
+    coveredChannelDays: 56,
+    totalChannelDays: 56,
+  },
+  configuredChannels: 2,
+  monetizedChannels: 1,
+  totalChannels: 2,
+  series: emptyDashboardRevenue.series.map((point) => ({
+    ...point,
+    totalEstimatedRevenueUsd: "1.5",
+    observedEstimatedRevenueUsd: "1.5",
+    status: "COMPLETE",
+    coveredChannels: 2,
+    totalChannels: 2,
+  })),
+  channels: [
+    {
+      channelId: "00000000-0000-4000-8000-000000000010",
+      channelTitle: "Kênh Mẫu",
+      monetizationStatus: "ENABLED",
+      effectiveDate: "2026-08-01",
+      rpmUsd: "1.5",
+      lastReviewedAt: "2026-08-01T00:00:00.000Z",
+      totalEstimatedRevenueUsd: "42",
+      observedEstimatedRevenueUsd: "42",
+      status: "COMPLETE",
+      coveredDays: 28,
+      totalDays: 28,
+    },
+    {
+      channelId: "00000000-0000-4000-8000-000000000011",
+      channelTitle: "Kênh Thứ Hai",
+      monetizationStatus: "DISABLED",
+      effectiveDate: "2026-08-01",
+      rpmUsd: null,
+      lastReviewedAt: "2026-08-01T00:00:00.000Z",
+      totalEstimatedRevenueUsd: "0",
+      observedEstimatedRevenueUsd: "0",
+      status: "COMPLETE",
+      coveredDays: 28,
+      totalDays: 28,
+    },
+  ],
+};
+
+const populatedDailyVideoLeaders = {
+  ...emptyDailyVideoLeaders,
+  coverageStatus: "COMPLETE",
+  totalChannels: 2,
+  channelsWithDailyGain: 1,
+  channelsWithComparableCatalog: 2,
+  warnings: [],
+  items: [
+    {
+      rank: 1,
+      channelId: "00000000-0000-4000-8000-000000000010",
+      channelTitle: "Kênh Mẫu",
+      videoId: "00000000-0000-4000-8000-000000000020",
+      youtubeVideoId: "video-daily-leader",
+      title: "Video tăng trong ngày",
+      thumbnail: null,
+      channelViewDelta: "10000",
+      videoViewDelta: "6000",
+      contributionPercent: 60,
+      baselineAt: "2026-08-25T17:30:00.000Z",
+      capturedAt: "2026-08-26T17:30:00.000Z",
+      status: "COMPLETE",
+    },
+  ],
+};
+
+function phase12DashboardResponse(path: string): Response | null {
+  if (path.startsWith("/api/v1/dashboard/revenue?")) {
+    return jsonResponse(emptyDashboardRevenue);
+  }
+  if (path.startsWith("/api/v1/dashboard/daily-video-leaders")) {
+    return jsonResponse(emptyDailyVideoLeaders);
+  }
+  return null;
+}
+
 const scopeGroupAId = "00000000-0000-4000-8000-000000000030";
 const scopeGroupBId = "00000000-0000-4000-8000-000000000031";
 const scopeChannelId = "00000000-0000-4000-8000-000000000032";
@@ -174,11 +303,6 @@ describe("Phase 8 dashboard", () => {
           }),
         );
       }
-      if (path.startsWith("/api/v1/videos/recent?")) {
-        return Promise.resolve(
-          jsonResponse({ items: [], page: 1, pageSize: 6, total: 0, warmingUpCount: 0 }),
-        );
-      }
       if (path.startsWith("/api/v1/videos/rankings/weekly?")) {
         return Promise.resolve(
           jsonResponse({ items: [], page: 1, pageSize: 5, total: 0, warmingUpCount: 0 }),
@@ -187,7 +311,10 @@ describe("Phase 8 dashboard", () => {
       if (path.startsWith("/api/v1/dashboard/trends?")) {
         return Promise.resolve(jsonResponse(emptyDashboardTrend));
       }
-      return Promise.reject(new Error(`Unexpected request: ${path}`));
+      const phase12Response = phase12DashboardResponse(path);
+      return phase12Response
+        ? Promise.resolve(phase12Response)
+        : Promise.reject(new Error(`Unexpected request: ${path}`));
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -205,6 +332,9 @@ describe("Phase 8 dashboard", () => {
       expect(groupSelect).not.toBeDisabled();
       expect(initialChannelSelect).not.toBeDisabled();
       expect(requestedPaths).toContain("/api/v1/dashboard/trends?days=28");
+      expect(requestedPaths).toContain("/api/v1/dashboard/revenue?days=28");
+      expect(requestedPaths).toContain("/api/v1/dashboard/daily-video-leaders");
+      expect(requestedPaths.some((path) => path.startsWith("/api/v1/videos/recent"))).toBe(false);
     });
 
     requestedPaths.length = 0;
@@ -215,13 +345,12 @@ describe("Phase 8 dashboard", () => {
       expect(requestedPaths, JSON.stringify(requestedPaths)).toContain(
         `/api/v1/channels?page=1&pageSize=100&${groupQuery}`,
       );
-      expect(requestedPaths, JSON.stringify(requestedPaths)).toContain(
-        `/api/v1/videos/recent?page=1&pageSize=6&${groupQuery}`,
-      );
       expect(requestedPaths).toContain(
         `/api/v1/videos/rankings/weekly?page=1&pageSize=5&${groupQuery}`,
       );
       expect(requestedPaths).toContain(`/api/v1/dashboard/trends?days=28&${groupQuery}`);
+      expect(requestedPaths).toContain(`/api/v1/dashboard/revenue?days=28&${groupQuery}`);
+      expect(requestedPaths).toContain(`/api/v1/dashboard/daily-video-leaders?${groupQuery}`);
     });
 
     const channelSelect = screen.getByRole("combobox", { name: /Kênh cần xem/ });
@@ -231,11 +360,12 @@ describe("Phase 8 dashboard", () => {
     const channelQuery = `${groupQuery}&channelId=${scopeChannelId}`;
     await waitFor(() => {
       expect(requestedPaths).toContain(`/api/v1/channels?page=1&pageSize=100&${channelQuery}`);
-      expect(requestedPaths).toContain(`/api/v1/videos/recent?page=1&pageSize=6&${channelQuery}`);
       expect(requestedPaths).toContain(
         `/api/v1/videos/rankings/weekly?page=1&pageSize=5&${channelQuery}`,
       );
       expect(requestedPaths).toContain(`/api/v1/dashboard/trends?days=28&${channelQuery}`);
+      expect(requestedPaths).toContain(`/api/v1/dashboard/revenue?days=28&${channelQuery}`);
+      expect(requestedPaths).toContain(`/api/v1/dashboard/daily-video-leaders?${channelQuery}`);
     });
 
     requestedPaths.length = 0;
@@ -244,9 +374,10 @@ describe("Phase 8 dashboard", () => {
       expect(channelSelect).toHaveValue("");
       for (const path of [
         `/api/v1/channels?page=1&pageSize=100&groupId=${scopeGroupBId}`,
-        `/api/v1/videos/recent?page=1&pageSize=6&groupId=${scopeGroupBId}`,
         `/api/v1/videos/rankings/weekly?page=1&pageSize=5&groupId=${scopeGroupBId}`,
         `/api/v1/dashboard/trends?days=28&groupId=${scopeGroupBId}`,
+        `/api/v1/dashboard/revenue?days=28&groupId=${scopeGroupBId}`,
+        `/api/v1/dashboard/daily-video-leaders?groupId=${scopeGroupBId}`,
       ]) {
         expect(requestedPaths).toContain(path);
       }
@@ -257,9 +388,10 @@ describe("Phase 8 dashboard", () => {
         requestedPaths.some(
           (path) =>
             (path.startsWith("/api/v1/channels?") ||
-              path.startsWith("/api/v1/videos/recent?") ||
               path.startsWith("/api/v1/videos/rankings/weekly?") ||
-              path.startsWith("/api/v1/dashboard/trends?")) &&
+              path.startsWith("/api/v1/dashboard/trends?") ||
+              path.startsWith("/api/v1/dashboard/revenue?") ||
+              path.startsWith("/api/v1/dashboard/daily-video-leaders?")) &&
             !path.includes(`groupId=${scopeGroupBId}`),
         ),
       ).toBe(false);
@@ -304,11 +436,6 @@ describe("Phase 8 dashboard", () => {
             }),
           );
         }
-        if (path.startsWith("/api/v1/videos/recent?")) {
-          return Promise.resolve(
-            jsonResponse({ items: [], page: 1, pageSize: 6, total: 0, warmingUpCount: 0 }),
-          );
-        }
         if (path.startsWith("/api/v1/videos/rankings/weekly?")) {
           return Promise.resolve(
             jsonResponse({ items: [], page: 1, pageSize: 5, total: 0, warmingUpCount: 0 }),
@@ -317,7 +444,10 @@ describe("Phase 8 dashboard", () => {
         if (path.startsWith("/api/v1/dashboard/trends?")) {
           return Promise.resolve(jsonResponse(emptyDashboardTrend));
         }
-        return Promise.reject(new Error(`Unexpected request: ${path}`));
+        const phase12Response = phase12DashboardResponse(path);
+        return phase12Response
+          ? Promise.resolve(phase12Response)
+          : Promise.reject(new Error(`Unexpected request: ${path}`));
       }),
     );
 
@@ -344,9 +474,10 @@ describe("Phase 8 dashboard", () => {
     const assertSelectedScope = () => {
       const metricPaths = requestedPaths.filter(
         (path) =>
-          path.startsWith("/api/v1/videos/recent?") ||
           path.startsWith("/api/v1/videos/rankings/weekly?") ||
-          path.startsWith("/api/v1/dashboard/trends?"),
+          path.startsWith("/api/v1/dashboard/trends?") ||
+          path.startsWith("/api/v1/dashboard/revenue?") ||
+          path.startsWith("/api/v1/dashboard/daily-video-leaders"),
       );
       expect(metricPaths.length).toBeGreaterThan(0);
       expect(
@@ -379,9 +510,10 @@ describe("Phase 8 dashboard", () => {
     const emptyScopePaths = requestedPaths.filter(
       (path) =>
         path.startsWith("/api/v1/channels?") ||
-        path.startsWith("/api/v1/videos/recent?") ||
         path.startsWith("/api/v1/videos/rankings/weekly?") ||
-        path.startsWith("/api/v1/dashboard/trends?"),
+        path.startsWith("/api/v1/dashboard/trends?") ||
+        path.startsWith("/api/v1/dashboard/revenue?") ||
+        path.startsWith("/api/v1/dashboard/daily-video-leaders"),
     );
     expect(emptyScopePaths.length).toBeGreaterThan(0);
     expect(emptyScopePaths.every((path) => path.includes(`groupId=${scopeGroupBId}`))).toBe(true);
@@ -438,11 +570,6 @@ describe("Phase 8 dashboard", () => {
             jsonResponse({ items: [lastChannel], page: 2, pageSize: 100, total: 101 }),
           );
         }
-        if (path.startsWith("/api/v1/videos/recent?")) {
-          return Promise.resolve(
-            jsonResponse({ items: [], page: 1, pageSize: 6, total: 0, warmingUpCount: 0 }),
-          );
-        }
         if (path.startsWith("/api/v1/videos/rankings/weekly?")) {
           return Promise.resolve(
             jsonResponse({ items: [], page: 1, pageSize: 5, total: 0, warmingUpCount: 0 }),
@@ -451,7 +578,10 @@ describe("Phase 8 dashboard", () => {
         if (path.startsWith("/api/v1/dashboard/trends?")) {
           return Promise.resolve(jsonResponse(emptyDashboardTrend));
         }
-        return Promise.reject(new Error(`Unexpected request: ${path}`));
+        const phase12Response = phase12DashboardResponse(path);
+        return phase12Response
+          ? Promise.resolve(phase12Response)
+          : Promise.reject(new Error(`Unexpected request: ${path}`));
       }),
     );
 
@@ -516,11 +646,6 @@ describe("Phase 8 dashboard", () => {
             }),
           );
         }
-        if (path.startsWith("/api/v1/videos/recent?")) {
-          return Promise.resolve(
-            jsonResponse({ items: [], page: 1, pageSize: 6, total: 0, warmingUpCount: 0 }),
-          );
-        }
         if (path.startsWith("/api/v1/videos/rankings/weekly?")) {
           return Promise.resolve(
             jsonResponse({ items: [], page: 1, pageSize: 5, total: 0, warmingUpCount: 0 }),
@@ -532,7 +657,10 @@ describe("Phase 8 dashboard", () => {
         if (path.startsWith("/api/v1/dashboard/trends?")) {
           return Promise.resolve(jsonResponse(emptyDashboardTrend));
         }
-        return Promise.reject(new Error(`Unexpected request: ${path}`));
+        const phase12Response = phase12DashboardResponse(path);
+        return phase12Response
+          ? Promise.resolve(phase12Response)
+          : Promise.reject(new Error(`Unexpected request: ${path}`));
       }),
     );
 
@@ -568,23 +696,24 @@ describe("Phase 8 dashboard", () => {
   it("serializes slow same-scope polling so the dashboard cannot starve", async () => {
     vi.useFakeTimers();
     const oldChannels = deferred<Response>();
-    const oldRecent = deferred<Response>();
     const oldWeekly = deferred<Response>();
     const oldTrends = deferred<Response>();
-    const calls = { channels: 0, recent: 0, weekly: 0, trends: 0 };
+    const oldRevenue = deferred<Response>();
+    const oldDailyLeaders = deferred<Response>();
+    const calls = { channels: 0, recent: 0, weekly: 0, trends: 0, revenue: 0, leaders: 0 };
     const freshChannel = {
       ...scopedChannel,
       title: "Kênh mới nhất",
       subscriberCount: "2000",
       lifetimeViewCount: "9000",
     };
-    const recentVideo = {
+    const rankedVideo = {
       rank: 1,
       id: "00000000-0000-4000-8000-000000000040",
-      youtubeVideoId: "fresh-recent",
+      youtubeVideoId: "fresh-ranked",
       channelId: freshChannel.id,
       channelTitle: freshChannel.title,
-      title: "Video mới nhất",
+      title: "Video xếp hạng",
       thumbnail: null,
       publishedAt: "2026-08-26T11:00:00.000Z",
       currentViews: "4000",
@@ -602,13 +731,38 @@ describe("Phase 8 dashboard", () => {
       breakout7d: null,
     };
     const weeklyVideo = {
-      ...recentVideo,
+      ...rankedVideo,
       id: "00000000-0000-4000-8000-000000000041",
       youtubeVideoId: "fresh-weekly",
-      title: "Video tăng mới nhất",
+      title: "Video tăng 7 ngày",
       currentViews: "8000",
       weeklyGain: "800",
       baselineAt: "2026-08-19T11:00:00.000Z",
+    };
+    const freshDailyLeaders = {
+      ...emptyDailyVideoLeaders,
+      coverageStatus: "COMPLETE",
+      totalChannels: 1,
+      channelsWithDailyGain: 1,
+      channelsWithComparableCatalog: 1,
+      warnings: [],
+      items: [
+        {
+          rank: 1,
+          channelId: freshChannel.id,
+          channelTitle: freshChannel.title,
+          videoId: "00000000-0000-4000-8000-000000000042",
+          youtubeVideoId: "fresh-daily-leader",
+          title: "Video tăng mạnh trong ngày",
+          thumbnail: null,
+          channelViewDelta: "9000",
+          videoViewDelta: "4000",
+          contributionPercent: 44.44,
+          baselineAt: "2026-08-25T17:30:00.000Z",
+          capturedAt: "2026-08-26T17:30:00.000Z",
+          status: "COMPLETE",
+        },
+      ],
     };
     const freshTrend = {
       ...populatedDashboardTrend,
@@ -651,19 +805,9 @@ describe("Phase 8 dashboard", () => {
                 jsonResponse({ items: [freshChannel], page: 1, pageSize: 100, total: 1 }),
               );
         }
-        if (path === "/api/v1/videos/recent?page=1&pageSize=6") {
+        if (path.startsWith("/api/v1/videos/recent")) {
           calls.recent += 1;
-          return calls.recent === 1
-            ? oldRecent.promise
-            : Promise.resolve(
-                jsonResponse({
-                  items: [recentVideo],
-                  page: 1,
-                  pageSize: 6,
-                  total: 1,
-                  warmingUpCount: 0,
-                }),
-              );
+          return Promise.reject(new Error("The dashboard must not request recent videos"));
         }
         if (path === "/api/v1/videos/rankings/weekly?page=1&pageSize=5") {
           calls.weekly += 1;
@@ -683,6 +827,18 @@ describe("Phase 8 dashboard", () => {
           calls.trends += 1;
           return calls.trends === 1 ? oldTrends.promise : Promise.resolve(jsonResponse(freshTrend));
         }
+        if (path === "/api/v1/dashboard/revenue?days=28") {
+          calls.revenue += 1;
+          return calls.revenue === 1
+            ? oldRevenue.promise
+            : Promise.resolve(jsonResponse(emptyDashboardRevenue));
+        }
+        if (path === "/api/v1/dashboard/daily-video-leaders") {
+          calls.leaders += 1;
+          return calls.leaders === 1
+            ? oldDailyLeaders.promise
+            : Promise.resolve(jsonResponse(freshDailyLeaders));
+        }
         return Promise.reject(new Error(`Unexpected request: ${path}`));
       }),
     );
@@ -695,23 +851,22 @@ describe("Phase 8 dashboard", () => {
     await act(async () => {
       for (let index = 0; index < 20; index += 1) await Promise.resolve();
     });
-    expect(calls).toEqual({ channels: 1, recent: 1, weekly: 1, trends: 1 });
+    expect(calls).toEqual({ channels: 1, recent: 0, weekly: 1, trends: 1, revenue: 1, leaders: 1 });
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10_000);
     });
-    expect(calls).toEqual({ channels: 1, recent: 1, weekly: 1, trends: 1 });
+    expect(calls).toEqual({ channels: 1, recent: 0, weekly: 1, trends: 1, revenue: 1, leaders: 1 });
     expect(screen.getByText("Đang tải dashboard…")).toBeInTheDocument();
 
     await act(async () => {
       oldChannels.resolve(jsonResponse({ items: [oldChannel], page: 1, pageSize: 100, total: 1 }));
-      oldRecent.resolve(
-        jsonResponse({ items: [], page: 1, pageSize: 6, total: 0, warmingUpCount: 0 }),
-      );
       oldWeekly.resolve(
         jsonResponse({ items: [], page: 1, pageSize: 5, total: 0, warmingUpCount: 0 }),
       );
       oldTrends.resolve(jsonResponse(emptyDashboardTrend));
+      oldRevenue.resolve(jsonResponse(emptyDashboardRevenue));
+      oldDailyLeaders.resolve(jsonResponse(emptyDailyVideoLeaders));
       for (let index = 0; index < 20; index += 1) await Promise.resolve();
     });
     expect(screen.getByRole("img", { name: "Kênh cũ: 100" })).toBeInTheDocument();
@@ -722,8 +877,10 @@ describe("Phase 8 dashboard", () => {
     });
 
     expect(screen.getByRole("img", { name: "Kênh mới nhất: 2.000" })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Video mới nhất: 4.000" })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Video tăng mới nhất: +800" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: "Video tăng mạnh trong ngày: +4.000" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Video tăng 7 ngày: +800" })).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Các kênh tăng 9.000 lượt xem trong 28 ngày qua" }),
     ).toBeInTheDocument();
@@ -773,11 +930,6 @@ describe("Phase 8 dashboard", () => {
             }),
           );
         }
-        if (path.startsWith("/api/v1/videos/recent?")) {
-          return Promise.resolve(
-            jsonResponse({ items: [], page: 1, pageSize: 6, total: 0, warmingUpCount: 0 }),
-          );
-        }
         if (path.startsWith("/api/v1/videos/rankings/weekly?")) {
           return Promise.resolve(
             jsonResponse({ items: [], page: 1, pageSize: 5, total: 0, warmingUpCount: 0 }),
@@ -786,7 +938,10 @@ describe("Phase 8 dashboard", () => {
         if (path.startsWith("/api/v1/dashboard/trends?")) {
           return Promise.resolve(jsonResponse(emptyDashboardTrend));
         }
-        return Promise.reject(new Error(`Unexpected request: ${path}`));
+        const phase12Response = phase12DashboardResponse(path);
+        return phase12Response
+          ? Promise.resolve(phase12Response)
+          : Promise.reject(new Error(`Unexpected request: ${path}`));
       }),
     );
 
@@ -861,11 +1016,6 @@ describe("Phase 8 dashboard", () => {
             jsonResponse({ items, page: 1, pageSize: 100, total: items.length }),
           );
         }
-        if (path.startsWith("/api/v1/videos/recent?")) {
-          return Promise.resolve(
-            jsonResponse({ items: [], page: 1, pageSize: 6, total: 0, warmingUpCount: 0 }),
-          );
-        }
         if (path.startsWith("/api/v1/videos/rankings/weekly?")) {
           return Promise.resolve(
             jsonResponse({ items: [], page: 1, pageSize: 5, total: 0, warmingUpCount: 0 }),
@@ -874,7 +1024,10 @@ describe("Phase 8 dashboard", () => {
         if (path.startsWith("/api/v1/dashboard/trends?")) {
           return Promise.resolve(jsonResponse(emptyDashboardTrend));
         }
-        return Promise.reject(new Error(`Unexpected request: ${path}`));
+        const phase12Response = phase12DashboardResponse(path);
+        return phase12Response
+          ? Promise.resolve(phase12Response)
+          : Promise.reject(new Error(`Unexpected request: ${path}`));
       }),
     );
 
@@ -912,17 +1065,19 @@ describe("Phase 8 dashboard", () => {
     const canonicalPaths = requestedPaths.filter(
       (path) =>
         path.startsWith("/api/v1/channels?") ||
-        path.startsWith("/api/v1/videos/recent?") ||
         path.startsWith("/api/v1/videos/rankings/weekly?") ||
-        path.startsWith("/api/v1/dashboard/trends?"),
+        path.startsWith("/api/v1/dashboard/trends?") ||
+        path.startsWith("/api/v1/dashboard/revenue?") ||
+        path.startsWith("/api/v1/dashboard/daily-video-leaders"),
     );
     expect(canonicalPaths.length).toBeGreaterThan(0);
     expect(canonicalPaths.every((path) => path.includes(`groupId=${scopeGroupAId}`))).toBe(true);
     for (const groupOnlyPath of [
       `/api/v1/channels?page=1&pageSize=100&groupId=${scopeGroupAId}`,
-      `/api/v1/videos/recent?page=1&pageSize=6&groupId=${scopeGroupAId}`,
       `/api/v1/videos/rankings/weekly?page=1&pageSize=5&groupId=${scopeGroupAId}`,
       `/api/v1/dashboard/trends?days=28&groupId=${scopeGroupAId}`,
+      `/api/v1/dashboard/revenue?days=28&groupId=${scopeGroupAId}`,
+      `/api/v1/dashboard/daily-video-leaders?groupId=${scopeGroupAId}`,
     ]) {
       expect(requestedPaths).toContain(groupOnlyPath);
     }
@@ -952,11 +1107,6 @@ describe("Phase 8 dashboard", () => {
         if (path.startsWith("/api/v1/channels?")) {
           return Promise.resolve(jsonResponse({ items: [], page: 1, pageSize: 100, total: 0 }));
         }
-        if (path.startsWith("/api/v1/videos/recent?")) {
-          return Promise.resolve(
-            jsonResponse({ items: [], page: 1, pageSize: 6, total: 0, warmingUpCount: 0 }),
-          );
-        }
         if (path.startsWith("/api/v1/videos/rankings/weekly?")) {
           return Promise.resolve(
             jsonResponse({ items: [], page: 1, pageSize: 5, total: 0, warmingUpCount: 0 }),
@@ -985,7 +1135,10 @@ describe("Phase 8 dashboard", () => {
             }),
           );
         }
-        return Promise.reject(new Error(`Unexpected request: ${path}`));
+        const phase12Response = phase12DashboardResponse(path);
+        return phase12Response
+          ? Promise.resolve(phase12Response)
+          : Promise.reject(new Error(`Unexpected request: ${path}`));
       }),
     );
     const { container } = render(
@@ -995,7 +1148,13 @@ describe("Phase 8 dashboard", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "Tổng quan giám sát" })).toBeInTheDocument();
-    expect(await screen.findByText("Chưa có video snapshot thật.")).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "Cần hai lần quét catalog thật ở hai ngày liên tiếp trước khi so sánh.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Chưa đủ dữ liệu để ước tính")).toBeInTheDocument();
+    expect(screen.queryByText("Video mới phát hiện")).not.toBeInTheDocument();
     expect(screen.getByText("Chưa đủ baseline 7 ngày để xếp hạng.")).toBeInTheDocument();
     expect(container.querySelector('a[href*="health"]')).toBeNull();
     expect(screen.getByText("Kênh đang theo dõi")).toBeInTheDocument();
@@ -1097,28 +1256,6 @@ describe("Phase 8 dashboard", () => {
             }),
           );
         }
-        if (path.startsWith("/api/v1/videos/recent?")) {
-          return Promise.resolve(
-            jsonResponse({
-              items: [
-                {
-                  ...rankedVideo,
-                  id: "00000000-0000-4000-8000-000000000020",
-                  youtubeVideoId: "video-recent",
-                  title: "Video mới nhất",
-                  publishedAt: "2026-08-24T08:00:00.000Z",
-                  currentViews: "2500",
-                  weeklyGain: null,
-                  baselineAt: null,
-                },
-              ],
-              page: 1,
-              pageSize: 6,
-              total: 1,
-              warmingUpCount: 0,
-            }),
-          );
-        }
         if (path.startsWith("/api/v1/videos/rankings/weekly?")) {
           return Promise.resolve(
             jsonResponse({
@@ -1146,6 +1283,12 @@ describe("Phase 8 dashboard", () => {
         if (path === "/api/v1/dashboard/trends?days=28") {
           return Promise.resolve(jsonResponse(populatedDashboardTrend));
         }
+        if (path === "/api/v1/dashboard/revenue?days=28") {
+          return Promise.resolve(jsonResponse(populatedDashboardRevenue));
+        }
+        if (path === "/api/v1/dashboard/daily-video-leaders") {
+          return Promise.resolve(jsonResponse(populatedDailyVideoLeaders));
+        }
         if (path.includes("/api/v1/ai/reports/daily/")) {
           return Promise.resolve(
             jsonResponse({
@@ -1166,7 +1309,10 @@ describe("Phase 8 dashboard", () => {
             }),
           );
         }
-        return Promise.reject(new Error(`Unexpected request: ${path}`));
+        const phase12Response = phase12DashboardResponse(path);
+        return phase12Response
+          ? Promise.resolve(phase12Response)
+          : Promise.reject(new Error(`Unexpected request: ${path}`));
       }),
     );
 
@@ -1181,8 +1327,13 @@ describe("Phase 8 dashboard", () => {
     expect(screen.getByRole("heading", { name: "Bảng chỉ số kênh" })).toBeInTheDocument();
     expect(await screen.findAllByRole("link", { name: "Phân tích 30 ngày" })).toHaveLength(2);
     expect(await screen.findByRole("img", { name: "Kênh Mẫu: 1.250" })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Video mới nhất: 2.500" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Video tăng trong ngày: +6.000" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Video tăng trưởng: +500" })).toBeInTheDocument();
+    expect(screen.getByText(/2\/2 kênh có catalog hoàn chỉnh/u)).toBeInTheDocument();
+    expect(screen.getByText("+6.000 view/ngày")).toBeInTheDocument();
+    expect(screen.getByText("Kênh Mẫu · Kênh +10.000 · đóng góp 60%")).toBeInTheDocument();
+    expect(screen.getAllByText("42 USD")).toHaveLength(2);
+    expect(screen.queryByText("Video mới phát hiện")).not.toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Các kênh tăng 3.500 lượt xem trong 28 ngày qua" }),
     ).toBeInTheDocument();
@@ -1256,11 +1407,6 @@ describe("Phase 8 dashboard", () => {
             }),
           );
         }
-        if (path.startsWith("/api/v1/videos/recent?")) {
-          return Promise.resolve(
-            jsonResponse({ items: [], page: 1, pageSize: 6, total: 0, warmingUpCount: 0 }),
-          );
-        }
         if (path.startsWith("/api/v1/videos/rankings/weekly?")) {
           return Promise.resolve(
             jsonResponse({ items: [], page: 1, pageSize: 5, total: 0, warmingUpCount: 0 }),
@@ -1286,7 +1432,10 @@ describe("Phase 8 dashboard", () => {
             }),
           );
         }
-        return Promise.reject(new Error(`Unexpected request: ${path}`));
+        const phase12Response = phase12DashboardResponse(path);
+        return phase12Response
+          ? Promise.resolve(phase12Response)
+          : Promise.reject(new Error(`Unexpected request: ${path}`));
       }),
     );
 

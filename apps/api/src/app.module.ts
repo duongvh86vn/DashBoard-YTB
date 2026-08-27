@@ -181,6 +181,9 @@ const denyAllChannelsApplication: ChannelsApplicationPort = {
   async archive(): Promise<never> {
     throw ChannelApplicationError.notFound();
   },
+  async updateMonetization(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
   async requestHealthCheck(): Promise<never> {
     throw ChannelApplicationError.notFound();
   },
@@ -245,6 +248,12 @@ const denyAllAiApplication: AiApplicationPort = {
 
 const denyAllDashboardApplication: DashboardApplicationPort = {
   async trends(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
+  async revenue(): Promise<never> {
+    throw ChannelApplicationError.notFound();
+  },
+  async dailyVideoLeaders(): Promise<never> {
     throw ChannelApplicationError.notFound();
   },
 };

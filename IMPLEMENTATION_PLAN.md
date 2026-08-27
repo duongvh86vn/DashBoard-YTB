@@ -1229,7 +1229,76 @@ verified cleanup.
 surface honors the same effective scope; partial metrics are useful but never
 misrepresented as complete or as zero.
 
-## 18. Invariant traceability gates
+## 18. Phase 12 — Daily top-view video attribution and manual RPM revenue
+
+**Scope addendum approved in conversation on 2026-08-27:** the owner explicitly
+requested a daily per-channel video leader and an estimated-revenue dashboard
+derived from a manually maintained monetization/RPM setting. This narrowly
+overrides the earlier Phase 8 decision to omit revenue; it does not authorize
+Google login, private YouTube Analytics, vidIQ backend access, fabricated history
+or AI-generated numbers.
+
+### 18.1 Daily video catalog evidence
+
+- [x] Replace the recent-publication feed semantics with at most one video per
+      selected channel: the video whose public view counter increased the most
+      between two comparable daily catalog snapshots.
+- [x] Run an uncapped metadata-only yt-dlp catalog scan per enabled channel and
+      store its per-video snapshot bucket plus a `COMPLETE`/`PARTIAL` catalog-scan
+      coverage record. Do not silently reuse the 50-video reconciliation cap.
+- [x] Require a real prior snapshot for each compared video. A newly observed
+      video has no baseline and must not be treated as starting at zero.
+- [x] Show warm-up/partial/unavailable coverage explicitly. Only a complete pair
+      of catalog scans may be described as the whole-channel daily winner.
+- [x] Keep the existing recent, weekly, hot and breakout endpoint meanings
+      unchanged; add a dedicated scoped dashboard endpoint for this feed.
+
+### 18.2 Monetization and RPM history
+
+- [x] Add an effective-dated per-channel setting with three observable states:
+      unconfigured, explicitly not monetized, and monetized with a non-negative
+      USD RPM. Store RPM as integer micro-USD per 1,000 views, never binary float.
+- [x] Add an ADMIN-only audited channel-management write. VIEWER can see the
+      effective state only for channels in their server-authoritative scope and
+      cannot mutate it.
+- [x] Allow a new weekly review row without overwriting historical RPM. Reject
+      future effective dates, malformed decimals, more than six fractional digits
+      and RPM on a non-monetized row.
+
+### 18.3 Deterministic estimated revenue
+
+- [x] Calculate signed estimated revenue as
+      `public channel daily view delta × effective manual RPM / 1,000`, rounded
+      half away from zero in integer micro-USD. AI must not participate in the
+      calculation.
+- [x] An explicitly non-monetized channel contributes known zero. Missing daily
+      view delta or missing/unconfigured RPM remains unknown, never zero.
+- [x] Return strict totals only when every selected channel-day is covered. A
+      partial observed sum must be labelled partial and must not be presented as
+      total revenue or as a lower bound because signed counter corrections exist.
+- [x] Add group/channel scoped dashboard KPI, timeline/breakdown and clear wording
+      `Doanh thu ước tính từ RPM thủ công`; never label it actual YouTube revenue.
+
+### 18.4 Gates
+
+- [x] Test-first unit coverage for exact RPM parsing/formatting, signed rounding,
+      effective-date selection, disabled/unknown semantics and partial totals.
+- [x] Repository/migration integration coverage for idempotent catalog scans,
+      effective-dated RPM history and scoped API access.
+- [x] Collector/worker tests prove uncapped enumeration, nullable public counters,
+      one scan per channel/day and safe partial coverage.
+- [x] Pin an official checksum-verified yt-dlp runtime and run a no-login public
+      uploads-playlist smoke probe that rejects declared-but-empty extraction.
+- [x] API/Web tests prove selector scoping, one daily winner per channel, tie
+      determinism, warm-up display, ADMIN write controls and VIEWER read-only UI.
+- [x] Run Prisma validate/generate, typecheck, lint, unit, PostgreSQL integration,
+      Docker and browser acceptance before commit and push.
+
+**Exit:** each selected channel can expose an evidence-backed daily video leader;
+ADMIN can maintain weekly RPM history; dashboard revenue is deterministic,
+scope-safe and visibly estimated without weakening any canonical metric invariant.
+
+## 19. Invariant traceability gates
 
 | Invariant                                     | Enforcement artifact                                                                   |
 | --------------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -1244,7 +1313,7 @@ misrepresented as complete or as zero.
 
 Trước khi sửa bất kỳ hàng nào trong bảng này, implementer phải dừng, nêu lý do/ảnh hưởng và nhận chấp thuận trực tiếp của chủ dự án.
 
-## 19. Definition of done cho mỗi phase
+## 20. Definition of done cho mỗi phase
 
 Một phase chỉ được đánh dấu hoàn tất khi:
 

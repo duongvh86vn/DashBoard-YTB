@@ -1,4 +1,4 @@
-# Kiến trúc hiện hành (Phase 0–11)
+# Kiến trúc hiện hành (Phase 0–12)
 
 Tài liệu này mô tả kiến trúc đã triển khai theo
 `YOUTUBE_HOME_MONITOR_AI_SPEC.md` và `IMPLEMENTATION_PLAN.md`. Bằng chứng chạy
@@ -12,6 +12,10 @@ history, health/deletion safety, deterministic rankings, Gemini/NVIDIA AI tùy
 chọn, sync history, settings và Docker/LAN hosting. Phase 11 thêm nhóm kênh,
 phạm vi VIEWER nhiều-nhóm do server cưỡng chế, và observed partial
 metrics mà không làm yếu quy tắc missing=`NULL`.
+Phase 12 bổ sung catalog đầy đủ uploads theo ngày, video tăng view cao nhất của
+từng kênh/ngày, lịch sử trạng thái kiếm tiền và RPM thủ công có ngày hiệu lực,
+cùng doanh thu ước tính xác định. Các surface mới tiếp tục dùng cùng scope
+group/channel do server cưỡng chế.
 
 ```text
 Host 127.0.0.1:WEB_PORT
@@ -44,8 +48,9 @@ services vẫn phục vụ và ADMIN health phản ánh đúng HTTP 503.
 - **Worker** là NestJS application context không gọi `listen()` và không mở port.
   Worker ghi heartbeat định kỳ, dừng timer và ngắt Prisma khi shutdown.
 - **PostgreSQL** là nguồn sự thật phía server cho users, sessions, throttle,
-  audit logs, groups/memberships, canonical metrics, AI reports và worker
-  heartbeats. Prisma migration được chạy bởi service one-shot
+  audit logs, groups/memberships, canonical metrics, daily video-catalog scans,
+  effective-dated monetization/RPM history, AI reports và worker heartbeats.
+  Prisma migration được chạy bởi service one-shot
   **db-migrate**; **db-seed** chỉ chạy trong profile seed.
 
 Package boundaries chính:
@@ -127,11 +132,15 @@ GET /api/v1/channels?page=1&pageSize=20
 GET /api/v1/channels/:id
 POST /api/v1/channels                 (ADMIN, canonical resolution bắt buộc)
 DELETE /api/v1/channels/:id           (ADMIN, archive alias)
+PUT /api/v1/channels/:id/monetization (ADMIN, audited effective-dated write)
 GET /api/v1/channel-groups/accessible (ADMIN hoặc VIEWER, đã scope)
 GET|POST /api/v1/channel-groups       (ADMIN)
 GET|PATCH|DELETE /api/v1/channel-groups/:id (ADMIN)
 PUT /api/v1/channel-groups/:id/channels     (ADMIN, atomic full replacement)
 PUT /api/v1/users/:id/channel-groups        (ADMIN, atomic full replacement)
+GET /api/v1/dashboard/trends
+GET /api/v1/dashboard/revenue
+GET /api/v1/dashboard/daily-video-leaders
 ```
 
 Session là opaque token trong HttpOnly SameSite=Lax cookie; PostgreSQL chỉ lưu
@@ -146,6 +155,51 @@ group nghĩa là zero channel. API/service/repository cùng áp dụng scope cho
 list, aggregate và direct ID; tài nguyên ngoài scope trả not-found. Sync-run
 inspection và global AI reports vẫn ADMIN-only cho đến khi artifact có
 group-scoped fingerprint.
+
+## Daily video catalog và attribution
+
+Worker chạy một catalog scan cho mỗi kênh/ngày địa phương. Collector yt-dlp ở
+đường này chỉ đọc metadata và duyệt toàn bộ uploads công khai mà provider trả
+về; không áp giới hạn “video gần đây” và không tải media. Mỗi video có snapshot
+`YTDLP_CATALOG` trong bucket canonical riêng. `VideoCatalogScan` lưu tổng số
+video, số video có public view counter và coverage `COMPLETE`/`PARTIAL` để API
+không suy diễn độ đầy đủ từ số row tình cờ có mặt.
+
+Endpoint `daily-video-leaders` so sánh hai catalog scan ngày liên tiếp. Mỗi kênh
+trong scope chỉ có tối đa một item: video có positive signed view delta lớn nhất;
+tie được giải quyết xác định. Video chỉ xuất hiện ở scan mới không có baseline,
+vì vậy không được coi là tăng từ zero. Chỉ cặp catalog đầy đủ mới được mô tả là
+winner của toàn kênh; thiếu baseline/counter phải trả `WARMING_UP`, `PARTIAL`
+hoặc `UNAVAILABLE` cùng coverage/warning tương ứng. Endpoint recent/weekly/hot/
+breakout giữ nguyên semantics cũ.
+
+## Monetization/RPM và doanh thu ước tính
+
+Mỗi kênh có lịch sử setting theo `effectiveDate`, gồm ba trạng thái quan sát được:
+
+- `UNCONFIGURED`: chưa có bằng chứng cấu hình, RPM và doanh thu là `NULL`.
+- `DISABLED`: ADMIN xác nhận chưa bật kiếm tiền; RPM không được phép có và phần
+  đóng góp doanh thu là known zero khi ngày đó nằm trong hiệu lực.
+- `ENABLED`: ADMIN xác nhận đã bật kiếm tiền và cung cấp RPM USD không âm.
+
+RPM được lưu bằng integer micro-USD trên 1.000 views, không dùng binary float.
+Mỗi lần rà soát hằng tuần ghi một row có ngày hiệu lực mới và audit actor; không
+ghi đè lịch sử. Chỉ ADMIN được ghi. VIEWER chỉ đọc trạng thái hiệu lực của các
+kênh trong union group được gán.
+
+API revenue tính cho từng channel-day bằng công thức xác định:
+
+```text
+signed public channel daily view delta × effective manual RPM / 1,000
+```
+
+Kết quả được làm tròn half-away-from-zero ở integer micro-USD. Signed public
+correction vẫn giữ dấu; AI không tham gia phép tính. Missing daily delta hoặc
+RPM chưa cấu hình vẫn là unknown (`NULL`), không biến thành zero. Strict total
+chỉ xuất hiện khi toàn bộ channel-day trong scope có evidence. Khi chỉ một phần
+được quan sát, API trả observed sum với `PARTIAL`; UI không gọi nó là total hay
+lower bound vì counter correction có thể âm. Nhãn chuẩn là
+`Doanh thu ước tính từ RPM thủ công`, không phải doanh thu YouTube Analytics.
 
 ## Same-origin và cô lập mạng
 
@@ -181,11 +235,16 @@ production; Cloudflare Tunnel vẫn là external owner-managed state:
 
 - Server/PostgreSQL là source of truth; scheduled writes phải idempotent.
 - `AI != DATA SOURCE`; AI optional, chỉ giải thích evidence cục bộ và không
-  được ghi đè canonical metrics.
-- `VIDIQ BASIC != BACKEND API`; không có MCP, OAuth hoặc private YouTube path.
+  được ghi đè canonical metrics, chọn winner, suy RPM hoặc tính doanh thu.
+- `VIDIQ BASIC != BACKEND API`; không dùng vidIQ extension/backend, browser
+  cookie, Google login, OAuth hoặc private YouTube Analytics path.
 - Missing data giữ `NULL`; không backfill lịch sử giả. Strict timeline
   totals chỉ có khi coverage complete; observed partial luôn kèm covered/total.
   `0* · chưa xác minh` chỉ là UI fallback, không phải canonical zero.
+- Catalog mới không có baseline không được coi là zero; chỉ full comparable
+  catalog pair mới chứng minh daily winner của toàn kênh.
+- Revenue chỉ là deterministic estimate từ public delta và manual RPM;
+  explicitly disabled là known zero, còn missing view/RPM vẫn unknown.
 - PostgreSQL và Worker không public; secret luôn được validate/redact.
 - Các invariant xếp hạng vẫn giữ nguyên: canonical Channel ID, no false delete,
   Top Week bằng rolling 7-day gain, Hot Now bằng local velocity và Breakout bằng

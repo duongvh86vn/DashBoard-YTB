@@ -21,6 +21,7 @@ export type {
   ChannelAvailabilityStatusValue,
   ChannelDailyStatRecord,
   ChannelHealthCheckRecord,
+  ChannelMonetizationSettingRecord,
   ChannelRecord,
   ChannelSnapshotRecord,
   ChannelSnapshotSourceValue,
@@ -29,9 +30,18 @@ export type {
   SyncRunRecord,
   SyncRunStatusValue,
   VideoMonitorTierValue,
+  VideoCatalogScanRecord,
   VideoRecord,
   VideoSnapshotRecord,
 } from "./channel-records.js";
+export {
+  VideoCatalogScanRepository,
+  type CreateVideoCatalogScanInput,
+} from "./video-catalog-scan.repository.js";
+export {
+  ChannelMonetizationRepository,
+  type UpsertChannelMonetizationSettingInput,
+} from "./channel-monetization.repository.js";
 export { ChannelUnitOfWork, type ChannelRepositories } from "./channel-unit-of-work.js";
 export {
   ChannelGroupRepository,
@@ -65,6 +75,7 @@ export {
   type ListVideosInput,
   type UpsertVideoInput,
   type VideoPage,
+  type VideoCatalogComparisonRecord,
   type VideoRankingRecord,
   type PublishedVideoRecord,
 } from "./video.repository.js";

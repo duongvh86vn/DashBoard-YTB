@@ -8,6 +8,7 @@ import {
   ChannelRepository,
   ChannelUnitOfWork,
   HeartbeatRepository,
+  VideoCatalogScanRepository,
   VideoRepository,
   VideoSnapshotRepository,
 } from "@yt-monitor/db";
@@ -26,6 +27,8 @@ import { ChannelHealthScheduler, HealthCircuitWindow } from "./jobs/channel-heal
 import { ChannelStatsJob } from "./jobs/channel-stats.job.js";
 import { DailyFinalizeJob } from "./jobs/daily-finalize.job.js";
 import { VideoDiscoveryJob } from "./video-monitor/discovery.js";
+import { DailyVideoCatalogJob } from "./video-monitor/daily-catalog.js";
+import { DailyVideoCatalogScheduler } from "./video-monitor/daily-catalog.scheduler.js";
 import { VideoReconcileJob } from "./video-monitor/reconcile.js";
 import { VideoSnapshotJob } from "./video-monitor/snapshot.js";
 import { VideoMonitorScheduler } from "./video-monitor/scheduler.js";
@@ -81,6 +84,7 @@ const channelHealthScheduler = new ChannelHealthScheduler({
 });
 const videoRepository = new VideoRepository(databaseClient);
 const videoSnapshotRepository = new VideoSnapshotRepository(databaseClient);
+const videoCatalogScanRepository = new VideoCatalogScanRepository(databaseClient);
 const videoRuntimeProviders = createVideoRuntimeProviders();
 const videoDiscoveryRepository = createVideoDiscoveryRepository(videoRepository);
 const videoDiscoveryJob = new VideoDiscoveryJob({
@@ -108,6 +112,18 @@ const videoMonitorScheduler = new VideoMonitorScheduler({
   reconcileIntervalMs: workerEnv.CHANNEL_SCAN_HOURS * 60 * 60 * 1000,
   snapshotIntervalMs: 60 * 60 * 1000,
   jitterMs: 15_000,
+});
+const dailyVideoCatalogJob = new DailyVideoCatalogJob({
+  unitOfWork: channelUnitOfWork,
+  collect: videoRuntimeProviders.ytdlpFullCatalog,
+  timeZone: workerEnv.APP_TIMEZONE,
+});
+const dailyVideoCatalogScheduler = new DailyVideoCatalogScheduler({
+  channels: channelRepository,
+  scans: videoCatalogScanRepository,
+  job: dailyVideoCatalogJob,
+  logger: workerLogger,
+  timeZone: workerEnv.APP_TIMEZONE,
 });
 const aiReportAggregateBuilder = new AiReportAggregateBuilder({
   unitOfWork: channelUnitOfWork,
@@ -177,6 +193,17 @@ class VideoMonitorSchedulerLifecycle implements OnModuleInit, OnModuleDestroy {
 }
 
 @Injectable()
+class DailyVideoCatalogSchedulerLifecycle implements OnModuleInit, OnModuleDestroy {
+  onModuleInit(): void {
+    dailyVideoCatalogScheduler.start();
+  }
+
+  onModuleDestroy(): void {
+    dailyVideoCatalogScheduler.stop();
+  }
+}
+
+@Injectable()
 class AiReportSchedulerLifecycle implements OnModuleInit, OnModuleDestroy {
   onModuleInit(): void {
     aiReportScheduler.start();
@@ -203,11 +230,15 @@ class AiReportSchedulerLifecycle implements OnModuleInit, OnModuleDestroy {
     ChannelHealthSchedulerLifecycle,
     { provide: VideoRepository, useValue: videoRepository },
     { provide: VideoSnapshotRepository, useValue: videoSnapshotRepository },
+    { provide: VideoCatalogScanRepository, useValue: videoCatalogScanRepository },
     { provide: VideoDiscoveryJob, useValue: videoDiscoveryJob },
     { provide: VideoReconcileJob, useValue: videoReconcileJob },
     { provide: VideoSnapshotJob, useValue: videoSnapshotJob },
     { provide: VideoMonitorScheduler, useValue: videoMonitorScheduler },
     VideoMonitorSchedulerLifecycle,
+    { provide: DailyVideoCatalogJob, useValue: dailyVideoCatalogJob },
+    { provide: DailyVideoCatalogScheduler, useValue: dailyVideoCatalogScheduler },
+    DailyVideoCatalogSchedulerLifecycle,
     { provide: AiReportAggregateBuilder, useValue: aiReportAggregateBuilder },
     { provide: AiReportPipeline, useValue: aiReportPipeline },
     { provide: AiReportScheduler, useValue: aiReportScheduler },

@@ -2,7 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AuthProvider } from "../lib/auth-context.js";
@@ -15,12 +15,12 @@ function jsonResponse(body: unknown): Response {
   });
 }
 
-function authResponse() {
+function authResponse(role: "ADMIN" | "VIEWER" = "VIEWER") {
   return {
     user: {
       id: "00000000-0000-4000-8000-000000000002",
       email: "viewer@example.com",
-      role: "VIEWER",
+      role,
       isEnabled: true,
       createdAt: "2026-08-22T00:00:00.000Z",
       updatedAt: "2026-08-22T00:00:00.000Z",
@@ -34,6 +34,14 @@ function channel(input: {
   title: string;
   subscriberCount: string | null;
   lastChannelScanAt: string | null;
+  monetization?: {
+    status: "UNCONFIGURED" | "DISABLED" | "ENABLED";
+    isMonetized: boolean | null;
+    rpmUsd: string | null;
+    currency: "USD" | null;
+    effectiveDate: string | null;
+    reviewedAt: string | null;
+  };
 }) {
   return {
     id: input.id,
@@ -53,6 +61,14 @@ function channel(input: {
     lastChannelScanAt: input.lastChannelScanAt,
     lastHealthCheckAt: null,
     lastSeenAliveAt: input.lastChannelScanAt,
+    monetization: input.monetization ?? {
+      status: "UNCONFIGURED",
+      isMonetized: null,
+      rpmUsd: null,
+      currency: null,
+      effectiveDate: null,
+      reviewedAt: null,
+    },
     isEnabled: true,
     createdAt: "2026-08-22T00:00:00.000Z",
     updatedAt: "2026-08-24T09:00:00.000Z",
@@ -66,6 +82,108 @@ afterEach(() => {
 });
 
 describe("ChannelsScreen subscriber availability", () => {
+  it("lets ADMIN record a manual RPM with an effective date and renders the saved evidence", async () => {
+    const item = channel({
+      id: "00000000-0000-4000-8000-000000000010",
+      title: "Kênh kiếm tiền",
+      subscriberCount: "1200",
+      lastChannelScanAt: "2026-08-24T09:00:00.000Z",
+    });
+    const saved = {
+      ...item,
+      monetization: {
+        status: "ENABLED" as const,
+        isMonetized: true,
+        rpmUsd: "1.25",
+        currency: "USD" as const,
+        effectiveDate: "2026-08-27",
+        reviewedAt: "2026-08-27T03:00:00.000Z",
+      },
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      void _init;
+      const path = String(input);
+      if (path === "/api/v1/auth/me") return Promise.resolve(jsonResponse(authResponse("ADMIN")));
+      if (path === "/api/v1/channels?page=1&pageSize=20") {
+        return Promise.resolve(jsonResponse({ items: [item], page: 1, pageSize: 20, total: 1 }));
+      }
+      if (path === `/api/v1/channels/${item.id}/monetization`) {
+        return Promise.resolve(jsonResponse({ channel: saved }));
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <AuthProvider>
+        <ChannelsScreen />
+      </AuthProvider>,
+    );
+
+    const status = await screen.findByRole("combobox", {
+      name: "Trạng thái kiếm tiền của Kênh kiếm tiền",
+    });
+    fireEvent.change(status, { target: { value: "ENABLED" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "RPM USD" }), {
+      target: { value: "1.25" },
+    });
+    fireEvent.change(screen.getByLabelText("Ngày hiệu lực"), {
+      target: { value: "2026-08-27" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Lưu kiếm tiền" }));
+
+    await screen.findByText("Đã cập nhật RPM thủ công.");
+    const monetizationCall = fetchMock.mock.calls.find(
+      ([path]) => String(path) === `/api/v1/channels/${item.id}/monetization`,
+    );
+    expect(monetizationCall).toBeDefined();
+    const init = monetizationCall?.[1] as RequestInit;
+    expect(init.body).toBe(
+      JSON.stringify({ isMonetized: true, rpmUsd: "1.25", effectiveDate: "2026-08-27" }),
+    );
+    expect(screen.getByText("RPM hiện tại: 1.25 USD")).toBeInTheDocument();
+  });
+
+  it("keeps monetization evidence read-only for VIEWER accounts", async () => {
+    const item = channel({
+      id: "00000000-0000-4000-8000-000000000010",
+      title: "Kênh chỉ đọc",
+      subscriberCount: "1200",
+      lastChannelScanAt: "2026-08-24T09:00:00.000Z",
+      monetization: {
+        status: "DISABLED",
+        isMonetized: false,
+        rpmUsd: null,
+        currency: "USD",
+        effectiveDate: "2026-08-20",
+        reviewedAt: "2026-08-20T03:00:00.000Z",
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path === "/api/v1/auth/me") return Promise.resolve(jsonResponse(authResponse()));
+        if (path === "/api/v1/channels?page=1&pageSize=20") {
+          return Promise.resolve(jsonResponse({ items: [item], page: 1, pageSize: 20, total: 1 }));
+        }
+        return Promise.reject(new Error(`Unexpected request: ${path}`));
+      }),
+    );
+
+    render(
+      <AuthProvider>
+        <ChannelsScreen />
+      </AuthProvider>,
+    );
+
+    expect(await screen.findByText("Chưa bật kiếm tiền")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Lưu kiếm tiền" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("combobox", { name: /Trạng thái kiếm tiền/u }),
+    ).not.toBeInTheDocument();
+  });
+
   it("distinguishes an explicit zero from uncollected and unreadable public values", async () => {
     const items = [
       channel({

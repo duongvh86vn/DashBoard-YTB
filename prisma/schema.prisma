@@ -40,6 +40,7 @@ enum AuditAction {
   CHANNEL_GROUP_ARCHIVED
   CHANNEL_GROUP_CHANNELS_REPLACED
   VIEWER_CHANNEL_GROUPS_REPLACED
+  CHANNEL_MONETIZATION_UPDATED
 }
 
 enum ChannelAvailabilityStatus {
@@ -62,6 +63,7 @@ enum ChannelActivityStatus {
 enum ChannelSnapshotSource {
   YOUTUBE_PUBLIC_PAGE
   YTDLP
+  YTDLP_CATALOG
   YOUTUBE_RSS
   OPTIONAL_PROVIDER
   DERIVED
@@ -85,6 +87,7 @@ enum SyncRunJobType {
   DAILY_AI_REPORT
   WEEKLY_AI_REPORT
   FULL_RECONCILE
+  VIDEO_CATALOG_DAILY
 }
 
 enum SyncRunStatus {
@@ -159,6 +162,7 @@ model User {
   auditAsTarget           AuditLog[]         @relation("AuditTarget")
   channelGroupMemberships UserChannelGroup[] @relation("ViewerChannelGroupMemberships")
   channelGroupAssignments UserChannelGroup[] @relation("ChannelGroupAssignmentActor")
+  monetizationSettingsRecorded ChannelMonetizationSetting[] @relation("MonetizationSettingRecorder")
 
   @@index([role, isEnabled], map: "users_role_enabled_idx")
   @@map("users")
@@ -246,11 +250,50 @@ model Channel {
   syncRuns                  SyncRun[]
   aiClassification          AiChannelClassification?
   groupMemberships          ChannelGroupChannel[]
+  monetizationSettings      ChannelMonetizationSetting[]
+  catalogScans              VideoCatalogScan[]
 
   @@index([handle], map: "channels_handle_idx")
   @@index([availabilityStatus], map: "channels_availability_status_idx")
   @@index([activityStatus], map: "channels_activity_status_idx")
   @@map("channels")
+}
+
+model ChannelMonetizationSetting {
+  id               String   @id @default(uuid()) @db.Uuid
+  channelId        String   @map("channel_id") @db.Uuid
+  effectiveDate    DateTime @map("effective_date") @db.Date
+  isMonetized      Boolean  @map("is_monetized")
+  rpmMicros        BigInt?  @map("rpm_micros")
+  currency         String   @default("USD") @db.Char(3)
+  recordedByUserId String?  @map("recorded_by_user_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  channel          Channel  @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  recordedBy       User?    @relation("MonetizationSettingRecorder", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([channelId, effectiveDate], map: "channel_monetization_settings_channel_date_key")
+  @@index([channelId, effectiveDate(sort: Desc)], map: "channel_monetization_settings_channel_date_idx")
+  @@index([recordedByUserId], map: "channel_monetization_settings_recorder_idx")
+  @@map("channel_monetization_settings")
+}
+
+model VideoCatalogScan {
+  id              String         @id @default(uuid()) @db.Uuid
+  channelId       String         @map("channel_id") @db.Uuid
+  date            DateTime       @db.Date
+  capturedAt      DateTime       @map("captured_at") @db.Timestamptz(3)
+  snapshotBucket  DateTime       @map("snapshot_bucket") @db.Timestamptz(3)
+  totalVideos     Int            @map("total_videos")
+  videosWithViews Int            @map("videos_with_views")
+  coverageStatus  CoverageStatus @map("coverage_status")
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  channel         Channel        @relation(fields: [channelId], references: [id], onDelete: Restrict)
+
+  @@unique([channelId, date], map: "video_catalog_scans_channel_date_key")
+  @@index([channelId, date(sort: Desc)], map: "video_catalog_scans_channel_date_idx")
+  @@map("video_catalog_scans")
 }
 
 model ChannelGroup {

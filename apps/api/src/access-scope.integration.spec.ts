@@ -20,6 +20,9 @@ const client = createPrismaClient(databaseUrl);
 const sessionSecret = "phase11-access-session-secret-value";
 const viewerToken = "v".repeat(43);
 const now = new Date("2026-08-26T08:00:00.000Z");
+const rankingNow = new Date();
+const rankingBaselineAt = new Date(rankingNow.getTime() - 7 * 24 * 60 * 60 * 1_000 - 60_000);
+const rankingLatestAt = new Date(rankingNow.getTime() - 60_000);
 const missingGroupId = "00000000-0000-4000-8000-000000000091";
 const missingChannelId = "00000000-0000-4000-8000-000000000092";
 const env: ApiEnv = {
@@ -174,8 +177,8 @@ async function seedAccessRows() {
       {
         videoId: video.id,
         channelId: video.channelId,
-        capturedAt: new Date("2026-08-19T08:00:00.000Z"),
-        snapshotBucket: new Date("2026-08-19T08:00:00.000Z"),
+        capturedAt: rankingBaselineAt,
+        snapshotBucket: rankingBaselineAt,
         views: BigInt(100 + index),
         likes: null,
         comments: null,
@@ -184,8 +187,8 @@ async function seedAccessRows() {
       {
         videoId: video.id,
         channelId: video.channelId,
-        capturedAt: now,
-        snapshotBucket: now,
+        capturedAt: rankingLatestAt,
+        snapshotBucket: rankingLatestAt,
         views: BigInt(200 + index),
         likes: null,
         comments: null,
@@ -302,6 +305,12 @@ describe("real PostgreSQL VIEWER access scope through the API", () => {
     const sources = [
       { name: "channels", path: "/api/v1/channels", kind: "channels" },
       { name: "trends", path: "/api/v1/dashboard/trends", kind: "trends" },
+      { name: "revenue", path: "/api/v1/dashboard/revenue", kind: "revenue" },
+      {
+        name: "daily video leaders",
+        path: "/api/v1/dashboard/daily-video-leaders",
+        kind: "daily-video-leaders",
+      },
       { name: "recent videos", path: "/api/v1/videos/recent", kind: "videos" },
       { name: "weekly ranking", path: "/api/v1/videos/rankings/weekly", kind: "videos" },
     ] as const;
@@ -347,6 +356,12 @@ describe("real PostgreSQL VIEWER access scope through the API", () => {
           );
           continue;
         }
+        if (source.kind === "revenue" || source.kind === "daily-video-leaders") {
+          expect(response.body.totalChannels, `${source.name}: ${scope.name}`).toBe(
+            scope.channelIds.length,
+          );
+          continue;
+        }
 
         const expectedIds = source.kind === "channels" ? scope.channelIds : scope.videoIds;
         expect(response.body.total, `${source.name}: ${scope.name}`).toBe(expectedIds.length);
@@ -362,6 +377,8 @@ describe("real PostgreSQL VIEWER access scope through the API", () => {
     const sources = [
       ["channels", "/api/v1/channels"],
       ["trends", "/api/v1/dashboard/trends"],
+      ["revenue", "/api/v1/dashboard/revenue"],
+      ["daily video leaders", "/api/v1/dashboard/daily-video-leaders"],
       ["recent videos", "/api/v1/videos/recent"],
       ["weekly ranking", "/api/v1/videos/rankings/weekly"],
     ] as const;

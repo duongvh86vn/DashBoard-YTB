@@ -167,9 +167,9 @@ describe("DashboardTrendPanel", () => {
     expect(screen.getByText("Chưa đủ dữ liệu cho lượt xem")).toBeInTheDocument();
     expect(screen.getByText(/không điền số 0 vào ngày thiếu dữ liệu/i)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Video mới/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Video đã xuất bản/ }));
     expect(
-      screen.getByRole("img", { name: /Video mới đã phát hiện trong 28 ngày/ }),
+      screen.getByRole("img", { name: /Video đã xuất bản trong 28 ngày/ }),
     ).toBeInTheDocument();
   });
 
@@ -334,6 +334,6 @@ describe("DashboardTrendPanel", () => {
     );
 
     expect(screen.getByText("Chưa có kênh để phân tích")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Video mới/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Video đã xuất bản/ })).not.toBeInTheDocument();
   });
 });

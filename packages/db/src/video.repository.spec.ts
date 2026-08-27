@@ -3,6 +3,42 @@ import { describe, expect, it, vi } from "vitest";
 import { VideoRepository } from "./video.repository.js";
 
 describe("VideoRepository published range", () => {
+  it("loads every video that has one of the requested daily catalog buckets", async () => {
+    const findMany = vi.fn(async () => []);
+    const repository = new VideoRepository({ video: { findMany } } as never);
+    const baseline = new Date("2026-08-25T17:00:00.000Z");
+    const current = new Date("2026-08-26T17:00:00.000Z");
+    const method = (repository as unknown as Record<string, unknown>)[
+      "listForCatalogComparison"
+    ] as ((channelIds: string[], buckets: Date[]) => Promise<unknown>) | undefined;
+    expect(method).toBeDefined();
+    if (!method) return;
+
+    await expect(method.call(repository, ["channel-1"], [baseline, current])).resolves.toEqual([]);
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        channelId: { in: ["channel-1"] },
+        snapshots: {
+          some: {
+            source: "YTDLP_CATALOG",
+            snapshotBucket: { in: [baseline, current] },
+          },
+        },
+      },
+      orderBy: [{ channelId: "asc" }, { id: "asc" }],
+      include: {
+        snapshots: {
+          where: {
+            source: "YTDLP_CATALOG",
+            snapshotBucket: { in: [baseline, current] },
+          },
+          orderBy: [{ snapshotBucket: "asc" }, { id: "asc" }],
+        },
+        channel: { select: { id: true, title: true, thumbnail: true } },
+      },
+    });
+  });
+
   it("intersects a direct ranking channel with an empty visible-channel scope", async () => {
     const findMany = vi.fn(async () => []);
     const repository = new VideoRepository({ video: { findMany } } as never);

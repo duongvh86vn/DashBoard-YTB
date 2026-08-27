@@ -3,11 +3,13 @@
 Private dashboard for deterministic monitoring of public YouTube channels.
 
 The project is built phase by phase from
-[`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md). Phases 0–11 provide the
+[`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md). Phases 0–12 provide the
 authenticated Vietnamese dashboard, canonical public-channel monitoring, health
 and deletion safety, video snapshots/rankings, structured Gemini/NVIDIA AI with
 fallback, sync history, collector/runtime settings, channel groups and
-server-authoritative VIEWER access scopes.
+server-authoritative VIEWER access scopes. Phase 12 adds a daily full-upload
+catalog, one evidence-backed top view-gaining video per channel, effective-dated
+manual monetization/RPM history and deterministic estimated revenue.
 
 The channel detail view includes a public-intelligence panel with metric-level
 source, precision and coverage. Daily/weekly AI reports are an optional explanation
@@ -108,6 +110,34 @@ for a missing public counter (the stored value remains `NULL`). A `PARTIAL`
 timeline always shows its covered/total channel count and never invents missing
 history.
 
+The dashboard group selector limits every KPI, chart and feed to the selected
+server-authorized channel group; the channel selector defaults to all channels
+in that group and can narrow the same scope to one channel. A VIEWER can only
+select groups/channels in their assigned union. An out-of-scope or mismatched
+selection is returned as not found rather than leaking whether it exists.
+
+The daily video feed is not a publication detector. Once per local day, the
+Worker enumerates every public upload returned by the metadata-only collector,
+stores nullable public counters, and compares two canonical full-catalog scans.
+For each selected channel it shows at most the video with the greatest positive
+view delta for that day. A newly seen video has no baseline and is never treated
+as starting from zero; warm-up, partial and unavailable coverage remain visible.
+
+ADMIN can record one of three channel monetization states: unconfigured,
+explicitly not monetized, or monetized with a non-negative manual USD RPM. Each
+review creates an effective-dated history row instead of rewriting past RPM.
+VIEWER can see the effective state only inside their channel scope and cannot
+change it. `Doanh thu ước tính từ RPM thủ công` is calculated deterministically
+from signed public daily view delta × the effective manual RPM / 1,000. An
+explicitly non-monetized channel is known zero; missing RPM or view evidence
+remains `NULL`. A partial observed sum is labelled partial—not total revenue or
+a lower bound. It is never presented as actual YouTube Analytics revenue.
+
+AI remains an optional explanation layer over these stored facts. It does not
+enumerate uploads, select or alter the winning video, infer RPM, calculate
+revenue, fill missing counters or manufacture history. The backend neither logs
+in to Google/YouTube nor depends on vidIQ, its extension, cookies or private API.
+
 ## Install and verify
 
 ```powershell
@@ -120,8 +150,10 @@ The integration gate creates an isolated Compose project, random
 credentials and an unused loopback Web port. It exercises real PostgreSQL
 migrations, seed idempotency, auth/users/channel-group authorization, group
 membership changes, scoped channel reads, partial metric contracts, collector
-fixtures, health-state transitions, worker and database recovery, the
-containerized Playwright browser flow, secret-safe surfaces, and cleanup.
+fixtures, full-catalog coverage and daily video attribution, effective-dated RPM
+history, deterministic revenue contracts, health-state transitions, worker and
+database recovery, the containerized Playwright browser flow, secret-safe
+surfaces, and cleanup.
 
 ## Runtime topology
 
@@ -130,7 +162,9 @@ Worker and PostgreSQL publish no host ports; the database network is internal,
 Web does not join it, and Worker has a separate non-published egress network for
 public RSS/metadata-only collectors. Every API health route requires an ADMIN
 session; there is no anonymous Web `/health` route. Container readiness uses
-internal TCP checks.
+internal TCP checks. Docker pins the official `yt-dlp 2026.08.19` artifact by
+SHA-256 rather than relying on the stale distribution package; the optional public
+runtime probe is documented in [testing](./docs/TESTING.md).
 
 See [architecture](./docs/ARCHITECTURE.md), [testing](./docs/TESTING.md),
 [hosting](./docs/HOSTING.md), [backup/restore](./docs/BACKUP.md) and the

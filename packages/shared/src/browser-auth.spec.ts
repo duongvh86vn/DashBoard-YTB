@@ -116,6 +116,14 @@ describe("browser authentication contracts", () => {
       lastChannelScanAt: null,
       lastHealthCheckAt: null,
       lastSeenAliveAt: null,
+      monetization: {
+        status: "ENABLED",
+        isMonetized: true,
+        rpmUsd: "1.25",
+        currency: "USD",
+        effectiveDate: "2026-08-20",
+        reviewedAt: "2026-08-20T02:00:00.000Z",
+      },
       isEnabled: true,
       createdAt: "2026-08-22T00:00:00.000Z",
       updatedAt: "2026-08-22T00:00:00.000Z",
@@ -130,5 +138,13 @@ describe("browser authentication contracts", () => {
         total: 1,
       },
     );
+    expect(
+      ChannelResponseSchema.safeParse({
+        channel: {
+          ...channel,
+          monetization: { ...channel.monetization, isMonetized: false, rpmUsd: "1.25" },
+        },
+      }).success,
+    ).toBe(false);
   });
 });

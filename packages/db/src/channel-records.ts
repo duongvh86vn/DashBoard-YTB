@@ -4,6 +4,7 @@ import type {
   ChannelAvailabilityStatus,
   ChannelDailyStat,
   ChannelHealthCheck,
+  ChannelMonetizationSetting,
   ChannelSnapshot,
   ChannelSnapshotSource,
   CoverageStatus,
@@ -11,6 +12,7 @@ import type {
   SyncRunJobType,
   SyncRunStatus,
   Video,
+  VideoCatalogScan,
   VideoMonitorTier,
   VideoSnapshot,
 } from "./generated/prisma/client.js";
@@ -19,6 +21,7 @@ export type ChannelRecord = Channel;
 export type ChannelSnapshotRecord = ChannelSnapshot;
 export type ChannelDailyStatRecord = ChannelDailyStat;
 export type ChannelHealthCheckRecord = ChannelHealthCheck;
+export type ChannelMonetizationSettingRecord = ChannelMonetizationSetting;
 export type SyncRunRecord = SyncRun;
 export type ChannelAvailabilityStatusValue = ChannelAvailabilityStatus;
 export type ChannelActivityStatusValue = ChannelActivityStatus;
@@ -27,5 +30,6 @@ export type CoverageStatusValue = CoverageStatus;
 export type SyncRunJobTypeValue = SyncRunJobType;
 export type SyncRunStatusValue = SyncRunStatus;
 export type VideoRecord = Video;
+export type VideoCatalogScanRecord = VideoCatalogScan;
 export type VideoSnapshotRecord = VideoSnapshot;
 export type VideoMonitorTierValue = VideoMonitorTier;

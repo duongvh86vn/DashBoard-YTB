@@ -1,4 +1,8 @@
-import type { DashboardTrendResponse } from "@yt-monitor/shared";
+import type {
+  DailyVideoLeadersResponse,
+  DashboardRevenueResponse,
+  DashboardTrendResponse,
+} from "@yt-monitor/shared";
 import type {
   ChannelAccessSubject,
   ChannelSelection,
@@ -10,4 +14,10 @@ export interface DashboardApplicationPort {
   trends(
     input: { days: number; subject: ChannelAccessSubject } & ChannelSelection,
   ): Promise<DashboardTrendResponse>;
+  revenue(
+    input: { days: number; subject: ChannelAccessSubject } & ChannelSelection,
+  ): Promise<DashboardRevenueResponse>;
+  dailyVideoLeaders(
+    input: { subject: ChannelAccessSubject } & ChannelSelection,
+  ): Promise<DailyVideoLeadersResponse>;
 }

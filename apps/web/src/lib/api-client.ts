@@ -32,8 +32,12 @@ import {
 import {
   ChannelGroupResponseSchema,
   ChannelGroupsResponseSchema,
+  DailyVideoLeadersResponseSchema,
+  DashboardRevenueResponseSchema,
   type ChannelGroupDetail,
   type ChannelGroupsResponse,
+  type DailyVideoLeadersResponse,
+  type DashboardRevenueResponse,
   DashboardTrendResponseSchema,
   HealthResponseSchema,
   PublicIntelligenceResponseSchema,
@@ -395,6 +399,18 @@ export async function archiveChannel(id: string): Promise<void> {
   });
 }
 
+export async function updateChannelMonetization(
+  id: string,
+  input: { isMonetized: boolean; rpmUsd: string | null; effectiveDate: string },
+) {
+  const response = await requestApi(`/api/v1/channels/${encodeURIComponent(id)}/monetization`, {
+    method: "PUT",
+    body: input,
+    schema: ChannelResponseSchema,
+  });
+  return response.channel;
+}
+
 export async function requestChannelHealthCheck(
   id: string,
 ): Promise<{ syncRunId: string; status: "QUEUED" }> {
@@ -518,6 +534,38 @@ export function getDashboardTrends(input: {
   return requestApi(`/api/v1/dashboard/trends?${query.toString()}`, {
     method: "GET",
     schema: DashboardTrendResponseSchema,
+    ...(input.signal ? { signal: input.signal } : {}),
+  });
+}
+
+export function getDashboardRevenue(input: {
+  days: number;
+  groupId?: string;
+  channelId?: string;
+  signal?: AbortSignal;
+}): Promise<DashboardRevenueResponse> {
+  const query = new URLSearchParams({ days: String(input.days) });
+  if (input.groupId) query.set("groupId", input.groupId);
+  if (input.channelId) query.set("channelId", input.channelId);
+  return requestApi(`/api/v1/dashboard/revenue?${query.toString()}`, {
+    method: "GET",
+    schema: DashboardRevenueResponseSchema,
+    ...(input.signal ? { signal: input.signal } : {}),
+  });
+}
+
+export function getDailyVideoLeaders(input: {
+  groupId?: string;
+  channelId?: string;
+  signal?: AbortSignal;
+}): Promise<DailyVideoLeadersResponse> {
+  const query = new URLSearchParams();
+  if (input.groupId) query.set("groupId", input.groupId);
+  if (input.channelId) query.set("channelId", input.channelId);
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return requestApi(`/api/v1/dashboard/daily-video-leaders${suffix}`, {
+    method: "GET",
+    schema: DailyVideoLeadersResponseSchema,
     ...(input.signal ? { signal: input.signal } : {}),
   });
 }

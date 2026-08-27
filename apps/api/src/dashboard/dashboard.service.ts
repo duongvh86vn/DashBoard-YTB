@@ -1,13 +1,28 @@
 import type {
   ChannelDailyStatRecord,
+  ChannelMonetizationSettingRecord,
   ChannelRecord,
   ChannelUnitOfWork,
   PublishedVideoRecord,
+  VideoCatalogComparisonRecord,
+  VideoCatalogScanRecord,
 } from "@yt-monitor/db";
 import {
+  calculateEstimatedRevenueMicros,
+  formatRpmMicros,
+  formatUsdMicros,
+} from "@yt-monitor/analytics";
+import {
+  DailyVideoLeadersResponseSchema,
+  DashboardRevenueResponseSchema,
   DashboardTrendResponseSchema,
   localCalendarDate,
   previousCalendarDate,
+  type DailyVideoLeader,
+  type DailyVideoLeadersResponse,
+  type DashboardRevenueChannel,
+  type DashboardRevenuePoint,
+  type DashboardRevenueResponse,
   type DashboardTrendPoint,
   type DashboardTrendResponse,
 } from "@yt-monitor/shared";
@@ -207,6 +222,125 @@ function videoCountsByDate(
   return counts;
 }
 
+function selectionOf(input: ChannelSelection): ChannelSelection {
+  return {
+    ...(input.groupId === undefined ? {} : { groupId: input.groupId }),
+    ...(input.channelId === undefined ? {} : { channelId: input.channelId }),
+  };
+}
+
+interface RevenueCoverage {
+  totalEstimatedRevenueUsd: string | null;
+  observedEstimatedRevenueUsd: string | null;
+  status: "COMPLETE" | "PARTIAL" | "UNAVAILABLE";
+  covered: number;
+}
+
+function revenueCoverage(values: readonly (bigint | null)[]): RevenueCoverage {
+  const known = values.filter((value): value is bigint => value !== null);
+  if (known.length === 0) {
+    return {
+      totalEstimatedRevenueUsd: null,
+      observedEstimatedRevenueUsd: null,
+      status: "UNAVAILABLE",
+      covered: 0,
+    };
+  }
+  const observed = formatUsdMicros(known.reduce<bigint>((sum, value) => sum + value, 0n));
+  if (known.length !== values.length) {
+    return {
+      totalEstimatedRevenueUsd: null,
+      observedEstimatedRevenueUsd: observed,
+      status: "PARTIAL",
+      covered: known.length,
+    };
+  }
+  return {
+    totalEstimatedRevenueUsd: observed,
+    observedEstimatedRevenueUsd: observed,
+    status: "COMPLETE",
+    covered: known.length,
+  };
+}
+
+function settingsByChannel(
+  rows: readonly ChannelMonetizationSettingRecord[],
+): Map<string, ChannelMonetizationSettingRecord[]> {
+  const result = new Map<string, ChannelMonetizationSettingRecord[]>();
+  for (const row of rows) {
+    const channelRows = result.get(row.channelId) ?? [];
+    channelRows.push(row);
+    result.set(row.channelId, channelRows);
+  }
+  for (const channelRows of result.values()) {
+    channelRows.sort((left, right) => {
+      const dateOrder = left.effectiveDate.getTime() - right.effectiveDate.getTime();
+      if (dateOrder !== 0) return dateOrder;
+      const updateOrder = left.updatedAt.getTime() - right.updatedAt.getTime();
+      return updateOrder !== 0 ? updateOrder : left.id.localeCompare(right.id);
+    });
+  }
+  return result;
+}
+
+function effectiveSetting(
+  rows: readonly ChannelMonetizationSettingRecord[],
+  date: string,
+): ChannelMonetizationSettingRecord | null {
+  let latest: ChannelMonetizationSettingRecord | null = null;
+  for (const row of rows) {
+    if (dateKey(row.effectiveDate) > date) break;
+    latest = row;
+  }
+  return latest;
+}
+
+function revenueForDay(
+  viewDelta: bigint | null,
+  setting: ChannelMonetizationSettingRecord | null,
+): bigint | null {
+  if (setting === null) return null;
+  if (!setting.isMonetized) return 0n;
+  if (viewDelta === null || setting.rpmMicros === null) return null;
+  return calculateEstimatedRevenueMicros(viewDelta, setting.rpmMicros);
+}
+
+function scanKey(channelId: string, date: string): string {
+  return `${channelId}:${date}`;
+}
+
+function snapshotAtBucket(video: VideoCatalogComparisonRecord, bucket: Date) {
+  const bucketTime = bucket.getTime();
+  return video.snapshots.find(
+    (snapshot) =>
+      snapshot.source === "YTDLP_CATALOG" && snapshot.snapshotBucket.getTime() === bucketTime,
+  );
+}
+
+function isCompleteCatalogBucket(
+  scan: VideoCatalogScanRecord,
+  videos: readonly VideoCatalogComparisonRecord[],
+): boolean {
+  const knownViews = videos.filter((video) => {
+    const snapshot = snapshotAtBucket(video, scan.snapshotBucket);
+    return snapshot !== undefined && snapshot.views !== null;
+  }).length;
+  return (
+    scan.coverageStatus === "COMPLETE" &&
+    scan.videosWithViews === scan.totalVideos &&
+    knownViews === scan.videosWithViews
+  );
+}
+
+function compareBigIntDescending(left: bigint, right: bigint): number {
+  return left === right ? 0 : left > right ? -1 : 1;
+}
+
+function contributionPercent(videoDelta: bigint, channelDelta: bigint): number {
+  const tenths = (videoDelta * 1_000n + channelDelta / 2n) / channelDelta;
+  return Number(tenths) / 10;
+}
+
 export class DashboardService implements DashboardApplicationPort {
   constructor(private readonly dependencies: DashboardServiceDependencies) {}
 
@@ -393,6 +527,329 @@ export class DashboardService implements DashboardApplicationPort {
         coveragePercent: Math.round((completeDays / input.days) * 1_000) / 10,
       },
       series,
+    });
+  }
+
+  async revenue(
+    input: {
+      days: number;
+      subject: ChannelAccessSubject;
+    } & ChannelSelection,
+  ): Promise<DashboardRevenueResponse> {
+    const now = (this.dependencies.now ?? (() => new Date()))();
+    const endDate = localCalendarDate(now, this.dependencies.timeZone);
+    const startDate = shiftCalendarDate(endDate, -(input.days - 1));
+    const dates = calendarDateRange(startDate, input.days);
+    const visibleChannelIds = await this.dependencies.access.resolveSelectedChannelIds(
+      input.subject,
+      selectionOf(input),
+    );
+    const { channels, stats, monetizationSettings } =
+      await this.dependencies.unitOfWork.transaction(async (repositories) => {
+        const channels = await repositories.channels.listEnabled(
+          visibleChannelIds === null ? undefined : visibleChannelIds,
+        );
+        const channelIds = channels.map((channel) => channel.id);
+        const [stats, monetizationSettings] = await Promise.all([
+          repositories.dailyStats.listByChannelsAndDateRange(
+            channelIds,
+            new Date(`${startDate}T00:00:00.000Z`),
+            new Date(`${endDate}T00:00:00.000Z`),
+          ),
+          repositories.channelMonetization.listEffectiveThroughDate(
+            channelIds,
+            new Date(`${endDate}T00:00:00.000Z`),
+          ),
+        ]);
+        return { channels, stats, monetizationSettings };
+      });
+
+    const statsByDateAndChannel = new Map<string, Map<string, ChannelDailyStatRecord>>();
+    for (const stat of stats) {
+      const date = dateKey(stat.date);
+      const rows = statsByDateAndChannel.get(date) ?? new Map();
+      rows.set(stat.channelId, stat);
+      statsByDateAndChannel.set(date, rows);
+    }
+    const settings = settingsByChannel(monetizationSettings);
+    const revenueByChannel = new Map<string, Array<bigint | null>>(
+      channels.map((channel) => [channel.id, []]),
+    );
+    const series: DashboardRevenuePoint[] = dates.map((date) => {
+      const dailyViews = channels.map((channel) =>
+        storedDelta(statsByDateAndChannel.get(date)?.get(channel.id), "viewDelta"),
+      );
+      const dailyRevenue = channels.map((channel, index) => {
+        const viewDelta = dailyViews[index] ?? null;
+        const setting = effectiveSetting(settings.get(channel.id) ?? [], date);
+        const revenue = revenueForDay(viewDelta, setting);
+        revenueByChannel.get(channel.id)?.push(revenue);
+        return revenue;
+      });
+      const coverage = revenueCoverage(dailyRevenue);
+      return {
+        date,
+        totalEstimatedRevenueUsd: coverage.totalEstimatedRevenueUsd,
+        observedEstimatedRevenueUsd: coverage.observedEstimatedRevenueUsd,
+        status: coverage.status,
+        coveredChannels: coverage.covered,
+        totalChannels: channels.length,
+      };
+    });
+
+    const channelResults: DashboardRevenueChannel[] = channels
+      .map((channel) => {
+        const channelSettings = settings.get(channel.id) ?? [];
+        const latest = effectiveSetting(channelSettings, endDate);
+        const coverage = revenueCoverage(revenueByChannel.get(channel.id) ?? []);
+        const monetizationStatus =
+          latest === null ? "UNCONFIGURED" : latest.isMonetized ? "ENABLED" : "DISABLED";
+        return {
+          channelId: channel.id,
+          channelTitle: channel.title,
+          monetizationStatus,
+          effectiveDate: latest === null ? null : dateKey(latest.effectiveDate),
+          rpmUsd:
+            latest?.isMonetized === true && latest.rpmMicros !== null
+              ? formatRpmMicros(latest.rpmMicros)
+              : null,
+          lastReviewedAt: latest === null ? null : latest.updatedAt.toISOString(),
+          totalEstimatedRevenueUsd: coverage.totalEstimatedRevenueUsd,
+          observedEstimatedRevenueUsd: coverage.observedEstimatedRevenueUsd,
+          status: coverage.status,
+          coveredDays: coverage.covered,
+          totalDays: input.days,
+        } satisfies DashboardRevenueChannel;
+      })
+      .sort(
+        (left, right) =>
+          left.channelTitle.localeCompare(right.channelTitle) ||
+          left.channelId.localeCompare(right.channelId),
+      );
+    const latestSettings = channels.map((channel) =>
+      effectiveSetting(settings.get(channel.id) ?? [], endDate),
+    );
+    const allRevenue = channels.flatMap((channel) => revenueByChannel.get(channel.id) ?? []);
+    const metric = revenueCoverage(allRevenue);
+
+    return DashboardRevenueResponseSchema.parse({
+      period: {
+        startDate,
+        endDate,
+        days: input.days,
+        timeZone: this.dependencies.timeZone,
+      },
+      currency: "USD",
+      method: "PUBLIC_VIEW_DELTA_X_MANUAL_RPM",
+      metric: {
+        totalEstimatedRevenueUsd: metric.totalEstimatedRevenueUsd,
+        observedEstimatedRevenueUsd: metric.observedEstimatedRevenueUsd,
+        status: metric.status,
+        coveredChannelDays: metric.covered,
+        totalChannelDays: channels.length * input.days,
+      },
+      configuredChannels: latestSettings.filter((setting) => setting !== null).length,
+      monetizedChannels: latestSettings.filter((setting) => setting?.isMonetized === true).length,
+      totalChannels: channels.length,
+      series,
+      channels: channelResults,
+    });
+  }
+
+  async dailyVideoLeaders(
+    input: { subject: ChannelAccessSubject } & ChannelSelection,
+  ): Promise<DailyVideoLeadersResponse> {
+    const now = (this.dependencies.now ?? (() => new Date()))();
+    const date = localCalendarDate(now, this.dependencies.timeZone);
+    const previousDate = previousCalendarDate(date);
+    const visibleChannelIds = await this.dependencies.access.resolveSelectedChannelIds(
+      input.subject,
+      selectionOf(input),
+    );
+    const { channels, stats, scans, videos } = await this.dependencies.unitOfWork.transaction(
+      async (repositories) => {
+        const channels = await repositories.channels.listEnabled(
+          visibleChannelIds === null ? undefined : visibleChannelIds,
+        );
+        const channelIds = channels.map((channel) => channel.id);
+        const [stats, scans] = await Promise.all([
+          repositories.dailyStats.listByChannelsAndDateRange(
+            channelIds,
+            new Date(`${previousDate}T00:00:00.000Z`),
+            new Date(`${date}T00:00:00.000Z`),
+          ),
+          repositories.videoCatalogScans.listByChannelsAndDateRange(
+            channelIds,
+            new Date(`${previousDate}T00:00:00.000Z`),
+            new Date(`${date}T00:00:00.000Z`),
+          ),
+        ]);
+        const snapshotBuckets = [
+          ...new Map(
+            scans.map((scan) => [scan.snapshotBucket.getTime(), scan.snapshotBucket]),
+          ).values(),
+        ];
+        const videos = await repositories.videos.listForCatalogComparison(
+          channelIds,
+          snapshotBuckets,
+        );
+        return { channels, stats, scans, videos };
+      },
+    );
+
+    const currentStats = new Map(
+      stats.filter((stat) => dateKey(stat.date) === date).map((stat) => [stat.channelId, stat]),
+    );
+    const channelGain = new Map<string, bigint | null>();
+    for (const channel of channels) {
+      // The catalog comparison is a finalized daily interval. Use the matching
+      // canonical daily delta as its denominator; the mutable Channel row may
+      // already contain a later same-day scan and would make attribution drift.
+      channelGain.set(channel.id, currentStats.get(channel.id)?.viewDelta ?? null);
+    }
+
+    const scansByChannelAndDate = new Map<string, VideoCatalogScanRecord>();
+    for (const scan of scans)
+      scansByChannelAndDate.set(scanKey(scan.channelId, dateKey(scan.date)), scan);
+    const pairs = new Map<
+      string,
+      { previous: VideoCatalogScanRecord; current: VideoCatalogScanRecord }
+    >();
+    for (const channel of channels) {
+      const previous = scansByChannelAndDate.get(scanKey(channel.id, previousDate));
+      const current = scansByChannelAndDate.get(scanKey(channel.id, date));
+      if (previous && current) pairs.set(channel.id, { previous, current });
+    }
+    const videosByChannel = new Map<string, VideoCatalogComparisonRecord[]>();
+    for (const video of videos) {
+      const channelVideos = videosByChannel.get(video.channelId) ?? [];
+      channelVideos.push(video);
+      videosByChannel.set(video.channelId, channelVideos);
+    }
+
+    const comparisonComplete = new Map<string, boolean>();
+    for (const [id, pair] of pairs) {
+      const channelVideos = videosByChannel.get(id) ?? [];
+      comparisonComplete.set(
+        id,
+        isCompleteCatalogBucket(pair.previous, channelVideos) &&
+          isCompleteCatalogBucket(pair.current, channelVideos),
+      );
+    }
+
+    const unrankedItems: Array<DailyVideoLeader & { numericVideoDelta: bigint }> = [];
+    for (const channel of channels) {
+      const gain = channelGain.get(channel.id) ?? null;
+      const pair = pairs.get(channel.id);
+      if (pair === undefined || comparisonComplete.get(channel.id) !== true) {
+        continue;
+      }
+      let best: { video: VideoCatalogComparisonRecord; delta: bigint } | undefined;
+      for (const video of videosByChannel.get(channel.id) ?? []) {
+        const previous = snapshotAtBucket(video, pair.previous.snapshotBucket);
+        const current = snapshotAtBucket(video, pair.current.snapshotBucket);
+        if (
+          previous?.views === null ||
+          previous === undefined ||
+          current?.views === null ||
+          current === undefined
+        ) {
+          continue;
+        }
+        const delta = current.views - previous.views;
+        if (delta <= 0n) continue;
+        if (
+          best === undefined ||
+          delta > best.delta ||
+          (delta === best.delta &&
+            video.youtubeVideoId.localeCompare(best.video.youtubeVideoId) < 0)
+        ) {
+          best = { video, delta };
+        }
+      }
+      if (best === undefined) continue;
+      unrankedItems.push({
+        rank: 1,
+        channelId: channel.id,
+        channelTitle: channel.title,
+        videoId: best.video.id,
+        youtubeVideoId: best.video.youtubeVideoId,
+        title: best.video.title,
+        thumbnail: best.video.thumbnail,
+        channelViewDelta: gain === null ? null : gain.toString(),
+        videoViewDelta: best.delta.toString(),
+        contributionPercent:
+          gain !== null && gain > 0n ? contributionPercent(best.delta, gain) : null,
+        baselineAt: pair.previous.capturedAt.toISOString(),
+        capturedAt: pair.current.capturedAt.toISOString(),
+        status: "COMPLETE",
+        numericVideoDelta: best.delta,
+      });
+    }
+    unrankedItems.sort(
+      (left, right) =>
+        compareBigIntDescending(left.numericVideoDelta, right.numericVideoDelta) ||
+        left.channelTitle.localeCompare(right.channelTitle) ||
+        left.youtubeVideoId.localeCompare(right.youtubeVideoId),
+    );
+    const items: DailyVideoLeader[] = unrankedItems.map((item, index) => ({
+      rank: index + 1,
+      channelId: item.channelId,
+      channelTitle: item.channelTitle,
+      videoId: item.videoId,
+      youtubeVideoId: item.youtubeVideoId,
+      title: item.title,
+      thumbnail: item.thumbnail,
+      channelViewDelta: item.channelViewDelta,
+      videoViewDelta: item.videoViewDelta,
+      contributionPercent: item.contributionPercent,
+      baselineAt: item.baselineAt,
+      capturedAt: item.capturedAt,
+      status: item.status,
+    }));
+
+    const channelsWithUnavailableViews = channels.filter(
+      (channel) => channelGain.get(channel.id) === null,
+    ).length;
+    const channelsWithDailyGain = channels.filter(
+      (channel) => (channelGain.get(channel.id) ?? 0n) > 0n,
+    ).length;
+    const hasMissingPair = pairs.size < channels.length;
+    const hasPartialCatalog =
+      pairs.size > 0 &&
+      ([...comparisonComplete.values()].some((complete) => !complete) || hasMissingPair);
+    const channelsWithComparableCatalog = [...comparisonComplete.values()].filter(Boolean).length;
+    const warnings: DailyVideoLeadersResponse["warnings"] = [];
+    if (hasMissingPair) warnings.push("CATALOG_BASELINE_REQUIRED");
+    if (hasPartialCatalog) warnings.push("CATALOG_COVERAGE_PARTIAL");
+    if (channelsWithUnavailableViews > 0) warnings.push("CHANNEL_DAILY_VIEWS_UNAVAILABLE");
+    if (channels.length > 0 && channelsWithDailyGain === 0 && channelsWithUnavailableViews === 0) {
+      warnings.push("NO_POSITIVE_DAILY_GAIN");
+    }
+    const allDailyViewsKnown = channelsWithUnavailableViews === 0;
+    const allCatalogComplete =
+      pairs.size === channels.length &&
+      [...comparisonComplete.values()].every((complete) => complete);
+    const coverageStatus =
+      channels.length === 0
+        ? "UNAVAILABLE"
+        : pairs.size === 0
+          ? "WARMING_UP"
+          : allDailyViewsKnown && allCatalogComplete
+            ? "COMPLETE"
+            : "PARTIAL";
+
+    return DailyVideoLeadersResponseSchema.parse({
+      date,
+      previousDate,
+      timeZone: this.dependencies.timeZone,
+      source: "YTDLP_CATALOG_SNAPSHOTS",
+      coverageStatus,
+      totalChannels: channels.length,
+      channelsWithDailyGain,
+      channelsWithComparableCatalog,
+      warnings,
+      items,
     });
   }
 }

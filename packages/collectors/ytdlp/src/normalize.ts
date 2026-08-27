@@ -71,7 +71,7 @@ export function normalizeChannelInput(input: string): NormalizedChannelInput {
 }
 
 function nullableString(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
 function nullableDate(value: unknown): Date | null {
@@ -127,7 +127,7 @@ export function normalizeProviderVideo(
     description: nullableString(record.description),
     durationSeconds:
       typeof record.duration === "number" &&
-      Number.isFinite(record.duration) &&
+      Number.isSafeInteger(record.duration) &&
       record.duration >= 0
         ? record.duration
         : null,

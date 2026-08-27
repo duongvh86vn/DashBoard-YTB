@@ -72,8 +72,20 @@ export {
   type VideoMonitorTier,
 } from "./video-contracts.js";
 export {
+  DailyVideoLeaderSchema,
+  DailyVideoLeadersResponseSchema,
+  DashboardRevenueChannelSchema,
+  DashboardRevenuePointSchema,
+  DashboardRevenueResponseSchema,
+  DashboardRevenueStatusSchema,
   DashboardTrendPointSchema,
   DashboardTrendResponseSchema,
+  type DailyVideoLeader,
+  type DailyVideoLeadersResponse,
+  type DashboardRevenueChannel,
+  type DashboardRevenuePoint,
+  type DashboardRevenueResponse,
+  type DashboardRevenueStatus,
   type DashboardTrendPoint,
   type DashboardTrendResponse,
 } from "./dashboard-contracts.js";

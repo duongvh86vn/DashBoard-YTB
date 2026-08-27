@@ -64,6 +64,10 @@ function scopedService(visibleChannelIds: string[] | null, channels = [channel])
             },
             findById: async (id: string) => channels.find((item) => item.id === id) ?? null,
           },
+          channelMonetization: {
+            latestEffectiveForChannels: async () => [],
+            latestEffectiveForChannel: async () => null,
+          },
         } as never),
     },
   });
@@ -81,6 +85,10 @@ function service(provider: { resolveChannel: (input: string) => Promise<unknown>
             findById: async () => channel,
             create: async () => channel,
             archive: async () => channel,
+          },
+          channelMonetization: {
+            latestEffectiveForChannels: async () => [],
+            latestEffectiveForChannel: async () => null,
           },
         } as never),
     },
@@ -121,6 +129,180 @@ function publicIntelligenceService(input: {
 }
 
 describe("ChannelsService", () => {
+  it("stores effective RPM and audit evidence atomically", async () => {
+    const audits: unknown[] = [];
+    const upsert = vi.fn(async (input) => ({
+      id: "00000000-0000-4000-8000-000000000010",
+      ...input,
+      currency: "USD",
+      createdAt: new Date("2026-08-27T02:00:00.000Z"),
+      updatedAt: new Date("2026-08-27T02:00:00.000Z"),
+    }));
+    const serviceUnderTest = new ChannelsService({
+      access: access(),
+      provider: { resolveChannel: async () => null } as never,
+      timeZone: "Asia/Bangkok",
+      now: () => new Date("2026-08-27T03:00:00.000Z"),
+      unitOfWork: {
+        transaction: async (work) =>
+          work({
+            channels: { findById: async () => channel },
+            channelMonetization: { upsert },
+            audit: { append: async (input: unknown) => void audits.push(input) },
+          } as never),
+      },
+    });
+    const method = (serviceUnderTest as unknown as Record<string, unknown>)[
+      "updateMonetization"
+    ] as ((input: unknown) => Promise<unknown>) | undefined;
+    expect(method).toBeDefined();
+    if (!method) return;
+
+    await expect(
+      method.call(serviceUnderTest, {
+        id: channel.id,
+        actorUserId: adminSubject.id,
+        isMonetized: true,
+        rpmUsd: "1.25",
+        effectiveDate: "2026-08-27",
+      }),
+    ).resolves.toMatchObject({
+      id: channel.id,
+      monetization: {
+        status: "ENABLED",
+        isMonetized: true,
+        rpmUsd: "1.25",
+        currency: "USD",
+        effectiveDate: "2026-08-27",
+      },
+    });
+    expect(upsert).toHaveBeenCalledWith({
+      channelId: channel.id,
+      effectiveDate: new Date("2026-08-27T00:00:00.000Z"),
+      isMonetized: true,
+      rpmMicros: 1_250_000n,
+      recordedByUserId: adminSubject.id,
+    });
+    expect(audits).toEqual([
+      expect.objectContaining({
+        actorUserId: adminSubject.id,
+        action: "CHANNEL_MONETIZATION_UPDATED",
+        outcome: "SUCCESS",
+        metadata: {
+          channelId: channel.id,
+          effectiveDate: "2026-08-27",
+          isMonetized: true,
+          rpmUsd: "1.25",
+        },
+      }),
+    ]);
+  });
+
+  it("returns the current monetization after a backdated update", async () => {
+    const audits: unknown[] = [];
+    const newerSetting = {
+      id: "00000000-0000-4000-8000-000000000011",
+      channelId: channel.id,
+      effectiveDate: new Date("2026-08-26T00:00:00.000Z"),
+      isMonetized: true,
+      rpmMicros: 2_750_000n,
+      currency: "USD",
+      recordedByUserId: adminSubject.id,
+      createdAt: new Date("2026-08-26T02:00:00.000Z"),
+      updatedAt: new Date("2026-08-26T03:00:00.000Z"),
+    };
+    const upsert = vi.fn(async (input) => ({
+      id: "00000000-0000-4000-8000-000000000010",
+      ...input,
+      currency: "USD",
+      createdAt: new Date("2026-08-27T02:00:00.000Z"),
+      updatedAt: new Date("2026-08-27T02:00:00.000Z"),
+    }));
+    const latestEffectiveForChannel = vi.fn(async () => newerSetting);
+    const serviceUnderTest = new ChannelsService({
+      access: access(),
+      provider: { resolveChannel: async () => null } as never,
+      timeZone: "Asia/Bangkok",
+      now: () => new Date("2026-08-27T03:00:00.000Z"),
+      unitOfWork: {
+        transaction: async (work) =>
+          work({
+            channels: { findById: async () => channel },
+            channelMonetization: { upsert, latestEffectiveForChannel },
+            audit: { append: async (input: unknown) => void audits.push(input) },
+          } as never),
+      },
+    });
+
+    const result = await serviceUnderTest.updateMonetization({
+      id: channel.id,
+      actorUserId: adminSubject.id,
+      isMonetized: false,
+      rpmUsd: null,
+      effectiveDate: "2026-08-25",
+    });
+
+    expect(result.monetization).toEqual({
+      status: "ENABLED",
+      isMonetized: true,
+      rpmUsd: "2.75",
+      currency: "USD",
+      effectiveDate: "2026-08-26",
+      reviewedAt: "2026-08-26T03:00:00.000Z",
+    });
+    expect(upsert).toHaveBeenCalledWith({
+      channelId: channel.id,
+      effectiveDate: new Date("2026-08-25T00:00:00.000Z"),
+      isMonetized: false,
+      rpmMicros: null,
+      recordedByUserId: adminSubject.id,
+    });
+    expect(audits).toEqual([
+      expect.objectContaining({
+        actorUserId: adminSubject.id,
+        action: "CHANNEL_MONETIZATION_UPDATED",
+        outcome: "SUCCESS",
+        metadata: {
+          channelId: channel.id,
+          effectiveDate: "2026-08-25",
+          isMonetized: false,
+          rpmUsd: null,
+        },
+      }),
+    ]);
+    expect(latestEffectiveForChannel).toHaveBeenCalledWith(
+      channel.id,
+      new Date("2026-08-27T00:00:00.000Z"),
+    );
+  });
+
+  it("rejects a future RPM effective date before writing", async () => {
+    const transaction = vi.fn();
+    const serviceUnderTest = new ChannelsService({
+      access: access(),
+      provider: { resolveChannel: async () => null } as never,
+      timeZone: "Asia/Bangkok",
+      now: () => new Date("2026-08-27T03:00:00.000Z"),
+      unitOfWork: { transaction } as never,
+    });
+    const method = (serviceUnderTest as unknown as Record<string, unknown>)[
+      "updateMonetization"
+    ] as ((input: unknown) => Promise<unknown>) | undefined;
+    expect(method).toBeDefined();
+    if (!method) return;
+
+    await expect(
+      method.call(serviceUnderTest, {
+        id: channel.id,
+        actorUserId: adminSubject.id,
+        isMonetized: true,
+        rpmUsd: "1.25",
+        effectiveDate: "2026-08-28",
+      }),
+    ).rejects.toMatchObject({ code: "CHANNEL_INPUT_INVALID", status: 400 });
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
   it("keeps ADMIN channel listing unrestricted when the resolver returns null", async () => {
     const second = { ...channel, id: "00000000-0000-4000-8000-000000000004" };
 

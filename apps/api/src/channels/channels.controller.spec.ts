@@ -1,3 +1,5 @@
+import "reflect-metadata";
+
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import type { RequestHandler } from "express";
@@ -5,6 +7,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { CHANNELS_APPLICATION_PORT } from "./channels-application.port.js";
+import { ROLES_METADATA_KEY } from "../auth/roles.decorator.js";
 import { ChannelsController } from "./channels.controller.js";
 
 const channelId = "00000000-0000-4000-8000-000000000003";
@@ -25,6 +28,7 @@ const publicIntelligence = vi.fn(async (input: { id: string; days: number; subje
   channelId: input.id,
   period: { days: input.days },
 }));
+const updateMonetization = vi.fn(async (input: unknown) => ({ input }));
 
 describe("ChannelsController public intelligence", () => {
   let app: INestApplication;
@@ -35,7 +39,7 @@ describe("ChannelsController public intelligence", () => {
       providers: [
         {
           provide: CHANNELS_APPLICATION_PORT,
-          useValue: { list, get, healthHistory, publicIntelligence },
+          useValue: { list, get, healthHistory, publicIntelligence, updateMonetization },
         },
       ],
     }).compile();
@@ -92,5 +96,38 @@ describe("ChannelsController public intelligence", () => {
       channelId,
       subject: viewer,
     });
+  });
+
+  it("exposes the ADMIN monetization write with the authenticated actor", async () => {
+    const response = await request(app.getHttpServer())
+      .put(`/api/v1/channels/${channelId}/monetization`)
+      .send({ isMonetized: true, rpmUsd: "1.25", effectiveDate: "2026-08-27" });
+
+    expect(response.status).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toEqual({
+      channel: {
+        input: {
+          id: channelId,
+          actorUserId: viewer.id,
+          isMonetized: true,
+          rpmUsd: "1.25",
+          effectiveDate: "2026-08-27",
+        },
+      },
+    });
+    expect(updateMonetization).toHaveBeenCalledWith({
+      id: channelId,
+      actorUserId: viewer.id,
+      isMonetized: true,
+      rpmUsd: "1.25",
+      effectiveDate: "2026-08-27",
+    });
+  });
+
+  it("keeps the monetization mutation ADMIN-only", () => {
+    expect(
+      Reflect.getMetadata(ROLES_METADATA_KEY, ChannelsController.prototype.updateMonetization),
+    ).toEqual(["ADMIN"]);
   });
 });

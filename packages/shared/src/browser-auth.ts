@@ -18,6 +18,53 @@ export type UserRoleValue = z.infer<typeof UserRoleValueSchema>;
 
 const canonicalEmailSchema = z.string().refine(isValidCanonicalEmail);
 const timestampSchema = z.iso.datetime();
+const calendarDateSchema = z.iso.date();
+
+const publicChannelMonetizationSchema = z
+  .object({
+    status: z.enum(["UNCONFIGURED", "DISABLED", "ENABLED"]),
+    isMonetized: z.boolean().nullable(),
+    rpmUsd: z
+      .string()
+      .regex(/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/u)
+      .nullable(),
+    currency: z.literal("USD").nullable(),
+    effectiveDate: calendarDateSchema.nullable(),
+    reviewedAt: timestampSchema.nullable(),
+  })
+  .strict()
+  .superRefine((setting, context) => {
+    if (
+      setting.status === "ENABLED" &&
+      (setting.isMonetized !== true ||
+        setting.rpmUsd === null ||
+        setting.currency !== "USD" ||
+        setting.effectiveDate === null ||
+        setting.reviewedAt === null)
+    ) {
+      context.addIssue({ code: "custom", message: "Enabled monetization requires RPM evidence" });
+    }
+    if (
+      setting.status === "DISABLED" &&
+      (setting.isMonetized !== false ||
+        setting.rpmUsd !== null ||
+        setting.currency !== "USD" ||
+        setting.effectiveDate === null ||
+        setting.reviewedAt === null)
+    ) {
+      context.addIssue({ code: "custom", message: "Disabled monetization cannot carry RPM" });
+    }
+    if (
+      setting.status === "UNCONFIGURED" &&
+      (setting.isMonetized !== null ||
+        setting.rpmUsd !== null ||
+        setting.currency !== null ||
+        setting.effectiveDate !== null ||
+        setting.reviewedAt !== null)
+    ) {
+      context.addIssue({ code: "custom", message: "Unconfigured monetization has no evidence" });
+    }
+  });
 
 export const PublicUserSchema = z
   .object({
@@ -84,6 +131,9 @@ const publicChannelSchema = z
     lastChannelScanAt: timestampSchema.nullable(),
     lastHealthCheckAt: timestampSchema.nullable(),
     lastSeenAliveAt: timestampSchema.nullable(),
+    // Optional only for rolling-upgrade compatibility. Current API responses
+    // always include an explicit tri-state object.
+    monetization: publicChannelMonetizationSchema.optional(),
     isEnabled: z.boolean(),
     createdAt: timestampSchema,
     updatedAt: timestampSchema,

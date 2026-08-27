@@ -8,6 +8,7 @@ import {
   Inject,
   Param,
   Post,
+  Put,
   Query,
   Req,
 } from "@nestjs/common";
@@ -21,6 +22,7 @@ import {
 import {
   parseChannelId,
   parseCreateChannelBody,
+  parseUpdateChannelMonetizationBody,
   parseListHealthHistoryQuery,
   parseListChannelsQuery,
   parsePublicIntelligenceQuery,
@@ -94,6 +96,22 @@ export class ChannelsController {
   async create(@Body() body: unknown) {
     const channel = await this.channels.create({
       originalInput: parseCreateChannelBody(body).channelUrl,
+    });
+    return { channel };
+  }
+
+  @Put(":id/monetization")
+  @Roles("ADMIN")
+  @Header("Cache-Control", "no-store")
+  async updateMonetization(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const channel = await this.channels.updateMonetization({
+      id: parseChannelId(id),
+      actorUserId: request.user.id,
+      ...parseUpdateChannelMonetizationBody(body),
     });
     return { channel };
   }

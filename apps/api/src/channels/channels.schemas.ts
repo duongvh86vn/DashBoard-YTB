@@ -10,6 +10,26 @@ export function parseCreateChannelBody(value: unknown): { channelUrl: string } {
   return parsed.data;
 }
 
+export type UpdateChannelMonetizationBody =
+  | { isMonetized: true; rpmUsd: string; effectiveDate: string }
+  | { isMonetized: false; rpmUsd: null; effectiveDate: string };
+
+export function parseUpdateChannelMonetizationBody(value: unknown): UpdateChannelMonetizationBody {
+  const common = { effectiveDate: z.iso.date() };
+  const parsed = z
+    .discriminatedUnion("isMonetized", [
+      strictObject({
+        isMonetized: z.literal(true),
+        rpmUsd: z.string().regex(/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/u),
+        ...common,
+      }),
+      strictObject({ isMonetized: z.literal(false), rpmUsd: z.null(), ...common }),
+    ])
+    .safeParse(value);
+  if (!parsed.success) throw ChannelApplicationError.validation();
+  return parsed.data;
+}
+
 export function parseListChannelsQuery(value: unknown): {
   page: number;
   pageSize: number;

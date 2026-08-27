@@ -1,5 +1,15 @@
 export { YtdlpError, normalizeYtdlpFailure, type YtdlpErrorCode } from "./errors.js";
 export {
+  FULL_CATALOG_ARGS,
+  FULL_CATALOG_MAX_OUTPUT_BYTES,
+  FULL_CATALOG_TIMEOUT_MS,
+  listFullCatalogWithYtdlp,
+  parseFullCatalogJson,
+  youtubeUploadsPlaylistUrl,
+  type YtdlpCatalogVideo,
+  type YtdlpFullCatalog,
+} from "./full-catalog.js";
+export {
   ChannelInputError,
   normalizeChannelInput,
   normalizeProviderVideo,

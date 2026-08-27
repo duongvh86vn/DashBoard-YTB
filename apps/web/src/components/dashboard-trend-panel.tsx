@@ -61,8 +61,8 @@ const metricDetails = {
     gradientId: "dashboard-subscriber-trend",
   },
   videos: {
-    label: "Video mới đã phát hiện",
-    shortLabel: "video đã phát hiện",
+    label: "Video đã xuất bản",
+    shortLabel: "video đã xuất bản",
     tone: "text-emerald-300",
     active: "border-emerald-400 bg-emerald-400/10",
     line: "#34d399",
@@ -488,8 +488,8 @@ export function DashboardTrendPanel({
                 : "Xu hướng công khai trong 28 ngày qua"}
         </h2>
         <p className="mx-auto mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-          Lượt xem và người đăng ký được tính từ chênh lệch snapshot thật; video mới là các video hệ
-          thống đã phát hiện theo ngày xuất bản. Thời gian xem không có trong dữ liệu công khai nên
+          Lượt xem và người đăng ký được tính từ chênh lệch snapshot thật; số video trong kỳ dựa
+          trên ngày xuất bản công khai đã lưu. Thời gian xem không có trong dữ liệu công khai nên
           không được ước đoán.
         </p>
       </div>

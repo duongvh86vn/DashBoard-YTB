@@ -1,5 +1,5 @@
 import type { Prisma as PrismaTypes } from "./generated/prisma/client.js";
-import type { VideoMonitorTierValue, VideoRecord } from "./channel-records.js";
+import type { VideoMonitorTierValue, VideoRecord, VideoSnapshotRecord } from "./channel-records.js";
 
 type VideoClient = Pick<PrismaTypes.TransactionClient, "video">;
 
@@ -41,9 +41,20 @@ export interface VideoRankingRecord extends VideoRecord {
     views: bigint | null;
     likes: bigint | null;
     comments: bigint | null;
-    source: "YOUTUBE_PUBLIC_PAGE" | "YTDLP" | "YOUTUBE_RSS" | "OPTIONAL_PROVIDER" | "DERIVED";
+    source:
+      | "YOUTUBE_PUBLIC_PAGE"
+      | "YTDLP"
+      | "YTDLP_CATALOG"
+      | "YOUTUBE_RSS"
+      | "OPTIONAL_PROVIDER"
+      | "DERIVED";
     createdAt: Date;
   }>;
+  channel: { id: string; title: string; thumbnail: string | null };
+}
+
+export interface VideoCatalogComparisonRecord extends VideoRecord {
+  snapshots: VideoSnapshotRecord[];
   channel: { id: string; title: string; thumbnail: string | null };
 }
 
@@ -182,6 +193,31 @@ export class VideoRepository {
         channel: { select: { id: true, title: true, thumbnail: true } },
       },
     }) as unknown as Promise<VideoRankingRecord[]>;
+  }
+
+  listForCatalogComparison(
+    channelIds: readonly string[],
+    snapshotBuckets: readonly Date[],
+  ): Promise<VideoCatalogComparisonRecord[]> {
+    if (channelIds.length === 0 || snapshotBuckets.length === 0) return Promise.resolve([]);
+    const snapshotWhere = {
+      source: "YTDLP_CATALOG" as const,
+      snapshotBucket: { in: [...snapshotBuckets] },
+    };
+    return this.client.video.findMany({
+      where: {
+        channelId: { in: [...channelIds] },
+        snapshots: { some: snapshotWhere },
+      },
+      orderBy: [{ channelId: "asc" }, { id: "asc" }],
+      include: {
+        snapshots: {
+          where: snapshotWhere,
+          orderBy: [{ snapshotBucket: "asc" }, { id: "asc" }],
+        },
+        channel: { select: { id: true, title: true, thumbnail: true } },
+      },
+    }) as unknown as Promise<VideoCatalogComparisonRecord[]>;
   }
 
   listCandidates(tiers: VideoMonitorTierValue[], limit = 500): Promise<VideoRecord[]> {

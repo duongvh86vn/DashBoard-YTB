@@ -598,7 +598,12 @@ test.describe.serial("Phase 1 Auth + Users real-stack acceptance", () => {
       await expect(viewerPage.getByRole("link", { name: "Nhóm kênh" })).toHaveCount(0);
       await expect(viewerPage.getByRole("heading", { name: "Tổng quan giám sát" })).toBeVisible();
       await expect(viewerPage.getByText("Kênh đang theo dõi", { exact: true })).toBeVisible();
-      await expect(viewerPage.getByText("Chưa có video snapshot thật.")).toBeVisible();
+      await expect(
+        viewerPage.getByRole("heading", { name: "So sánh tăng view video theo ngày" }),
+      ).toBeVisible();
+      await expect(
+        viewerPage.getByText("Chưa có video đủ hai snapshot catalog để so sánh."),
+      ).toBeVisible();
       await expect(viewerPage.getByText("Chưa đủ baseline 7 ngày để xếp hạng.")).toBeVisible();
       await expect(viewerPage.getByRole("link", { name: /đăng ký/iu })).toHaveCount(0);
       await expect(viewerPage.getByRole("link", { name: /health/iu })).toHaveCount(0);

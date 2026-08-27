@@ -5,17 +5,20 @@ import { useEffect, useState } from "react";
 
 import {
   ApiError,
+  getDailyVideoLeaders,
   getAiReport,
+  getDashboardRevenue,
   getDashboardTrends,
   getHealth,
   getVietnameseApiMessage,
   listAccessibleChannelGroups,
   listChannels,
-  listRecentVideos,
   listWeeklyVideoRanking,
 } from "../lib/api-client";
 import { useAuth } from "../lib/auth-context";
 import { AiReportContent } from "./ai-report-content";
+import { DailyVideoLeadersPanel } from "./daily-video-leaders-panel";
+import { DashboardRevenuePanel } from "./dashboard-revenue-panel";
 import { DashboardTrendPanel } from "./dashboard-trend-panel";
 
 const compactNumberFormatter = new Intl.NumberFormat("vi-VN", {
@@ -228,19 +231,25 @@ export function DashboardScreen() {
     ReturnType<typeof listChannels>
   > | null>(null);
   const [channels, setChannels] = useState<Awaited<ReturnType<typeof listChannels>> | null>(null);
-  const [recent, setRecent] = useState<Awaited<ReturnType<typeof listRecentVideos>> | null>(null);
   const [weekly, setWeekly] = useState<Awaited<ReturnType<typeof listWeeklyVideoRanking>> | null>(
     null,
   );
   const [trends, setTrends] = useState<Awaited<ReturnType<typeof getDashboardTrends>> | null>(null);
+  const [revenue, setRevenue] = useState<Awaited<ReturnType<typeof getDashboardRevenue>> | null>(
+    null,
+  );
+  const [dailyLeaders, setDailyLeaders] = useState<Awaited<
+    ReturnType<typeof getDailyVideoLeaders>
+  > | null>(null);
   const [health, setHealth] = useState<Awaited<ReturnType<typeof getHealth>> | null>(null);
   const [reports, setReports] = useState<Awaited<ReturnType<typeof getAiReport>>[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [channelsFailed, setChannelsFailed] = useState(false);
-  const [recentFailed, setRecentFailed] = useState(false);
   const [weeklyFailed, setWeeklyFailed] = useState(false);
   const [trendsFailed, setTrendsFailed] = useState(false);
+  const [revenueFailed, setRevenueFailed] = useState(false);
+  const [dailyLeadersFailed, setDailyLeadersFailed] = useState(false);
   const [healthUnavailable, setHealthUnavailable] = useState(false);
   const [reportsUnavailable, setReportsUnavailable] = useState(false);
   const [supplementalLoading, setSupplementalLoading] = useState(true);
@@ -276,13 +285,15 @@ export function DashboardScreen() {
     setLoading(true);
     setError(null);
     setChannels(null);
-    setRecent(null);
     setWeekly(null);
     setTrends(null);
+    setRevenue(null);
+    setDailyLeaders(null);
     setChannelsFailed(false);
-    setRecentFailed(false);
     setWeeklyFailed(false);
     setTrendsFailed(false);
+    setRevenueFailed(false);
+    setDailyLeadersFailed(false);
 
     const groupScope = selectedGroupId ? { groupId: selectedGroupId } : {};
     const selectedScope = {
@@ -306,12 +317,6 @@ export function DashboardScreen() {
       return Promise.allSettled([
         channelRequest,
         optionRequest,
-        listRecentVideos({
-          page: 1,
-          pageSize: 6,
-          ...selectedScope,
-          signal: controller.signal,
-        }),
         listWeeklyVideoRanking({
           page: 1,
           pageSize: 5,
@@ -319,6 +324,8 @@ export function DashboardScreen() {
           signal: controller.signal,
         }),
         getDashboardTrends({ days: 28, ...selectedScope, signal: controller.signal }),
+        getDashboardRevenue({ days: 28, ...selectedScope, signal: controller.signal }),
+        getDailyVideoLeaders({ ...selectedScope, signal: controller.signal }),
       ]).then((results) => ({ generation, results }));
     };
 
@@ -326,7 +333,14 @@ export function DashboardScreen() {
     const applyScopeResults = (batch: ScopeBatch, replaceFailures: boolean): boolean => {
       if (controller.signal.aborted || batch.generation !== latestRequestGeneration) return false;
       const { results } = batch;
-      const [channelResult, optionResult, recentResult, weeklyResult, trendResult] = results;
+      const [
+        channelResult,
+        optionResult,
+        weeklyResult,
+        trendResult,
+        revenueResult,
+        dailyLeadersResult,
+      ] = results;
       if (
         selectedChannelId &&
         optionResult.status === "fulfilled" &&
@@ -339,9 +353,10 @@ export function DashboardScreen() {
       const failures = [
         channelResult,
         optionResult,
-        recentResult,
         weeklyResult,
         trendResult,
+        revenueResult,
+        dailyLeadersResult,
       ].flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
       if (failures.some((reason) => auth.handleApiError(reason))) return false;
 
@@ -353,13 +368,15 @@ export function DashboardScreen() {
       if (explicitScopeNotFound) {
         setChannels(null);
         setChannelOptions({ items: [], page: 1, pageSize: 100, total: 0 });
-        setRecent(null);
         setWeekly(null);
         setTrends(null);
+        setRevenue(null);
+        setDailyLeaders(null);
         setChannelsFailed(true);
-        setRecentFailed(true);
         setWeeklyFailed(true);
         setTrendsFailed(true);
+        setRevenueFailed(true);
+        setDailyLeadersFailed(true);
         setGroupsRefreshKey((value) => value + 1);
         if (selectedChannelId !== "" && explicitScopeNotFound.code === "CHANNEL_NOT_FOUND") {
           setSelectedChannelId("");
@@ -374,19 +391,25 @@ export function DashboardScreen() {
       if (replaceFailures || channelResult.status === "fulfilled") {
         setChannels(channelResult.status === "fulfilled" ? channelResult.value : null);
       }
-      if (replaceFailures || recentResult.status === "fulfilled") {
-        setRecent(recentResult.status === "fulfilled" ? recentResult.value : null);
-      }
       if (replaceFailures || weeklyResult.status === "fulfilled") {
         setWeekly(weeklyResult.status === "fulfilled" ? weeklyResult.value : null);
       }
       if (replaceFailures || trendResult.status === "fulfilled") {
         setTrends(trendResult.status === "fulfilled" ? trendResult.value : null);
       }
+      if (replaceFailures || revenueResult.status === "fulfilled") {
+        setRevenue(revenueResult.status === "fulfilled" ? revenueResult.value : null);
+      }
+      if (replaceFailures || dailyLeadersResult.status === "fulfilled") {
+        setDailyLeaders(
+          dailyLeadersResult.status === "fulfilled" ? dailyLeadersResult.value : null,
+        );
+      }
       setChannelsFailed(channelResult.status === "rejected");
-      setRecentFailed(recentResult.status === "rejected");
       setWeeklyFailed(weeklyResult.status === "rejected");
       setTrendsFailed(trendResult.status === "rejected");
+      setRevenueFailed(revenueResult.status === "rejected");
+      setDailyLeadersFailed(dailyLeadersResult.status === "rejected");
       setError(failures.length > 0 ? getVietnameseApiMessage(failures[0]) : null);
       setLoading(false);
       return true;
@@ -542,21 +565,12 @@ export function DashboardScreen() {
     .sort((left, right) => (left.value === right.value ? 0 : left.value > right.value ? -1 : 1))
     .slice(0, 6);
 
-  const recentViewChart = (recent?.items ?? [])
-    .flatMap((video) => {
-      const value = parseMetric(video.currentViews);
-      return value === null
-        ? []
-        : [
-            {
-              id: video.id,
-              label: video.title ?? video.youtubeVideoId,
-              meta: video.channelTitle,
-              value,
-            },
-          ];
-    })
-    .sort((left, right) => (left.value === right.value ? 0 : left.value > right.value ? -1 : 1));
+  const dailyLeaderChart = (dailyLeaders?.items ?? []).map((video) => ({
+    id: video.videoId,
+    label: video.title ?? video.youtubeVideoId,
+    meta: `${video.channelTitle} · #${video.rank} trong ngày`,
+    value: BigInt(video.videoViewDelta),
+  }));
 
   const weeklyGainChart = (weekly?.items ?? []).flatMap((video) => {
     const value = parseMetric(video.weeklyGain);
@@ -779,6 +793,8 @@ export function DashboardScreen() {
 
       <DashboardTrendPanel data={trends} loading={loading} failed={trendsFailed} />
 
+      <DashboardRevenuePanel data={revenue} loading={loading} failed={revenueFailed} />
+
       <section aria-labelledby="channel-insights-title">
         <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
           <div>
@@ -922,14 +938,21 @@ export function DashboardScreen() {
         </div>
         <div className="grid gap-5 xl:grid-cols-2">
           <SnapshotBarChart
-            title="Lượt xem của video mới"
-            description="So sánh current views của 6 video được phát hiện gần nhất."
-            items={recentViewChart}
+            title="Video tăng view mạnh nhất hôm nay"
+            description={
+              dailyLeaders
+                ? `Mỗi kênh lấy một video có mức tăng view lớn nhất giữa hai catalog hoàn chỉnh; ${dailyLeaders.channelsWithComparableCatalog}/${dailyLeaders.totalChannels} kênh có catalog hoàn chỉnh.`
+                : "Mỗi kênh chỉ được xếp hạng sau hai lần quét catalog hằng ngày hoàn chỉnh."
+            }
+            items={dailyLeaderChart}
             emptyMessage={
-              recentFailed ? "Không thể tải snapshot video mới." : "Chưa có video snapshot thật."
+              dailyLeadersFailed
+                ? "Không thể tải tăng trưởng video trong ngày."
+                : "Chưa đủ hai catalog thật để so sánh."
             }
             tone="sky"
             loading={loading}
+            signed
           />
           <SnapshotBarChart
             title="Tăng trưởng 7 ngày"
@@ -1063,63 +1086,7 @@ export function DashboardScreen() {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
-        <article className="surface-card">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="eyebrow">Discovery feed</p>
-              <h2 className="mt-1 text-xl font-black text-slate-950">Video mới phát hiện</h2>
-            </div>
-            <Link className="text-sm font-bold text-sky-700 underline" href="/videos">
-              Xem tất cả
-            </Link>
-          </div>
-          {recent?.items.length ? (
-            <ul className="mt-5 divide-y divide-slate-100">
-              {recent.items.slice(0, 4).map((video) => (
-                <li className="flex gap-4 py-4 first:pt-0 last:pb-0" key={video.id}>
-                  {video.thumbnail ? (
-                    <img
-                      className="h-14 w-24 shrink-0 rounded-xl object-cover"
-                      src={video.thumbnail}
-                      alt=""
-                    />
-                  ) : (
-                    <div className="grid h-14 w-24 shrink-0 place-items-center rounded-xl bg-slate-100 text-xs font-bold text-slate-500">
-                      YouTube
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <a
-                      className="line-clamp-2 font-bold text-slate-900 hover:text-sky-700"
-                      href={`https://www.youtube.com/watch?v=${encodeURIComponent(video.youtubeVideoId)}`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {video.title ?? video.youtubeVideoId}
-                    </a>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {video.channelTitle} · {freshness(video.publishedAt)}
-                    </p>
-                  </div>
-                  <p className="hidden shrink-0 text-right text-sm font-black tabular-nums text-slate-700 sm:block">
-                    {formatNumber(video.currentViews)}
-                    <span className="mt-0.5 block text-xs font-medium text-slate-500">views</span>
-                  </p>
-                </li>
-              ))}
-            </ul>
-          ) : loading ? (
-            <p className="mt-5 text-sm font-semibold text-sky-800" role="status">
-              Đang tải feed video mới…
-            </p>
-          ) : (
-            <p className="mt-5 text-sm text-slate-500">
-              {recentFailed
-                ? "Không thể tải feed video mới; các metric khác vẫn được giữ nguyên."
-                : "Chưa phát hiện video mới để tạo feed."}
-            </p>
-          )}
-        </article>
+        <DailyVideoLeadersPanel data={dailyLeaders} loading={loading} failed={dailyLeadersFailed} />
 
         <article className="surface-card" aria-label="Báo cáo AI">
           <div className="flex items-center justify-between gap-4">

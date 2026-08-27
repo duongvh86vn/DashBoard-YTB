@@ -7,13 +7,21 @@ ENV PATH=$PNPM_HOME:$PATH
 ENV COREPACK_HOME=/corepack
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends openssl yt-dlp \
+    && apt-get install --yes --no-install-recommends ca-certificates openssl python3 \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p "$COREPACK_HOME" \
     && corepack enable \
     && corepack prepare pnpm@11.22.0 --activate \
-    && yt-dlp --version \
     && chmod -R a+rX "$COREPACK_HOME"
+
+# Debian stable's yt-dlp package can lag behind YouTube extractor changes by
+# years. Pin the official immutable release artifact and verify its checksum.
+ADD --checksum=sha256:1fa6733c37ea6fb51c99ad8fe785e7b7e5f3246c9b980230329d4fb72ed8d4d6 \
+    https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp \
+    /usr/local/bin/yt-dlp
+
+RUN chmod 0755 /usr/local/bin/yt-dlp \
+    && yt-dlp --version
 
 WORKDIR /app
 
@@ -72,8 +80,12 @@ USER root
 COPY --from=base /usr/local/bin/node /usr/local/bin/node
 COPY --from=base /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends yt-dlp \
+    && apt-get install --yes --no-install-recommends ca-certificates python3 \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=base /usr/local/bin/yt-dlp /usr/local/bin/yt-dlp
+
+RUN yt-dlp --version
 
 WORKDIR /app
 COPY --from=build --chown=pwuser:pwuser /app /app

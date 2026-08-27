@@ -1,5 +1,10 @@
 import { fetchYoutubeRss, parseYoutubeRss } from "@yt-monitor/collector-youtube-rss";
-import { getVideoStatsWithYtdlp, listRecentVideosWithYtdlp } from "@yt-monitor/collector-ytdlp";
+import {
+  getVideoStatsWithYtdlp,
+  listFullCatalogWithYtdlp,
+  listRecentVideosWithYtdlp,
+  youtubeUploadsPlaylistUrl,
+} from "@yt-monitor/collector-ytdlp";
 import type { ChannelRecord, VideoRepository } from "@yt-monitor/db";
 import type { ProviderVideoStats } from "@yt-monitor/shared";
 
@@ -22,6 +27,11 @@ export function createVideoRuntimeProviders() {
     },
     ytdlpList: (channel: ChannelRecord) =>
       listRecentVideosWithYtdlp(channel.canonicalUrl, channel.youtubeChannelId),
+    ytdlpFullCatalog: (channel: ChannelRecord) =>
+      listFullCatalogWithYtdlp(
+        youtubeUploadsPlaylistUrl(channel.youtubeChannelId),
+        channel.youtubeChannelId,
+      ),
     getVideoStats: (videoIds: string[], capturedAt?: Date): Promise<ProviderVideoStats[]> =>
       getVideoStatsWithYtdlp(videoIds, undefined, capturedAt),
   };

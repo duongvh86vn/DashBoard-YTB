@@ -9,6 +9,8 @@ import {
   deleteViewer,
   disableViewer,
   enableViewer,
+  getDailyVideoLeaders,
+  getDashboardRevenue,
   getDashboardTrends,
   getCurrentUser,
   listAccessibleChannelGroups,
@@ -22,6 +24,7 @@ import {
   replaceChannelGroupChannels,
   replaceViewerChannelGroups,
   revokeViewerSessions,
+  updateChannelMonetization,
   updateViewerEmail,
 } from "./api-client.js";
 
@@ -47,6 +50,134 @@ afterEach(() => {
 });
 
 describe("same-origin API client", () => {
+  it("uses canonical dashboard endpoints and preserves the selected scope", async () => {
+    const groupId = "00000000-0000-4000-8000-000000000010";
+    const channelId = "00000000-0000-4000-8000-000000000020";
+    const controller = new AbortController();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          period: {
+            startDate: "2026-08-27",
+            endDate: "2026-08-27",
+            days: 1,
+            timeZone: "Asia/Bangkok",
+          },
+          currency: "USD",
+          method: "PUBLIC_VIEW_DELTA_X_MANUAL_RPM",
+          metric: {
+            totalEstimatedRevenueUsd: null,
+            observedEstimatedRevenueUsd: null,
+            status: "UNAVAILABLE",
+            coveredChannelDays: 0,
+            totalChannelDays: 0,
+          },
+          configuredChannels: 0,
+          monetizedChannels: 0,
+          totalChannels: 0,
+          series: [
+            {
+              date: "2026-08-27",
+              totalEstimatedRevenueUsd: null,
+              observedEstimatedRevenueUsd: null,
+              status: "UNAVAILABLE",
+              coveredChannels: 0,
+              totalChannels: 0,
+            },
+          ],
+          channels: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          date: "2026-08-27",
+          previousDate: "2026-08-26",
+          timeZone: "Asia/Bangkok",
+          source: "YTDLP_CATALOG_SNAPSHOTS",
+          coverageStatus: "UNAVAILABLE",
+          totalChannels: 0,
+          channelsWithDailyGain: 0,
+          channelsWithComparableCatalog: 0,
+          warnings: [],
+          items: [],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getDashboardRevenue({
+      days: 1,
+      groupId,
+      channelId,
+      signal: controller.signal,
+    });
+    await getDailyVideoLeaders({ groupId, channelId, signal: controller.signal });
+
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      `/api/v1/dashboard/revenue?days=1&groupId=${groupId}&channelId=${channelId}`,
+      `/api/v1/dashboard/daily-video-leaders?groupId=${groupId}&channelId=${channelId}`,
+    ]);
+    for (const [, init] of fetchMock.mock.calls as unknown as Array<[string, RequestInit]>) {
+      expect(init.signal).toBe(controller.signal);
+    }
+  });
+
+  it("writes one exact effective-dated monetization decision with CSRF protection", async () => {
+    const id = "channel/id?#";
+    const channelId = "00000000-0000-4000-8000-000000000020";
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({
+        channel: {
+          id: channelId,
+          youtubeChannelId: "UC0000000000000000000000",
+          originalInput: "@kenhmau",
+          canonicalUrl: "https://www.youtube.com/channel/UC0000000000000000000000",
+          handle: "@kenhmau",
+          title: "Kênh mẫu",
+          description: null,
+          thumbnail: null,
+          subscriberCount: "100",
+          videoCount: "2",
+          lifetimeViewCount: "5000",
+          lastUploadAt: null,
+          availabilityStatus: "ACTIVE",
+          activityStatus: "ACTIVE_RECENT",
+          lastChannelScanAt: "2026-08-27T01:00:00.000Z",
+          lastHealthCheckAt: null,
+          lastSeenAliveAt: "2026-08-27T01:00:00.000Z",
+          monetization: {
+            status: "ENABLED",
+            isMonetized: true,
+            rpmUsd: "1.25",
+            currency: "USD",
+            effectiveDate: "2026-08-27",
+            reviewedAt: "2026-08-27T02:00:00.000Z",
+          },
+          isEnabled: true,
+          createdAt: "2026-08-22T00:00:00.000Z",
+          updatedAt: "2026-08-27T02:00:00.000Z",
+          archivedAt: null,
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await updateChannelMonetization(id, {
+      isMonetized: true,
+      rpmUsd: "1.25",
+      effectiveDate: "2026-08-27",
+    });
+
+    expect(result.monetization?.status).toBe("ENABLED");
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(path).toBe("/api/v1/channels/channel%2Fid%3F%23/monetization");
+    expect(init).toMatchObject({ method: "PUT", credentials: "same-origin" });
+    expect(new Headers(init.headers).get("X-CSRF-Protection")).toBe("1");
+    expect(init.body).toBe(
+      JSON.stringify({ isMonetized: true, rpmUsd: "1.25", effectiveDate: "2026-08-27" }),
+    );
+  });
+
   it("sends safe GET with same-origin credentials and no unsafe headers or body", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ user: { ...viewer, role: "ADMIN" } }));
     vi.stubGlobal("fetch", fetchMock);

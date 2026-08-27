@@ -5,8 +5,10 @@ import type {
   ChannelRecord,
   ChannelHealthCheckRecord,
   ChannelSnapshotRecord,
+  ChannelMonetizationSettingRecord,
   SyncRunRecord,
 } from "@yt-monitor/db";
+import { formatRpmMicros, parseRpmMicros } from "@yt-monitor/analytics";
 import { ChannelConflictError, ChannelNotFoundError } from "@yt-monitor/db";
 import { ChannelInputError, YtdlpError } from "@yt-monitor/collector-ytdlp";
 import {
@@ -28,6 +30,7 @@ import type {
   ChannelProviderPort,
   PublicChannel,
   PublicChannelHealthCheck,
+  PublicChannelMonetization,
   SyncRunsPage,
 } from "./channels-application.port.js";
 import type {
@@ -309,7 +312,33 @@ function dailyCoverage(input: {
   };
 }
 
-function toPublicChannel(channel: ChannelRecord): PublicChannel {
+function toPublicMonetization(
+  setting: ChannelMonetizationSettingRecord | null,
+): PublicChannelMonetization {
+  if (setting === null) {
+    return {
+      status: "UNCONFIGURED",
+      isMonetized: null,
+      rpmUsd: null,
+      currency: null,
+      effectiveDate: null,
+      reviewedAt: null,
+    };
+  }
+  return {
+    status: setting.isMonetized ? "ENABLED" : "DISABLED",
+    isMonetized: setting.isMonetized,
+    rpmUsd: setting.rpmMicros === null ? null : formatRpmMicros(setting.rpmMicros),
+    currency: "USD",
+    effectiveDate: dateKey(setting.effectiveDate),
+    reviewedAt: setting.updatedAt.toISOString(),
+  };
+}
+
+function toPublicChannel(
+  channel: ChannelRecord,
+  monetization: ChannelMonetizationSettingRecord | null,
+): PublicChannel {
   return {
     id: channel.id,
     youtubeChannelId: channel.youtubeChannelId,
@@ -328,6 +357,7 @@ function toPublicChannel(channel: ChannelRecord): PublicChannel {
     lastChannelScanAt: channel.lastChannelScanAt?.toISOString() ?? null,
     lastHealthCheckAt: channel.lastHealthCheckAt?.toISOString() ?? null,
     lastSeenAliveAt: channel.lastSeenAliveAt?.toISOString() ?? null,
+    monetization: toPublicMonetization(monetization),
     isEnabled: channel.isEnabled,
     createdAt: channel.createdAt.toISOString(),
     updatedAt: channel.updatedAt.toISOString(),
@@ -405,15 +435,28 @@ export class ChannelsService implements ChannelsApplicationPort {
       ...(input.groupId === undefined ? {} : { groupId: input.groupId }),
       ...(input.channelId === undefined ? {} : { channelId: input.channelId }),
     });
-    const page = await this.dependencies.unitOfWork.transaction((repositories) =>
-      repositories.channels.list({
-        page: input.page,
-        pageSize: input.pageSize,
-        ...(channelIds === null ? {} : { channelIds }),
-      }),
+    const { page, settings } = await this.dependencies.unitOfWork.transaction(
+      async (repositories) => {
+        const page = await repositories.channels.list({
+          page: input.page,
+          pageSize: input.pageSize,
+          ...(channelIds === null ? {} : { channelIds }),
+        });
+        const effectiveOn = new Date(
+          `${localCalendarDate((this.dependencies.now ?? (() => new Date()))(), this.dependencies.timeZone ?? "UTC")}T00:00:00.000Z`,
+        );
+        const settings = await repositories.channelMonetization.latestEffectiveForChannels(
+          page.items.map((channel) => channel.id),
+          effectiveOn,
+        );
+        return { page, settings };
+      },
     );
+    const settingsByChannel = new Map(settings.map((setting) => [setting.channelId, setting]));
     return {
-      items: page.items.map(toPublicChannel),
+      items: page.items.map((channel) =>
+        toPublicChannel(channel, settingsByChannel.get(channel.id) ?? null),
+      ),
       page: input.page,
       pageSize: input.pageSize,
       total: page.total,
@@ -422,11 +465,24 @@ export class ChannelsService implements ChannelsApplicationPort {
 
   async get(input: { id: string; subject: ChannelAccessSubject }): Promise<PublicChannel> {
     await this.assertVisible(input.id, input.subject);
-    const channel = await this.dependencies.unitOfWork.transaction((repositories) =>
-      repositories.channels.findById(input.id),
+    const { channel, setting } = await this.dependencies.unitOfWork.transaction(
+      async (repositories) => {
+        const channel = await repositories.channels.findById(input.id);
+        const effectiveOn = new Date(
+          `${localCalendarDate((this.dependencies.now ?? (() => new Date()))(), this.dependencies.timeZone ?? "UTC")}T00:00:00.000Z`,
+        );
+        const setting =
+          channel === null
+            ? null
+            : await repositories.channelMonetization.latestEffectiveForChannel(
+                input.id,
+                effectiveOn,
+              );
+        return { channel, setting };
+      },
     );
     if (channel === null) throw ChannelApplicationError.notFound();
-    return toPublicChannel(channel);
+    return toPublicChannel(channel, setting);
   }
 
   async publicIntelligence(input: {
@@ -605,7 +661,7 @@ export class ChannelsService implements ChannelsApplicationPort {
       const created = await this.dependencies.unitOfWork.transaction((repositories) =>
         repositories.channels.create({ originalInput: input.originalInput, resolved }),
       );
-      return toPublicChannel(created);
+      return toPublicChannel(created, null);
     } catch (error) {
       return mapChannelError(error);
     }
@@ -619,6 +675,67 @@ export class ChannelsService implements ChannelsApplicationPort {
     } catch (error) {
       return mapChannelError(error);
     }
+  }
+
+  async updateMonetization(input: {
+    id: string;
+    actorUserId: string;
+    isMonetized: boolean;
+    rpmUsd: string | null;
+    effectiveDate: string;
+  }): Promise<PublicChannel> {
+    const today = localCalendarDate(
+      (this.dependencies.now ?? (() => new Date()))(),
+      this.dependencies.timeZone ?? "UTC",
+    );
+    if (input.effectiveDate > today) throw ChannelApplicationError.validation();
+
+    let rpmMicros: bigint | null;
+    try {
+      rpmMicros = input.isMonetized && input.rpmUsd !== null ? parseRpmMicros(input.rpmUsd) : null;
+    } catch {
+      throw ChannelApplicationError.validation();
+    }
+    if (
+      (input.isMonetized && rpmMicros === null) ||
+      (!input.isMonetized && input.rpmUsd !== null)
+    ) {
+      throw ChannelApplicationError.validation();
+    }
+
+    const effectiveDate = new Date(`${input.effectiveDate}T00:00:00.000Z`);
+    return this.dependencies.unitOfWork.transaction(async (repositories) => {
+      const channel = await repositories.channels.findById(input.id);
+      if (channel === null || channel.archivedAt !== null) throw ChannelApplicationError.notFound();
+      const setting = await repositories.channelMonetization.upsert({
+        channelId: input.id,
+        effectiveDate,
+        isMonetized: input.isMonetized,
+        rpmMicros,
+        recordedByUserId: input.actorUserId,
+      });
+      await repositories.audit.append({
+        actorUserId: input.actorUserId,
+        targetUserId: null,
+        action: "CHANNEL_MONETIZATION_UPDATED",
+        outcome: "SUCCESS",
+        requestId: null,
+        metadata: {
+          channelId: input.id,
+          effectiveDate: input.effectiveDate,
+          isMonetized: input.isMonetized,
+          rpmUsd: input.rpmUsd,
+        },
+      });
+      const currentSetting =
+        input.effectiveDate < today
+          ? await repositories.channelMonetization.latestEffectiveForChannel(
+              input.id,
+              new Date(`${today}T00:00:00.000Z`),
+            )
+          : setting;
+      return toPublicChannel(channel, currentSetting);
+    });
   }
 
   async requestHealthCheck(input: {

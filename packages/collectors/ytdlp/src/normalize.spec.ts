@@ -60,4 +60,17 @@ describe("yt-dlp normalization", () => {
       durationSeconds: 42,
     });
   });
+
+  it("keeps a non-integral duration missing instead of passing an invalid Prisma Int", () => {
+    expect(
+      normalizeProviderVideo(
+        {
+          id: "video-1",
+          channel_id: "UC1234567890123456789012",
+          duration: 42.5,
+        },
+        "UC1234567890123456789012",
+      ),
+    ).toMatchObject({ durationSeconds: null });
+  });
 });

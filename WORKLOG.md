@@ -777,3 +777,72 @@
 - AI remains an explanation layer and cannot collect, alter or rank canonical
   metrics. No Google login, vidIQ endpoint/cookie/scraper, revenue estimate or
   private YouTube Analytics scope was introduced.
+
+## 2026-08-27 — Phase 12 daily video attribution and manual RPM revenue
+
+### Delivered behavior
+
+- Replaced the dashboard discovery feed with one evidence-backed daily leader per
+  selected channel: the public video view counter with the largest signed increase
+  between two complete, consecutive daily catalog scans. New videos without a real
+  baseline are excluded, deterministic ties are stable, and warm-up/partial scans
+  are never described as a whole-channel winner.
+- Added an uncapped metadata-only uploads-playlist collector for public videos,
+  Shorts and live uploads. The worker records one canonical catalog scan per local
+  day after 00:20 Asia/Bangkok, preserves nullable counters and records explicit
+  `COMPLETE`/`PARTIAL` coverage instead of inventing missing history. The first
+  concurrent writer owns that channel/day atomically, and a collection crossing
+  local midnight aborts without attaching observations to the wrong date.
+- Replaced the stale distribution-provided `yt-dlp 2024.04.09` runtime with the
+  checksum-pinned official `2026.08.19` release. A public uploads-playlist smoke
+  probe now verifies the actual image emits channel-matching entries and usable
+  public view counters without login or cookies.
+- Added effective-dated channel monetization history with `UNCONFIGURED`,
+  `DISABLED` and `ENABLED` states. ADMIN can record a weekly review and exact USD
+  RPM from channel management; writes are audited, future/invalid rows are rejected
+  and VIEWER remains read-only within its server-authoritative scope.
+- Added deterministic signed estimated revenue from public daily channel view delta
+  × effective manual RPM / 1,000, using integer micro-USD and half-away-from-zero
+  rounding. Explicitly disabled is known zero; missing RPM or view evidence remains
+  unknown, and partial observed sums are visibly qualified rather than presented as
+  a total or lower bound.
+- Added group/channel-scoped revenue and daily-leader endpoints, dashboard cards,
+  breakdown table and feed. Existing recent, weekly, hot and breakout endpoint
+  meanings remain unchanged; the 28-day publication metric is labelled `Video đã
+xuất bản` so it cannot be confused with the new daily view-attribution feed.
+
+### Acceptance evidence
+
+- Workspace `pnpm verify` — PASS: Prisma validate/generate, every typecheck, ESLint
+  with zero warnings, Prettier, 127 test files / 770 unit tests and all production
+  builds/routes.
+- Fresh `pnpm test:auth:integration` — PASS: all nine migrations applied and replayed
+  cleanly, 12 PostgreSQL integration files / 51 tests, including catalog-scan
+  constraints, effective RPM history and scoped reads/writes.
+- Full `pnpm test:integration` — PASS: source Docker images, migration replay,
+  API/Worker/Web health, outage/recovery probes, containerized Playwright acceptance
+  and isolated cleanup.
+- In-app browser visual QA — PASS with controlled canonical fixtures: group and
+  channel selectors stayed scoped, a +10,000 channel day attributed +6,000 views to
+  its leading video, and 28 covered channel-days displayed exactly 42 USD estimated
+  revenue at 1.5 USD RPM without any service-error surface.
+- Public collector smoke — PASS against Sam 98 Farm's uploads playlist with no
+  account or cookie: the pinned runtime emitted all 185 declared entries, all 185
+  matched the canonical channel and all 185 carried public view counters.
+- Final independent review — PASS after fixing six evidence defects: partial
+  catalogs cannot publish winners, new videos do not invalidate complete buckets,
+  signed micro-USD remains exact, revenue uses stored daily deltas, backdated RPM
+  writes return the current effective row, and leaders no longer depend on a
+  positive channel delta. The dashboard now renders every revenue-series day with
+  explicit complete/partial/unavailable coverage; unknown deltas are never labelled
+  as zero or as “no positive gain”.
+
+### Boundaries preserved
+
+- No Google login, private YouTube Analytics scope, vidIQ backend/cookie/scraper or
+  revenue claim was introduced. Revenue is always labelled as an estimate from a
+  manually reviewed RPM.
+- AI remains explanation-only and cannot enumerate uploads, select the winning
+  video, infer RPM, calculate revenue or mutate canonical metrics.
+- Missing counters remain `NULL`, signed public corrections remain signed, and no
+  baseline, daily point or total is fabricated.
