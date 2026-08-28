@@ -861,3 +861,61 @@ xuất bản` so it cannot be confused with the new daily view-attribution feed.
 - Verification — PASS: PowerShell syntax parse, focused 3-test startup contract,
   published-image runtime import, and workspace `pnpm verify` with 128 test files /
   773 unit tests plus all typechecks, lint, formatting and production builds.
+
+## 2026-08-28 — Qualified zero metrics and revenue timeline
+
+### Delivered behavior
+
+- Missing subscriber, lifetime-view and published-video counters now render as
+  `0` with an adjacent `chưa có dữ liệu`/`hiển thị tạm` qualifier across the
+  dashboard, channel management and public-intelligence surfaces. A real observed
+  zero remains unqualified, while transport failures still render as errors rather
+  than fabricated zeroes.
+- Kept every canonical database/API nullable field, coverage status and provenance
+  unchanged. Display-only zeroes are never serialized back to the server or used
+  to manufacture a complete aggregate.
+- The revenue breakdown now contains only channels whose effective monetization
+  state is `ENABLED`. An enabled channel with no revenue evidence renders `0 USD`
+  with a missing-data qualifier; unconfigured and disabled channels are omitted.
+- Replaced the daily revenue card list with an accessible exact micro-USD SVG
+  timeline and screen-reader table. Missing days appear as hollow zero placeholders
+  and split the line into separate observed segments, so no false history is drawn.
+- Applied the same placeholder treatment to the 28-day public trend without
+  changing its baseline/coverage rules. Fixed a mobile overflow caused by applying
+  `sr-only` directly to intrinsic-width tables; both timelines now fit the page and
+  keep their wide chart/table content in local scroll containers.
+- Audited public hosting. Private remote access is feasible through Cloudflare
+  Tunnel plus Cloudflare Access/MFA; direct Internet exposure is not approved until
+  the six release gates in `docs/HOSTING.md` pass.
+
+### Acceptance evidence
+
+- Workspace `pnpm verify` — PASS: Prisma validate/generate, all typechecks, ESLint
+  with zero warnings, Prettier, 128 test files / 775 unit tests and every production
+  build/route.
+- Full `pnpm test:integration` — PASS: all nine migrations applied/replayed, 12
+  PostgreSQL integration files / 51 tests, source Docker images, API/Worker/Web
+  health, outage/recovery probes, containerized browser acceptance and isolated
+  cleanup.
+- In-app browser visual QA — PASS with controlled authenticated fixtures: only the
+  monetized channel remained in the revenue table, missing daily values rendered
+  as qualified hollow zeroes, observed revenue segments stayed disconnected across
+  missing days, and missing channel counters displayed qualified zeroes.
+- Responsive browser QA — PASS at a 390 × 844 requested viewport (375 CSS-pixel
+  document width): `documentElement.scrollWidth === clientWidth === 375` after the
+  screen-reader table containment fix.
+- Final independent review — PASS after closing four evidence issues: partial KPI
+  aggregates retain `đã ghi nhận`/`≥` semantics, the zero trend headline names its
+  missing baseline, catalog coverage never renders `N/0`, and only revenue edges
+  touching PARTIAL evidence use a dashed stroke while missing days split the line.
+- `pnpm audit --audit-level high` — PASS with no known vulnerabilities. Hosting
+  security/config review retained 59/59 passing tests.
+
+### Boundaries preserved
+
+- Canonical missing metrics remain `NULL`; explicit public zero, missing evidence,
+  partial evidence and network failure remain distinguishable.
+- AI remains explanation-only and cannot invent counters, interpolate missing
+  dates, infer RPM or calculate authoritative revenue.
+- No Google login, private YouTube Analytics scope, vidIQ cookie/backend access or
+  direct public port exposure was introduced.

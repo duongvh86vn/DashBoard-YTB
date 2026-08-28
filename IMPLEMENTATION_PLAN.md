@@ -1294,6 +1294,29 @@ or AI-generated numbers.
 - [x] Run Prisma validate/generate, typecheck, lint, unit, PostgreSQL integration,
       Docker and browser acceptance before commit and push.
 
+### 18.5 Presentation-only zero fallback and revenue chart — 2026-08-28
+
+**Scope addendum approved directly by the owner:** missing channel counters and
+estimated revenue must be easier to read as `0` in the UI; non-monetized channels
+must not appear in the revenue breakdown; revenue needs a real daily timeline
+chart. This is a narrow presentation rule and does not change the canonical
+`NULL`/coverage contracts.
+
+- [x] Keep database/API values nullable and retain COMPLETE/PARTIAL/UNAVAILABLE
+      coverage. Never serialize a display fallback back to the server.
+- [x] Show missing current subscriber/view/video values as `0` with a visible
+      `chưa có dữ liệu` or `hiển thị tạm` qualifier; exact observed zero remains
+      distinguishable by having no missing-data qualifier.
+- [x] Hide UNCONFIGURED/DISABLED channels from the revenue breakdown. An ENABLED
+      channel without revenue evidence displays `0 USD` with a missing-data label.
+- [x] Replace the daily revenue card list with an accessible SVG timeline and
+      screen-reader table. Exact signed micro-USD values remain intact; missing
+      days render as hollow zero placeholders and are not connected to real points.
+- [x] Apply the same qualified-zero presentation to the 28-day trend and channel
+      public-intelligence cards while leaving baseline/provenance warnings visible.
+- [x] Run final unit, build, Docker and browser gates, then record exact evidence
+      in `WORKLOG.md` before commit/push.
+
 **Exit:** each selected channel can expose an evidence-backed daily video leader;
 ADMIN can maintain weekly RPM history; dashboard revenue is deterministic,
 scope-safe and visibly estimated without weakening any canonical metric invariant.

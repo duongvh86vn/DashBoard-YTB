@@ -117,7 +117,7 @@ describe("DashboardTrendPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps missing deltas null and explains baseline warm-up instead of displaying zero", () => {
+  it("shows missing deltas as qualified zero placeholders while preserving baseline coverage", () => {
     const warming: DashboardTrendData = {
       ...populatedTrend,
       totals: { viewDelta: null, subscriberDelta: null, publishedVideos: 0 },
@@ -163,9 +163,19 @@ describe("DashboardTrendPanel", () => {
     render(<DashboardTrendPanel data={warming} />);
 
     const viewButton = screen.getByRole("button", { name: /Lượt xem tăng/ });
-    expect(within(viewButton).getByText("Chưa đủ baseline")).toBeInTheDocument();
-    expect(screen.getByText("Chưa đủ dữ liệu cho lượt xem")).toBeInTheDocument();
-    expect(screen.getByText(/không điền số 0 vào ngày thiếu dữ liệu/i)).toBeInTheDocument();
+    expect(within(viewButton).getByText("0")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", {
+        name: "Hiển thị 0 lượt xem — chưa đủ baseline trong 28 ngày qua",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /Lượt xem tăng trong 28 ngày/ })).toBeInTheDocument();
+    expect(screen.getByText(/0 chỉ là giá trị hiển thị/u)).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("table", { name: /Chi tiết theo ngày/ })).getAllByText(
+        "0 (thiếu snapshot)",
+      ),
+    ).toHaveLength(warming.series.length);
 
     fireEvent.click(screen.getByRole("button", { name: /Video đã xuất bản/ }));
     expect(

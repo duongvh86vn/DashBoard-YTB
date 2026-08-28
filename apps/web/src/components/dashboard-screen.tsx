@@ -48,6 +48,19 @@ function formatSignedNumber(value: bigint): string {
   return `${value > 0n ? "+" : ""}${formatNumber(value)}`;
 }
 
+function CurrentMetricValue({ value, label }: { value: string | null; label: string }) {
+  if (value !== null) return formatNumber(value);
+  return (
+    <span
+      className="inline-flex flex-col items-end"
+      title={`${label} chưa có dữ liệu; 0 là giá trị hiển thị tạm, không phải dữ liệu đã xác minh.`}
+    >
+      <span>0</span>
+      <span className="text-[10px] font-medium text-amber-700">chưa có dữ liệu</span>
+    </span>
+  );
+}
+
 function freshness(value: string | null | undefined): string {
   if (!value) return "Chưa có snapshot";
   return `Cập nhật ${new Date(value).toLocaleString("vi-VN")}`;
@@ -519,49 +532,37 @@ export function DashboardScreen() {
   const videoSummary = sumMetrics(channelItems.map((channel) => channel.videoCount));
   const subscriberCoverageComplete =
     hasCompleteChannelCoverage && subscriberSummary.known === channelItems.length;
+  const lifetimeViewCoverageComplete =
+    hasCompleteChannelCoverage && lifetimeViewSummary.known === channelItems.length;
+  const videoCoverageComplete =
+    hasCompleteChannelCoverage && videoSummary.known === channelItems.length;
   const displayedSubscriberTotal = hasCompleteChannelCoverage
     ? (subscriberSummary.total ?? 0n)
     : null;
-  const totalLifetimeViews =
-    hasCompleteChannelCoverage && lifetimeViewSummary.known === channelItems.length
-      ? lifetimeViewSummary.total
-      : null;
-  const totalVideos =
-    hasCompleteChannelCoverage && videoSummary.known === channelItems.length
-      ? videoSummary.total
-      : null;
+  const totalLifetimeViews = hasCompleteChannelCoverage ? (lifetimeViewSummary.total ?? 0n) : null;
+  const totalVideos = hasCompleteChannelCoverage ? (videoSummary.total ?? 0n) : null;
 
   const channelSubscriberChart = channelItems
-    .flatMap((channel) => {
-      const value = parseMetric(channel.subscriberCount);
-      return value === null
-        ? []
-        : [
-            {
-              id: channel.id,
-              label: channel.title,
-              meta: channel.handle ?? channel.youtubeChannelId,
-              value,
-            },
-          ];
-    })
+    .map((channel) => ({
+      id: channel.id,
+      label: channel.title,
+      meta: `${channel.handle ?? channel.youtubeChannelId}${
+        channel.subscriberCount === null ? " · chưa có dữ liệu, hiển thị 0" : ""
+      }`,
+      value: parseMetric(channel.subscriberCount) ?? 0n,
+    }))
     .sort((left, right) => (left.value === right.value ? 0 : left.value > right.value ? -1 : 1))
     .slice(0, 6);
 
   const channelViewChart = channelItems
-    .flatMap((channel) => {
-      const value = parseMetric(channel.lifetimeViewCount);
-      return value === null
-        ? []
-        : [
-            {
-              id: channel.id,
-              label: channel.title,
-              meta: channel.handle ?? channel.youtubeChannelId,
-              value,
-            },
-          ];
-    })
+    .map((channel) => ({
+      id: channel.id,
+      label: channel.title,
+      meta: `${channel.handle ?? channel.youtubeChannelId}${
+        channel.lifetimeViewCount === null ? " · chưa có dữ liệu, hiển thị 0" : ""
+      }`,
+      value: parseMetric(channel.lifetimeViewCount) ?? 0n,
+    }))
     .sort((left, right) => (left.value === right.value ? 0 : left.value > right.value ? -1 : 1))
     .slice(0, 6);
 
@@ -736,24 +737,40 @@ export function DashboardScreen() {
                 : subscriberCoverageComplete
                   ? formatNumber(displayedSubscriberTotal)
                   : `≥ ${formatNumber(displayedSubscriberTotal)}`,
-            hint: subscriberCoverageComplete
-              ? `${subscriberSummary.known}/${channelItems.length} kênh có số liệu`
-              : `${subscriberSummary.known}/${channelItems.length} kênh có số liệu · ${Math.max(
-                  0,
-                  channelItems.length - subscriberSummary.known,
-                )} chưa xác minh`,
+            hint: `${subscriberSummary.known}/${channelItems.length} kênh có số liệu · ${Math.max(
+              0,
+              channelItems.length - subscriberSummary.known,
+            )} hiển thị 0`,
             accent: "bg-violet-500",
           },
           {
-            label: "Tổng lượt xem trọn đời",
-            value: formatNumber(totalLifetimeViews),
-            hint: `${lifetimeViewSummary.known}/${channelItems.length} kênh có snapshot`,
+            label: lifetimeViewCoverageComplete
+              ? "Tổng lượt xem trọn đời"
+              : "Lượt xem trọn đời đã ghi nhận",
+            value:
+              totalLifetimeViews === null
+                ? "—"
+                : lifetimeViewCoverageComplete
+                  ? formatNumber(totalLifetimeViews)
+                  : `≥ ${formatNumber(totalLifetimeViews)}`,
+            hint: `${lifetimeViewSummary.known}/${channelItems.length} kênh có snapshot · ${Math.max(
+              0,
+              channelItems.length - lifetimeViewSummary.known,
+            )} hiển thị 0`,
             accent: "bg-rose-500",
           },
           {
-            label: "Video đã xuất bản",
-            value: formatNumber(totalVideos),
-            hint: `${videoSummary.known}/${channelItems.length} kênh có metadata`,
+            label: videoCoverageComplete ? "Video đã xuất bản" : "Video đã ghi nhận",
+            value:
+              totalVideos === null
+                ? "—"
+                : videoCoverageComplete
+                  ? formatNumber(totalVideos)
+                  : `≥ ${formatNumber(totalVideos)}`,
+            hint: `${videoSummary.known}/${channelItems.length} kênh có metadata · ${Math.max(
+              0,
+              channelItems.length - videoSummary.known,
+            )} hiển thị 0`,
             accent: "bg-emerald-500",
           },
         ].map((metric) => (
@@ -835,7 +852,7 @@ export function DashboardScreen() {
               <h3 className="font-black text-slate-950">Bảng chỉ số kênh</h3>
               <p className="mt-1 text-xs leading-5 text-slate-500">
                 Subscriber là số công khai có thể bị làm tròn; video chỉ tính nội dung đang công
-                khai.
+                khai. Chỉ số thiếu được hiển thị 0 và gắn nhãn, không thay đổi dữ liệu gốc.
               </p>
             </div>
             <span className="text-xs font-bold text-slate-500">{channelItems.length} kênh</span>
@@ -880,25 +897,19 @@ export function DashboardScreen() {
                         </p>
                       </td>
                       <td className="px-4 py-4 text-right font-black tabular-nums">
-                        {channel.subscriberCount === null ? (
-                          <span
-                            className="inline-flex flex-col items-end"
-                            title="Chưa đọc được số người đăng ký công khai; 0 là giá trị hiển thị tạm, không phải dữ liệu đã xác minh."
-                          >
-                            <span>0*</span>
-                            <span className="text-[10px] font-medium text-amber-700">
-                              chưa xác minh
-                            </span>
-                          </span>
-                        ) : (
-                          formatNumber(channel.subscriberCount)
-                        )}
+                        <CurrentMetricValue
+                          value={channel.subscriberCount}
+                          label="Số người đăng ký công khai"
+                        />
                       </td>
                       <td className="px-4 py-4 text-right font-black tabular-nums">
-                        {formatNumber(channel.lifetimeViewCount)}
+                        <CurrentMetricValue
+                          value={channel.lifetimeViewCount}
+                          label="Lượt xem trọn đời"
+                        />
                       </td>
                       <td className="px-4 py-4 text-right font-black tabular-nums">
-                        {formatNumber(channel.videoCount)}
+                        <CurrentMetricValue value={channel.videoCount} label="Video công khai" />
                       </td>
                       <td className="px-4 py-4 text-xs text-slate-500">
                         {freshness(channel.lastChannelScanAt)}

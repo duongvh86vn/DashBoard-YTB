@@ -18,7 +18,17 @@ function subscriberLabel(channel: {
   lastChannelScanAt: string | null;
 }): string {
   if (channel.subscriberCount !== null) return channel.subscriberCount;
-  return channel.lastChannelScanAt === null ? "Chưa thu thập" : "Không đọc được công khai";
+  return "0";
+}
+
+function subscriberTitle(channel: {
+  subscriberCount: string | null;
+  lastChannelScanAt: string | null;
+}): string | undefined {
+  if (channel.subscriberCount !== null) return undefined;
+  return channel.lastChannelScanAt === null
+    ? "Số người đăng ký chưa được thu thập; 0 là giá trị hiển thị tạm."
+    : "Số người đăng ký không đọc được công khai; 0 là giá trị hiển thị tạm.";
 }
 
 type ChannelItem = Awaited<ReturnType<typeof listChannels>>["items"][number];
@@ -101,7 +111,7 @@ function ChannelMonetization({
       <p className="mt-1 text-xs leading-5 text-slate-500">
         {channel.monetization?.effectiveDate
           ? `Hiệu lực từ ${channel.monetization.effectiveDate} · cập nhật thủ công`
-          : "Chưa có quyết định quản lý; dashboard giữ doanh thu ở trạng thái chưa biết."}
+          : "Chưa có quyết định quản lý; kênh này không xuất hiện trong bảng doanh thu."}
       </p>
       {isAdmin ? (
         <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={(event) => void submit(event)}>
@@ -308,13 +318,35 @@ export function ChannelsScreen() {
             <dl className="mt-5 grid grid-cols-3 gap-3 text-sm">
               <div>
                 <dt className="text-slate-500">Người đăng ký</dt>
-                <dd className="mt-1 break-words font-semibold text-slate-900">
+                <dd
+                  className="mt-1 break-words font-semibold text-slate-900"
+                  title={subscriberTitle(channel)}
+                >
                   {subscriberLabel(channel)}
+                  {channel.subscriberCount === null ? (
+                    <span className="mt-1 block text-[10px] font-medium text-amber-700">
+                      chưa có dữ liệu
+                    </span>
+                  ) : null}
                 </dd>
               </div>
               <div>
                 <dt className="text-slate-500">Video</dt>
-                <dd className="mt-1 font-semibold text-slate-900">{channel.videoCount ?? "—"}</dd>
+                <dd
+                  className="mt-1 font-semibold text-slate-900"
+                  title={
+                    channel.videoCount === null
+                      ? "Số video chưa có dữ liệu; 0 là giá trị hiển thị tạm."
+                      : undefined
+                  }
+                >
+                  {channel.videoCount ?? "0"}
+                  {channel.videoCount === null ? (
+                    <span className="mt-1 block text-[10px] font-medium text-amber-700">
+                      chưa có dữ liệu
+                    </span>
+                  ) : null}
+                </dd>
               </div>
               <div>
                 <dt className="text-slate-500">Hoạt động</dt>
@@ -375,7 +407,7 @@ export function ChannelsScreen() {
         </nav>
       ) : null}
       <p className="text-sm text-slate-500">
-        Số liệu chỉ hiển thị sau snapshot công khai thành công; không có backfill giả.
+        Chỉ số thiếu được hiển thị 0 để dễ đọc; dữ liệu gốc vẫn là NULL và không có backfill giả.
       </p>
     </div>
   );

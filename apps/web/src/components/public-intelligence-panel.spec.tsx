@@ -116,17 +116,29 @@ describe("PublicIntelligencePanel", () => {
     expect(within(inventory!).getByText("-4")).toBeInTheDocument();
   });
 
-  it("shows warming and provenance instead of replacing missing history with zero", () => {
+  it("shows a qualified zero placeholder while preserving warming status and provenance", () => {
     render(<PublicIntelligencePanel data={response()} />);
 
     const subscribers = screen.getByText("Người đăng ký tăng").closest("article");
     expect(subscribers).not.toBeNull();
-    expect(within(subscribers!).getByText("—")).toBeInTheDocument();
+    expect(within(subscribers!).getByText("0")).toBeInTheDocument();
+    expect(within(subscribers!).getByText("hiển thị tạm")).toBeInTheDocument();
     expect(within(subscribers!).getByText("Đang tích lũy baseline")).toBeInTheDocument();
     expect(screen.getByText("Subscriber công khai đã bị làm tròn")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Độ phủ snapshot công khai" })).toHaveAttribute(
       "aria-valuenow",
       "40",
     );
+  });
+
+  it("does not present known catalog rows as an impossible ratio over a missing total", () => {
+    const data = response();
+    data.coverage.reportedPublicVideos = null;
+    render(<PublicIntelligencePanel data={data} />);
+
+    expect(
+      screen.getByText(/Catalog biết 50 video công khai; tổng công khai hiển thị tạm 0/u),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/50\/0 video/u)).not.toBeInTheDocument();
   });
 });

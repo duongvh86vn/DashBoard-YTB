@@ -1153,7 +1153,7 @@ describe("Phase 8 dashboard", () => {
         "Cần hai lần quét catalog thật ở hai ngày liên tiếp trước khi so sánh.",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("Chưa đủ dữ liệu để ước tính")).toBeInTheDocument();
+    expect(screen.getAllByText("0 USD").length).toBeGreaterThan(0);
     expect(screen.queryByText("Video mới phát hiện")).not.toBeInTheDocument();
     expect(screen.getByText("Chưa đủ baseline 7 ngày để xếp hạng.")).toBeInTheDocument();
     expect(container.querySelector('a[href*="health"]')).toBeNull();
@@ -1236,8 +1236,8 @@ describe("Phase 8 dashboard", () => {
                   description: null,
                   thumbnail: null,
                   subscriberCount: null,
-                  videoCount: "12",
-                  lifetimeViewCount: "20000",
+                  videoCount: null,
+                  lifetimeViewCount: null,
                   lastUploadAt: "2026-08-24T07:00:00.000Z",
                   availabilityStatus: "ACTIVE",
                   activityStatus: "ACTIVE",
@@ -1339,18 +1339,22 @@ describe("Phase 8 dashboard", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /Lượt xem tăng trong 28 ngày/ })).toBeInTheDocument();
 
-    const lifetimeViews = screen.getByText("Tổng lượt xem trọn đời").closest("article");
+    const lifetimeViews = screen.getByText("Lượt xem trọn đời đã ghi nhận").closest("article");
     expect(lifetimeViews).not.toBeNull();
-    expect(within(lifetimeViews!).getByText("30.000")).toBeInTheDocument();
+    expect(within(lifetimeViews!).getByText("≥ 10.000")).toBeInTheDocument();
 
     const subscribers = screen.getByText("Người đăng ký đã ghi nhận").closest("article");
     expect(subscribers).not.toBeNull();
     expect(within(subscribers!).getByText("≥ 1.250")).toBeInTheDocument();
     expect(
-      within(subscribers!).getByText("1/2 kênh có số liệu · 1 chưa xác minh"),
+      within(subscribers!).getByText("1/2 kênh có số liệu · 1 hiển thị 0"),
     ).toBeInTheDocument();
-    expect(screen.getByText("0*")).toBeInTheDocument();
-    expect(screen.getByText("chưa xác minh")).toBeInTheDocument();
+    expect(screen.getAllByText("0").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("chưa có dữ liệu").length).toBeGreaterThan(0);
+
+    const missingMetricRow = screen.getByRole("row", { name: /Kênh Thứ Hai/u });
+    expect(within(missingMetricRow).getAllByText("0")).toHaveLength(3);
+    expect(within(missingMetricRow).getAllByText("chưa có dữ liệu")).toHaveLength(3);
   });
 
   it("keeps canonical charts visible when ADMIN health and AI requests fail", async () => {

@@ -157,7 +157,7 @@ function partialDayCoverage(
 }
 
 function metricValueLabel(value: bigint | null, metric: TrendMetric): string {
-  if (value === null) return "Chưa đủ baseline";
+  if (value === null) return "0";
   return metric === "videos" ? formatExact(value) : formatSigned(value);
 }
 
@@ -206,7 +206,7 @@ interface ChartPoint {
   coveredChannels: number | null;
   totalChannels: number | null;
   x: number;
-  y: number | null;
+  y: number;
 }
 
 const CHART = {
@@ -222,7 +222,7 @@ function splitKnownSegments(points: ChartPoint[]): ChartPoint[][] {
   const segments: ChartPoint[][] = [];
   let current: ChartPoint[] = [];
   for (const point of points) {
-    if (point.y === null) {
+    if (point.status === "UNAVAILABLE") {
       if (current.length > 0) segments.push(current);
       current = [];
     } else {
@@ -240,11 +240,11 @@ function DashboardTrendChart({ data, metric }: { data: DashboardTrendData; metri
       date: point.date,
       ...pointMetric(point, metric, data.coverage.totalChannels),
     }));
-    const known = raw.flatMap((point) => (point.value === null ? [] : [point.value]));
-    if (known.length === 0) return null;
+    if (raw.length === 0) return null;
+    const displayed = raw.map((point) => point.value ?? 0n);
 
-    const minimum = known.reduce((result, value) => (value < result ? value : result), 0n);
-    let maximum = known.reduce((result, value) => (value > result ? value : result), 0n);
+    const minimum = displayed.reduce((result, value) => (value < result ? value : result), 0n);
+    let maximum = displayed.reduce((result, value) => (value > result ? value : result), 0n);
     if (minimum === maximum) maximum = minimum + 1n;
     const range = maximum - minimum;
     const lastIndex = Math.max(1, raw.length - 1);
@@ -252,11 +252,9 @@ function DashboardTrendChart({ data, metric }: { data: DashboardTrendData; metri
       ...point,
       x: CHART.left + (index / lastIndex) * (CHART.right - CHART.left),
       y:
-        point.value === null
-          ? null
-          : CHART.top +
-            (Number(((maximum - point.value) * 1_000n) / range) / 1_000) *
-              (CHART.bottom - CHART.top),
+        CHART.top +
+        (Number(((maximum - (point.value ?? 0n)) * 1_000n) / range) / 1_000) *
+          (CHART.bottom - CHART.top),
     }));
     return {
       minimum,
@@ -277,10 +275,9 @@ function DashboardTrendChart({ data, metric }: { data: DashboardTrendData; metri
         role="status"
       >
         <div>
-          <p className="font-bold text-slate-200">Chưa đủ dữ liệu cho {detail.shortLabel}</p>
+          <p className="font-bold text-slate-200">Chưa có ngày nào trong kỳ đã chọn</p>
           <p className="mt-2 max-w-lg text-sm leading-6 text-slate-400">
-            Cần ít nhất hai snapshot thật để tính chênh lệch. Dashboard không điền số 0 vào ngày
-            thiếu dữ liệu.
+            Chưa có mốc thời gian để dựng biểu đồ {detail.shortLabel}.
           </p>
         </div>
       </div>
@@ -305,7 +302,8 @@ function DashboardTrendChart({ data, metric }: { data: DashboardTrendData; metri
       >
         <title>{ariaSummary}</title>
         <desc>
-          Đường biểu diễn chỉ nối các ngày có dữ liệu thật; khoảng trống là ngày thiếu snapshot.
+          Đường biểu diễn chỉ nối các ngày có dữ liệu thật. Điểm tròn rỗng tại 0 là ngày thiếu
+          snapshot, không phải dữ liệu đã xác nhận bằng 0.
         </desc>
         <defs>
           <linearGradient id={detail.gradientId} x1="0" x2="0" y1="0" y2="1">
@@ -361,7 +359,7 @@ function DashboardTrendChart({ data, metric }: { data: DashboardTrendData; metri
                 <circle
                   key={point.date}
                   cx={point.x}
-                  cy={point.y ?? 0}
+                  cy={point.y}
                   r="4"
                   fill={detail.line}
                   stroke={point.status === "PARTIAL" ? "#fbbf24" : "none"}
@@ -374,6 +372,23 @@ function DashboardTrendChart({ data, metric }: { data: DashboardTrendData; metri
             </g>
           );
         })}
+        {model.points
+          .filter((point) => point.status === "UNAVAILABLE")
+          .map((point) => (
+            <circle
+              key={`missing-${point.date}`}
+              cx={point.x}
+              cy={point.y}
+              r="4.5"
+              fill="#0f172a"
+              stroke="#94a3b8"
+              strokeWidth="2"
+              strokeDasharray="2 2"
+              vectorEffect="non-scaling-stroke"
+            >
+              <title>{`${formatCalendarDate(point.date)}: 0 hiển thị tạm · thiếu snapshot`}</title>
+            </circle>
+          ))}
         <line
           x1={CHART.left}
           x2={CHART.right}
@@ -404,36 +419,38 @@ function DashboardTrendChart({ data, metric }: { data: DashboardTrendData; metri
           </text>
         ))}
       </svg>
-      <table className="sr-only">
-        <caption>{ariaSummary} Chi tiết theo ngày</caption>
-        <thead>
-          <tr>
-            <th scope="col">Ngày</th>
-            <th scope="col">{detail.label}</th>
-            <th scope="col">Độ phủ</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.series.map((point) => {
-            const observed = pointMetric(point, metric, data.coverage.totalChannels);
-            return (
-              <tr key={point.date}>
-                <th scope="row">{formatCalendarDate(point.date)}</th>
-                <td>
-                  {observed.value === null
-                    ? "Thiếu snapshot"
-                    : metricValueLabel(observed.value, metric)}
-                </td>
-                <td>
-                  {observed.coveredChannels === null
-                    ? "Catalog công khai"
-                    : `${observed.coveredChannels}/${observed.totalChannels} kênh có dữ liệu`}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <div className="sr-only">
+        <table>
+          <caption>{ariaSummary} Chi tiết theo ngày</caption>
+          <thead>
+            <tr>
+              <th scope="col">Ngày</th>
+              <th scope="col">{detail.label}</th>
+              <th scope="col">Độ phủ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.series.map((point) => {
+              const observed = pointMetric(point, metric, data.coverage.totalChannels);
+              return (
+                <tr key={point.date}>
+                  <th scope="row">{formatCalendarDate(point.date)}</th>
+                  <td>
+                    {observed.value === null
+                      ? "0 (thiếu snapshot)"
+                      : metricValueLabel(observed.value, metric)}
+                  </td>
+                  <td>
+                    {observed.coveredChannels === null
+                      ? "Catalog công khai"
+                      : `${observed.coveredChannels}/${observed.totalChannels} kênh có dữ liệu`}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -441,7 +458,9 @@ function DashboardTrendChart({ data, metric }: { data: DashboardTrendData; metri
 function headline(data: DashboardTrendData): string {
   const aggregate = metricTotal(data, "views");
   const views = aggregate.value;
-  if (views === null) return `Xu hướng công khai trong ${data.period.days} ngày qua`;
+  if (views === null) {
+    return `Hiển thị 0 lượt xem — chưa đủ baseline trong ${data.period.days} ngày qua`;
+  }
   if (aggregate.status === "PARTIAL") {
     return `Đã quan sát ${formatSigned(views)} lượt xem trên ${aggregate.coveredChannels}/${aggregate.totalChannels} kênh trong ${data.period.days} ngày qua`;
   }
@@ -533,6 +552,12 @@ export function DashboardTrendPanel({
                 được đổi thành 0.
               </p>
             ) : null}
+            {selectedTotal?.status === "UNAVAILABLE" ? (
+              <p className="mt-4 rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm font-semibold text-slate-300">
+                0 chỉ là giá trị hiển thị vì chưa đủ baseline. Dữ liệu canonical vẫn là NULL; các
+                điểm rỗng không được nối thành lịch sử giả.
+              </p>
+            ) : null}
             {selectedPartialDays ? (
               <p className="mt-4 rounded-xl border border-amber-700/60 bg-amber-950/30 px-4 py-3 text-sm font-semibold text-amber-200">
                 Một số ngày chỉ có dữ liệu của một phần kênh: {selectedPartialDays.days} ngày
@@ -570,7 +595,7 @@ export function DashboardTrendPanel({
             </p>
             <p className="mt-2 text-right text-xs text-slate-500">
               {formatCalendarDate(data.period.startDate)}–{formatCalendarDate(data.period.endDate)}{" "}
-              · không nội suy ngày thiếu
+              · không nội suy ngày thiếu · 0 là giá trị hiển thị tạm
             </p>
           </div>
         </>

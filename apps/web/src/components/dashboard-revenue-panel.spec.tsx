@@ -70,8 +70,22 @@ function revenueFixture(): DashboardRevenueResponse {
 }
 
 describe("DashboardRevenuePanel", () => {
-  it("labels partial manual-RPM revenue as observed evidence, never as an actual total", () => {
-    render(<DashboardRevenuePanel data={revenueFixture()} loading={false} failed={false} />);
+  it("shows revenue only for monetized channels and keeps partial values qualified", () => {
+    const data = revenueFixture();
+    data.channels.push({
+      channelId: "00000000-0000-4000-8000-000000000012",
+      channelTitle: "Kênh chưa bật kiếm tiền",
+      monetizationStatus: "DISABLED",
+      effectiveDate: "2026-08-20",
+      rpmUsd: null,
+      lastReviewedAt: "2026-08-20T03:00:00.000Z",
+      totalEstimatedRevenueUsd: "0",
+      observedEstimatedRevenueUsd: "0",
+      status: "COMPLETE",
+      coveredDays: 7,
+      totalDays: 7,
+    });
+    render(<DashboardRevenuePanel data={data} loading={false} failed={false} />);
 
     expect(
       screen.getByRole("heading", { name: "Doanh thu ước tính từ RPM thủ công" }),
@@ -84,13 +98,11 @@ describe("DashboardRevenuePanel", () => {
     expect(within(configured!).getByText("1,25 USD")).toBeInTheDocument();
     expect(within(configured!).getByText("Quan sát 15,625 USD")).toBeInTheDocument();
 
-    const unknown = screen.getByText("Kênh chưa cấu hình").closest("tr");
-    expect(unknown).not.toBeNull();
-    expect(within(unknown!).getByText("Chưa cấu hình")).toBeInTheDocument();
-    expect(within(unknown!).getByText("Chưa biết")).toBeInTheDocument();
+    expect(screen.queryByText("Kênh chưa cấu hình")).not.toBeInTheDocument();
+    expect(screen.queryByText("Kênh chưa bật kiếm tiền")).not.toBeInTheDocument();
   });
 
-  it("keeps unavailable revenue blank instead of fabricating zero", () => {
+  it("presents unavailable monetized revenue as zero without changing its data status", () => {
     const data = revenueFixture();
     data.metric = {
       totalEstimatedRevenueUsd: null,
@@ -101,11 +113,11 @@ describe("DashboardRevenuePanel", () => {
     };
     render(<DashboardRevenuePanel data={data} loading={false} failed={false} />);
 
-    expect(screen.getByText("Chưa đủ dữ liệu để ước tính")).toBeInTheDocument();
-    expect(screen.queryByText("0 USD")).not.toBeInTheDocument();
+    expect(screen.getAllByText("0 USD").length).toBeGreaterThan(0);
+    expect(screen.getByText(/0 chỉ là giá trị hiển thị/u)).toBeInTheDocument();
   });
 
-  it("renders every daily revenue point with exact signed values and coverage", () => {
+  it("renders an accessible revenue timeline with exact signed values and zero placeholders", () => {
     const data = revenueFixture();
     data.series = [
       {
@@ -129,15 +141,73 @@ describe("DashboardRevenuePanel", () => {
 
     render(<DashboardRevenuePanel data={data} loading={false} failed={false} />);
 
-    const timeline = screen.getByRole("list", {
-      name: "Dòng thời gian doanh thu ước tính theo ngày",
+    expect(screen.getByRole("img", { name: /Doanh thu ước tính theo ngày/u })).toBeInTheDocument();
+    const timeline = screen.getByRole("table", {
+      name: /Chi tiết doanh thu ước tính theo ngày/u,
     });
-    expect(within(timeline).getAllByRole("listitem")).toHaveLength(data.series.length);
-    expect(within(timeline).getByText("2026-08-20")).toBeInTheDocument();
-    expect(within(timeline).getByText("2026-08-27")).toBeInTheDocument();
-    expect(within(timeline).getByText("Phần đã quan sát: -0,0015 USD")).toBeInTheDocument();
-    expect(within(timeline).getAllByText("PARTIAL · 1/2 kênh có dữ liệu")).toHaveLength(2);
-    expect(within(timeline).getAllByText("UNAVAILABLE · 0/2 kênh có dữ liệu")).toHaveLength(5);
-    expect(within(timeline).getByText("Tổng: 4,500 USD")).toBeInTheDocument();
+    expect(within(timeline).getAllByRole("row")).toHaveLength(data.series.length + 1);
+    expect(within(timeline).getByText("20/08")).toBeInTheDocument();
+    expect(within(timeline).getByText("27/08")).toBeInTheDocument();
+    expect(within(timeline).getByText("-0,0015 USD")).toBeInTheDocument();
+    expect(within(timeline).getAllByText("0 USD (thiếu dữ liệu)")).toHaveLength(5);
+    expect(within(timeline).getByText("4,500 USD")).toBeInTheDocument();
+  });
+
+  it("styles only edges touching partial evidence and never bridges a missing day", () => {
+    const data = revenueFixture();
+    data.series = [
+      {
+        date: "2026-08-20",
+        totalEstimatedRevenueUsd: "1",
+        observedEstimatedRevenueUsd: "1",
+        status: "COMPLETE",
+        coveredChannels: 2,
+        totalChannels: 2,
+      },
+      {
+        date: "2026-08-21",
+        totalEstimatedRevenueUsd: "2",
+        observedEstimatedRevenueUsd: "2",
+        status: "COMPLETE",
+        coveredChannels: 2,
+        totalChannels: 2,
+      },
+      {
+        date: "2026-08-22",
+        totalEstimatedRevenueUsd: null,
+        observedEstimatedRevenueUsd: "3",
+        status: "PARTIAL",
+        coveredChannels: 1,
+        totalChannels: 2,
+      },
+      {
+        date: "2026-08-23",
+        totalEstimatedRevenueUsd: null,
+        observedEstimatedRevenueUsd: null,
+        status: "UNAVAILABLE",
+        coveredChannels: 0,
+        totalChannels: 2,
+      },
+      {
+        date: "2026-08-24",
+        totalEstimatedRevenueUsd: "4",
+        observedEstimatedRevenueUsd: "4",
+        status: "COMPLETE",
+        coveredChannels: 2,
+        totalChannels: 2,
+      },
+    ];
+
+    const { container } = render(
+      <DashboardRevenuePanel data={data} loading={false} failed={false} />,
+    );
+    const edges = Array.from(container.querySelectorAll("[data-revenue-edge]"));
+
+    expect(edges).toHaveLength(2);
+    expect(edges[0]).toHaveAttribute("data-revenue-edge", "2026-08-20:2026-08-21");
+    expect(edges[0]).not.toHaveAttribute("stroke-dasharray");
+    expect(edges[1]).toHaveAttribute("data-revenue-edge", "2026-08-21:2026-08-22");
+    expect(edges[1]).toHaveAttribute("stroke-dasharray", "7 5");
+    expect(container.querySelector('[data-revenue-edge="2026-08-22:2026-08-24"]')).toBeNull();
   });
 });

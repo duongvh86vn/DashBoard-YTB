@@ -33,6 +33,7 @@ function channel(input: {
   id: string;
   title: string;
   subscriberCount: string | null;
+  videoCount?: string | null;
   lastChannelScanAt: string | null;
   monetization?: {
     status: "UNCONFIGURED" | "DISABLED" | "ENABLED";
@@ -53,7 +54,7 @@ function channel(input: {
     description: null,
     thumbnail: null,
     subscriberCount: input.subscriberCount,
-    videoCount: "2",
+    videoCount: input.videoCount === undefined ? "2" : input.videoCount,
     lifetimeViewCount: "50",
     lastUploadAt: null,
     availabilityStatus: "ACTIVE",
@@ -184,7 +185,7 @@ describe("ChannelsScreen subscriber availability", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("distinguishes an explicit zero from uncollected and unreadable public values", async () => {
+  it("displays missing public values as zero while retaining an explanatory qualifier", async () => {
     const items = [
       channel({
         id: "00000000-0000-4000-8000-000000000010",
@@ -196,6 +197,7 @@ describe("ChannelsScreen subscriber availability", () => {
         id: "00000000-0000-4000-8000-000000000011",
         title: "Kênh chưa quét",
         subscriberCount: null,
+        videoCount: null,
         lastChannelScanAt: null,
       }),
       channel({
@@ -240,7 +242,11 @@ describe("ChannelsScreen subscriber availability", () => {
     expect(uncollectedCard).not.toBeNull();
     expect(unreadableCard).not.toBeNull();
     expect(within(zeroCard!).getByText("0")).toBeInTheDocument();
-    expect(within(uncollectedCard!).getByText("Chưa thu thập")).toBeInTheDocument();
-    expect(within(unreadableCard!).getByText("Không đọc được công khai")).toBeInTheDocument();
+    expect(within(uncollectedCard!).getAllByText("0")).toHaveLength(2);
+    expect(within(unreadableCard!).getByText("0")).toBeInTheDocument();
+    expect(within(uncollectedCard!).getAllByText("chưa có dữ liệu")).toHaveLength(2);
+    expect(within(unreadableCard!).getByText("chưa có dữ liệu")).toBeInTheDocument();
+    expect(within(uncollectedCard!).getByTitle(/chưa được thu thập/u)).toBeInTheDocument();
+    expect(within(unreadableCard!).getByTitle(/không đọc được công khai/u)).toBeInTheDocument();
   });
 });

@@ -37,9 +37,9 @@ function durationLabel(seconds: number): string {
 }
 
 function formatMetric(metric: PublicIntelligenceMetric, signed = false): string {
-  if (metric.value === null) return "—";
+  if (metric.value === null) return "0";
   const value = numeric(metric.value);
-  if (value === null) return "—";
+  if (value === null) return "0";
   const formatted =
     metric.unit === "SECONDS"
       ? durationLabel(value)
@@ -83,7 +83,10 @@ function MetricCard({
         </span>
       </div>
       <p className="mt-3 text-2xl font-black tabular-nums text-slate-950">
-        {formatMetric(metric, signed)}
+        <span>{formatMetric(metric, signed)}</span>
+        {metric.value === null ? (
+          <span className="ml-2 text-[10px] font-semibold text-amber-700">hiển thị tạm</span>
+        ) : null}
       </p>
       <dl className="mt-3 space-y-1 text-xs leading-5 text-slate-500">
         <div>
@@ -180,8 +183,17 @@ export function PublicIntelligencePanel({ data }: { data: PublicIntelligenceResp
           />
         </div>
         <p className="mt-3 text-xs leading-5 text-slate-500">
-          Catalog biết {coverage.knownPublicVideos}/{coverage.reportedPublicVideos ?? "—"} video
-          công khai; {coverage.durationKnownVideos} video có thời lượng.
+          {coverage.reportedPublicVideos === null ? (
+            <>
+              Catalog biết {coverage.knownPublicVideos} video công khai; tổng công khai hiển thị tạm
+              0 vì chưa có dữ liệu; {coverage.durationKnownVideos} video có thời lượng.
+            </>
+          ) : (
+            <>
+              Catalog biết {coverage.knownPublicVideos}/{coverage.reportedPublicVideos} video công
+              khai; {coverage.durationKnownVideos} video có thời lượng.
+            </>
+          )}
         </p>
       </div>
 
