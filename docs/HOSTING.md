@@ -39,20 +39,45 @@ authenticate it with the owner account, and point the tunnel at
 starting the public tunnel. Never put the tunnel token in Git, a browser bundle
 or a Compose command line.
 
-The public acceptance test remains pending until the owner supplies the domain,
-tunnel token and mobile-network test window. LAN access is deliberately
-independent of tunnel availability.
+The active owner-approved hostname is `https://ytb.omvkl.com`. Tunnel tokens,
+DNS and edge rules remain external state. After each deployment, verify the
+HTTPS login/session flow from a mobile network; LAN access remains deliberately
+independent of Tunnel availability.
 
-## Public-readiness audit — 2026-08-28
+### Supported Windows PUBLIC commands
 
-**Verdict:** technically feasible for private remote access behind Cloudflare
-Tunnel and Cloudflare Access, but not ready for direct Internet exposure.
+The owner-approved hostname is configured outside Git in `.env.public` and the
+Cloudflare Tunnel. From the repository root, use the Windows launchers:
+
+```text
+start-public.bat
+update-public.bat
+```
+
+`start-public.bat` starts the SHA-pinned prebuilt stack without fetching Git or
+forcing container replacement. `update-public.bat` requires a clean
+`phase/0-foundation` clone, fetches the remote branch, waits for all immutable
+application images, fast-forwards, applies migrations through `db-migrate`,
+updates changed application containers while retaining named volumes, and
+verifies both the loopback Caddy route and the public HTTPS login/API path.
+
+Both commands are compatible with Windows PowerShell 5.1. They read but never
+write `.env.public`; they do not build source images, run `db-seed`, remove
+volumes or alter the externally managed Cloudflare Tunnel. `start.bat` remains
+strictly LOCAL and must not be used for the public site.
+
+## Owner-approved public deployment — 2026-08-31
+
+The owner selected an Internet-reachable login page protected by the
+application's individual user accounts and group authorization. Cloudflare
+Access is optional for this topology; Cloudflare Tunnel remains the only route
+to the loopback origin, with edge HTTPS, cache bypass and login rate limiting.
 
 Recommended topology:
 
 ```text
 Browser
-  -> Cloudflare HTTPS + Access/MFA + edge rate limit
+  -> Cloudflare HTTPS + edge rate limit
   -> outbound Cloudflare Tunnel
   -> 127.0.0.1:8080 Caddy
   -> internal Web/API
@@ -64,17 +89,18 @@ controls are the internal database network, no API/Worker/PostgreSQL host ports,
 exact-origin CSRF checks, PUBLIC-only Secure/HttpOnly session cookies, Argon2
 password hashing and non-root application images.
 
-The following gates remain mandatory before a public release:
+The following operational controls remain important for a public release:
 
-1. Add and test a supported PUBLIC bootstrap/update command. `start.bat` is a
-   LOCAL workflow and intentionally rejects the PUBLIC trusted-proxy contract.
+1. Use the supported `start-public.bat` and `update-public.bat` commands.
+   `start.bat` intentionally remains a LOCAL workflow.
 2. Run a real-domain acceptance test for login/session cookies, CSRF-protected
    writes, logout, reboot/reconnect and Worker health over a mobile network.
 3. Automate encrypted off-host database backups with retention and complete a
    restore drill. The current backup scripts are manual and local.
-4. Put Cloudflare Access/MFA, edge rate limiting and WAF rules in front of the
-   login endpoint. The owner-approved six-character application minimum is not a
-   safe operational password policy for an Internet-facing ADMIN account.
+4. Keep edge rate limiting and WAF rules in front of the login endpoint. The
+   owner-approved six-character application minimum is not a safe operational
+   password choice for an Internet-facing ADMIN account; issued passwords should
+   be unique and substantially longer.
 5. Use immutable `sha-<commit>` application image tags and document rollback.
    Current published application images support `linux/amd64`; an ARM host needs
    multi-architecture images or supported emulation.
@@ -82,15 +108,14 @@ The following gates remain mandatory before a public release:
    secrets, HSTS at the HTTPS edge, and an application-tested CSP) before calling
    the deployment production-ready.
 
-Until all six gates pass, Cloudflare Tunnel testing should be treated as a
-controlled private preview, not a production public launch.
+Cloudflare Access/MFA can still be added later as defense in depth, but it is not
+part of the owner-selected employee login flow.
 
 Current vendor references used for this assessment:
 
 - [Cloudflare Tunnel routing](https://developers.cloudflare.com/tunnel/routing/)
   documents mapping a public hostname to a loopback HTTP service without opening
   an inbound origin port.
-- [Cloudflare Access for self-hosted applications](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/)
-  documents the identity-aware proxy layer recommended in front of this dashboard.
-- [Cloudflare Access MFA requirements](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/mfa-requirements/)
-  documents the additional factor policy required for the private preview.
+- [Cloudflare published applications](https://developers.cloudflare.com/tunnel/setup/#publish-an-application)
+  documents routing a public hostname through the Tunnel; Access is an optional
+  additional policy layer.

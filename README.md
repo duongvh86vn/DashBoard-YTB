@@ -170,3 +170,19 @@ See [architecture](./docs/ARCHITECTURE.md), [testing](./docs/TESTING.md),
 [hosting](./docs/HOSTING.md), [backup/restore](./docs/BACKUP.md) and the
 [implementation plan](./IMPLEMENTATION_PLAN.md) for phase boundaries and
 verification details.
+
+### Public website one-click start and update
+
+The Cloudflare Tunnel deployment uses a separate, untracked `.env.public` and
+the immutable prebuilt image set for the current Git commit. On the Windows
+host, double-click:
+
+- `start-public.bat` to start or recover the already installed PUBLIC stack.
+- `update-public.bat` to fetch `origin/phase/0-foundation`, wait for the complete
+  GHCR image set, fast-forward the clean clone, run migrations, update changed
+  application containers and perform local/public health checks.
+
+These launchers always use project `dashboard-ytb`, the `hosting` profile and
+`docker-compose.prebuilt.yml`. They never create or modify `.env.public`, never
+run the seed profile, never remove named volumes and never configure
+`cloudflared`. `start.bat` remains the LOCAL-only launcher.
