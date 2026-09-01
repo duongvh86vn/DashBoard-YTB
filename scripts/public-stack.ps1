@@ -406,6 +406,10 @@ function Wait-PublicImages {
         $allReady = $false
         $lastFailure = $pull.Output
         $joinedFailure = ($pull.Output -join "`n")
+        if ($joinedFailure -match '(?i)read-only file system') {
+          Write-SafeOutput $pull.Output $SecretMarkers 20
+          throw 'Docker Desktop storage is read-only. Quit Docker Desktop, run "wsl --shutdown", then start Docker Desktop and retry. Do not use Clean / Purge data or Factory Reset before backing up Docker data.'
+        }
         if ($joinedFailure -match '(?i)(unauthorized|authentication required|access.*denied)') {
           Write-SafeOutput $pull.Output $SecretMarkers 20
           throw 'GitHub Container Registry denied access to the image set.'

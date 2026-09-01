@@ -49,7 +49,10 @@ type PublicHarness = {
   oldRevision: string;
   pushTarget: (mutate: (target: string) => void) => string;
   repo: string;
-  runUpdate: (extraEnvironment?: NodeJS.ProcessEnv) => ReturnType<typeof spawnSync>;
+  runUpdate: (
+    extraEnvironment?: NodeJS.ProcessEnv,
+    imagePullAttempts?: number,
+  ) => ReturnType<typeof spawnSync>;
 };
 
 function runGit(arguments_: string[], cwd: string): string {
@@ -105,6 +108,13 @@ if ([string]::IsNullOrEmpty($futureUnbraced)) { $futureUnbraced = '<unset>' }
 $futureLowercase = [Environment]::GetEnvironmentVariable('future_braced_option', 'Process')
 if ([string]::IsNullOrEmpty($futureLowercase)) { $futureLowercase = '<unset>' }
 [IO.File]::AppendAllText($env:FAKE_DOCKER_LOG, (($Rest -join ' ') + '|FUTURE=' + $future + '|UNBRACED=' + $futureUnbraced + '|LOWERCASE=' + $futureLowercase + [Environment]::NewLine))
+if ($Rest.Count -ge 1 -and $Rest[0] -ceq 'pull') {
+  $pullError = [Environment]::GetEnvironmentVariable('FAKE_DOCKER_PULL_ERROR', 'Process')
+  if (-not [string]::IsNullOrEmpty($pullError)) {
+    [Console]::Error.WriteLine($pullError)
+    exit 1
+  }
+}
 if ($Rest.Count -ge 2 -and $Rest[0] -ceq 'image' -and $Rest[1] -ceq 'inspect') {
   $qualifiedImage = $Rest[$Rest.Count - 1]
   if ($qualifiedImage -notmatch 'sha-([0-9a-f]{40})$') { exit 1 }
@@ -133,7 +143,7 @@ exit 0
       runGit(["push", "origin", "phase/0-foundation"], target);
       return runGit(["rev-parse", "HEAD"], target);
     },
-    runUpdate: (extraEnvironment = {}) =>
+    runUpdate: (extraEnvironment = {}, imagePullAttempts = 1) =>
       spawnSync(
         powershellPath,
         [
@@ -146,7 +156,7 @@ exit 0
           "Update",
           "-NoOpen",
           "-ImagePullAttempts",
-          "1",
+          String(imagePullAttempts),
           "-ImagePullDelaySeconds",
           "1",
         ],
@@ -266,6 +276,44 @@ describe("PUBLIC one-click deployment contract", () => {
 });
 
 describe.runIf(platform() === "win32")("PUBLIC updater integration safety", () => {
+  it("fails fast when Docker Desktop storage becomes read-only", () => {
+    const harness = createPublicHarness();
+    try {
+      const publicEnvironmentBefore = readFileSync(join(harness.repo, ".env.public"));
+      const targetRevision = harness.pushTarget((target) =>
+        writeFileSync(join(target, "release.txt"), "new release\n"),
+      );
+      expect(targetRevision).not.toBe(harness.oldRevision);
+
+      const result = harness.runUpdate(
+        {
+          FAKE_DOCKER_PULL_ERROR:
+            "Error response from daemon: write /var/lib/desktop-containerd/daemon/io.containerd.metadata.v1.bolt/meta.db: read-only file system",
+        },
+        3,
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(result.stdout).toContain("Docker Desktop storage is read-only");
+      expect(result.stdout).toContain("wsl --shutdown");
+      expect(result.stdout).not.toContain("image set is still incomplete");
+      const dockerCommands = readFileSync(harness.dockerLogPath, "utf8")
+        .split(/\r?\n/u)
+        .filter(Boolean)
+        .map((line) => line.split("|", 1)[0]);
+      expect(dockerCommands).toHaveLength(3);
+      expect(dockerCommands[0]).toBe("version");
+      expect(dockerCommands[1]).toMatch(/^compose .* version$/u);
+      expect(dockerCommands[2]).toBe(
+        `pull ghcr.io/duongvh86vn/dashboard-ytb-api:sha-${targetRevision}`,
+      );
+      expect(runGit(["rev-parse", "HEAD"], harness.repo)).toBe(harness.oldRevision);
+      expect(readFileSync(join(harness.repo, ".env.public"))).toEqual(publicEnvironmentBefore);
+    } finally {
+      harness.cleanup();
+    }
+  }, 30_000);
+
   it("reads the OCI revision label without a PowerShell 5 quoting failure", () => {
     const harness = createPublicHarness();
     try {
