@@ -413,14 +413,29 @@ function Wait-PublicImages {
         break
       }
 
-      $label = Invoke-NativeCapture {
-        & docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' $qualifiedImage
+      # Windows PowerShell 5 strips nested quotes from native Go-template
+      # arguments. Read the labels as JSON so Docker receives no nested quotes.
+      $labelJson = Invoke-NativeCapture {
+        & docker image inspect --format '{{json .Config.Labels}}' $qualifiedImage
       }
-      if (
-        $label.ExitCode -ne 0 -or
-        $label.Output.Count -ne 1 -or
-        ([string]$label.Output[0]).Trim().ToLowerInvariant() -cne $Revision
-      ) {
+      if ($labelJson.ExitCode -ne 0 -or $labelJson.Output.Count -ne 1) {
+        throw "Cannot read OCI labels from image $qualifiedImage."
+      }
+
+      $actualRevision = ''
+      try {
+        $labels = ([string]$labelJson.Output[0]) | ConvertFrom-Json
+        if ($null -ne $labels) {
+          $revisionProperty = $labels.PSObject.Properties['org.opencontainers.image.revision']
+          if ($null -ne $revisionProperty) {
+            $actualRevision = ([string]$revisionProperty.Value).Trim().ToLowerInvariant()
+          }
+        }
+      }
+      catch {
+        throw "Image $qualifiedImage returned invalid OCI label JSON."
+      }
+      if ($actualRevision -cne $Revision) {
         throw "Image $qualifiedImage does not carry the expected revision label."
       }
     }

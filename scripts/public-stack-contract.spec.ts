@@ -107,8 +107,14 @@ if ([string]::IsNullOrEmpty($futureLowercase)) { $futureLowercase = '<unset>' }
 [IO.File]::AppendAllText($env:FAKE_DOCKER_LOG, (($Rest -join ' ') + '|FUTURE=' + $future + '|UNBRACED=' + $futureUnbraced + '|LOWERCASE=' + $futureLowercase + [Environment]::NewLine))
 if ($Rest.Count -ge 2 -and $Rest[0] -ceq 'image' -and $Rest[1] -ceq 'inspect') {
   $qualifiedImage = $Rest[$Rest.Count - 1]
-  if ($qualifiedImage -match 'sha-([0-9a-f]{40})$') { Write-Output $Matches[1]; exit 0 }
-  exit 1
+  if ($qualifiedImage -notmatch 'sha-([0-9a-f]{40})$') { exit 1 }
+  $revision = $Matches[1]
+  if ($Rest -contains '{{json .Config.Labels}}') {
+    Write-Output ('{"org.opencontainers.image.revision":"' + $revision + '"}')
+    exit 0
+  }
+  [Console]::Error.WriteLine('template parsing error: nested quotes were lost by Windows PowerShell 5')
+  exit 64
 }
 if ($Rest -contains 'ps') { Write-Output 'PUBLIC contract containers running' }
 exit 0
@@ -260,6 +266,18 @@ describe("PUBLIC one-click deployment contract", () => {
 });
 
 describe.runIf(platform() === "win32")("PUBLIC updater integration safety", () => {
+  it("reads the OCI revision label without a PowerShell 5 quoting failure", () => {
+    const harness = createPublicHarness();
+    try {
+      const result = harness.runUpdate();
+
+      expect(result.stdout).toContain("The complete immutable image set is ready.");
+      expect(result.stdout).not.toContain("does not carry the expected revision label");
+    } finally {
+      harness.cleanup();
+    }
+  }, 30_000);
+
   it("uses the full PUBLIC context for the Compose capability check", () => {
     const harness = createPublicHarness();
     try {
